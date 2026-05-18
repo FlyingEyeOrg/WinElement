@@ -38,7 +38,7 @@ namespace rendering = winelement::rendering;
 namespace win32 = winelement::platform::win32;
 
 constexpr std::uint32_t canvas_width = 1280U;
-constexpr std::uint32_t canvas_height = 2480U;
+constexpr std::uint32_t canvas_height = 3100U;
 constexpr float dpi = 96.0F;
 constexpr auto demo_texture_id = rendering::RenderResourceId{1001U};
 constexpr auto demo_circle_texture_id = rendering::RenderResourceId{1002U};
@@ -81,6 +81,13 @@ constexpr std::array<std::string_view, 1> close_svg = {
     "214.528 764.224a31.936 31.936 0 1 0 45.12 45.184L512 557.184l252.288 252.288a31.936 "
     "31.936 0 0 0 45.12-45.12L557.12 512.064l252.288-252.352a31.936 31.936 0 1 "
     "0-45.12-45.184z"};
+constexpr std::string_view svg_straight_line_path = "M0 60 L220 60";
+constexpr std::string_view svg_polyline_path = "M0 58 L48 18 L104 98 L168 36 L236 68";
+constexpr std::string_view svg_quadratic_path = "M0 92 Q110 4 220 92";
+constexpr std::string_view svg_cubic_path = "M0 82 C44 6 182 122 236 84";
+constexpr std::string_view svg_arc_path = "M8 94 A92 54 18 1 1 228 94";
+constexpr std::string_view svg_circle_path =
+    "M50 0 A50 50 0 1 1 50 100 A50 50 0 1 1 50 0";
 
 class ScopedComApartment final {
   public:
@@ -249,6 +256,14 @@ struct MessageDemoIconSpec {
     MessageDemoPalette palette;
 };
 
+struct SvgPathStressSpec {
+    std::string_view label;
+    std::string_view path;
+    rendering::Color color;
+    float view_width;
+    float view_height;
+};
+
 void draw_svg_icon(rendering::RenderCommandRecorder& recorder,
                    std::span<const std::string_view> paths, core::Point offset, float size,
                    rendering::Color color) {
@@ -265,6 +280,41 @@ void draw_svg_icon_in_box(rendering::RenderCommandRecorder& recorder,
     draw_svg_icon(recorder, paths,
                   {rect.x + (rect.width - size) * 0.5F, rect.y + (rect.height - size) * 0.5F},
                   size, color);
+}
+
+void draw_svg_path_in_rect(rendering::RenderCommandRecorder& recorder, std::string_view path,
+                           layout::Rect rect, float source_width, float source_height,
+                           rendering::Color color,
+                           const rendering::GeometryStrokeStyle& stroke_style) {
+    const auto scale = std::min(rect.width / source_width, rect.height / source_height);
+    const auto offset = core::Point{rect.x + (rect.width - source_width * scale) * 0.5F,
+                                    rect.y + (rect.height - source_height * scale) * 0.5F};
+    recorder.stroke_geometry(transform_geometry(rendering::parse_svg_path(path), scale, offset),
+                             color, stroke_style);
+}
+
+void draw_svg_stress_cell(rendering::RenderCommandRecorder& recorder, layout::Rect rect,
+                          const SvgPathStressSpec& spec,
+                          const rendering::GeometryStrokeStyle& stroke_style,
+                          std::string_view width_label) {
+    recorder.fill_rounded_rect(rect, core::CornerRadius::uniform(14.0F),
+                               rendering::Color::rgba(250, 251, 253));
+    recorder.stroke_rounded_rect(rect, core::CornerRadius::uniform(14.0F),
+                                 rendering::Color::rgba(226, 231, 238), 1.0F);
+    recorder.draw_text(std::string(spec.label), {rect.x + 14.0F, rect.y + 12.0F, rect.width - 110.0F, 20.0F},
+                       rendering::TextStyle{.font_family = "Segoe UI Semibold",
+                                            .locale = "en-us",
+                                            .font_size = 14.0F,
+                                            .color = rendering::Color::rgba(58, 70, 90)});
+    recorder.draw_text(std::string(width_label), {rect.x + rect.width - 80.0F, rect.y + 12.0F, 64.0F, 20.0F},
+                       rendering::TextStyle{.font_family = "Segoe UI",
+                                            .locale = "en-us",
+                                            .font_size = 12.0F,
+                                            .color = rendering::Color::rgba(116, 126, 142),
+                                            .alignment = rendering::TextAlignment::End});
+    draw_svg_path_in_rect(recorder, spec.path,
+                          {rect.x + 16.0F, rect.y + 42.0F, rect.width - 32.0F, rect.height - 58.0F},
+                          spec.view_width, spec.view_height, spec.color, stroke_style);
 }
 
 void draw_svg_probe_tile(rendering::RenderCommandRecorder& recorder, layout::Rect rect,
@@ -831,7 +881,58 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
         draw_svg_probe_tile(recorder, tile, message_icon_specs[index]);
     }
 
-    const auto text_panel = layout::Rect{page_margin, geometry_panel.y + geometry_panel.height + panel_gap,
+    const auto svg_panel = layout::Rect{page_margin, geometry_panel.y + geometry_panel.height + panel_gap,
+                                        panel_width, 560.0F};
+    draw_panel(recorder, svg_panel, "SVG Path Stress",
+               "SVG parser coverage mirrored after Primitive Commands: straight lines, polylines, quadratic and cubic bezier curves, arcs and circle outlines in 1px and multi-pixel widths");
+    recorder.draw_text("1px SVG strokes", {svg_panel.x + 28.0F, svg_panel.y + 100.0F, 240.0F, 24.0F},
+                       rendering::TextStyle{.font_family = "Segoe UI Semibold",
+                                            .locale = "en-us",
+                                            .font_size = 18.0F,
+                                            .color = rendering::Color::rgba(68, 80, 101)});
+    recorder.draw_text("4px-6px SVG strokes", {svg_panel.x + 612.0F, svg_panel.y + 100.0F, 240.0F, 24.0F},
+                       rendering::TextStyle{.font_family = "Segoe UI Semibold",
+                                            .locale = "en-us",
+                                            .font_size = 18.0F,
+                                            .color = rendering::Color::rgba(68, 80, 101)});
+    const std::array<SvgPathStressSpec, 6> svg_stress_specs = {{
+        {.label = "Line", .path = svg_straight_line_path, .color = rendering::Color::rgba(214, 61, 61), .view_width = 220.0F, .view_height = 120.0F},
+        {.label = "Polyline", .path = svg_polyline_path, .color = rendering::Color::rgba(36, 113, 196), .view_width = 236.0F, .view_height = 120.0F},
+        {.label = "Quadratic", .path = svg_quadratic_path, .color = rendering::Color::rgba(235, 131, 46), .view_width = 220.0F, .view_height = 120.0F},
+        {.label = "Cubic", .path = svg_cubic_path, .color = rendering::Color::rgba(104, 94, 219), .view_width = 236.0F, .view_height = 120.0F},
+        {.label = "Arc", .path = svg_arc_path, .color = rendering::Color::rgba(38, 154, 109), .view_width = 236.0F, .view_height = 120.0F},
+        {.label = "Circle", .path = svg_circle_path, .color = rendering::Color::rgba(60, 98, 173), .view_width = 100.0F, .view_height = 100.0F},
+    }};
+    const auto svg_stress_thin = rendering::GeometryStrokeStyle{.width = 1.0F,
+                                                                .start_cap = rendering::StrokeLineCap::Flat,
+                                                                .end_cap = rendering::StrokeLineCap::Flat,
+                                                                .line_join = rendering::StrokeLineJoin::Miter,
+                                                                .dash_style = rendering::StrokeDashStyle::Solid};
+    const auto svg_stress_thick = rendering::GeometryStrokeStyle{.width = 4.5F,
+                                                                 .start_cap = rendering::StrokeLineCap::Round,
+                                                                 .end_cap = rendering::StrokeLineCap::Round,
+                                                                 .line_join = rendering::StrokeLineJoin::Round,
+                                                                 .dash_style = rendering::StrokeDashStyle::Solid};
+    constexpr float svg_cell_width = 260.0F;
+    constexpr float svg_cell_height = 120.0F;
+    constexpr float svg_cell_gap_x = 18.0F;
+    constexpr float svg_cell_gap_y = 16.0F;
+    for (std::size_t index = 0; index < svg_stress_specs.size(); ++index) {
+        const auto row = static_cast<float>(index / 2U);
+        const auto column = static_cast<float>(index % 2U);
+        const auto thin_rect = layout::Rect{svg_panel.x + 28.0F + column * (svg_cell_width + svg_cell_gap_x),
+                                            svg_panel.y + 134.0F + row * (svg_cell_height + svg_cell_gap_y),
+                                            svg_cell_width,
+                                            svg_cell_height};
+        const auto thick_rect = layout::Rect{svg_panel.x + 612.0F + column * (svg_cell_width + svg_cell_gap_x),
+                                             svg_panel.y + 134.0F + row * (svg_cell_height + svg_cell_gap_y),
+                                             svg_cell_width,
+                                             svg_cell_height};
+        draw_svg_stress_cell(recorder, thin_rect, svg_stress_specs[index], svg_stress_thin, "1px");
+        draw_svg_stress_cell(recorder, thick_rect, svg_stress_specs[index], svg_stress_thick, "4.5px");
+    }
+
+    const auto text_panel = layout::Rect{page_margin, svg_panel.y + svg_panel.height + panel_gap,
                                          panel_width, 740.0F};
     draw_panel(recorder, text_panel, "Text, Image and Layering",
                "selection rectangles, text layout, image sampling, box shadows and an offset composited layer");
@@ -928,6 +1029,7 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
     demo.dirty_region.add(canvas);
     demo.dirty_region.add(primitives_panel);
     demo.dirty_region.add(geometry_panel);
+    demo.dirty_region.add(svg_panel);
     demo.dirty_region.add(text_panel);
     demo.dirty_region.optimize(rendering::DirtyRegionOptimizeOptions{.max_rects = 6U,
                                                                      .merge_slop = 12.0F,
