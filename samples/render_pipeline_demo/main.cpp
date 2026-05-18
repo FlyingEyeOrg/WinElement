@@ -38,7 +38,7 @@ namespace rendering = winelement::rendering;
 namespace win32 = winelement::platform::win32;
 
 constexpr std::uint32_t canvas_width = 1280U;
-constexpr std::uint32_t canvas_height = 3100U;
+constexpr std::uint32_t canvas_height = 3380U;
 constexpr float dpi = 96.0F;
 constexpr auto demo_texture_id = rendering::RenderResourceId{1001U};
 constexpr auto demo_circle_texture_id = rendering::RenderResourceId{1002U};
@@ -88,6 +88,10 @@ constexpr std::string_view svg_cubic_path = "M0 82 C44 6 182 122 236 84";
 constexpr std::string_view svg_arc_path = "M8 94 A92 54 18 1 1 228 94";
 constexpr std::string_view svg_circle_path =
     "M50 0 A50 50 0 1 1 50 100 A50 50 0 1 1 50 0";
+constexpr std::string_view svg_dense_diagonal_path =
+    "M8 10 L112 78 M8 34 L128 118 M20 8 L140 92 M144 10 L44 78 M144 34 L20 110 M132 8 L8 92";
+constexpr std::string_view svg_sharp_join_path =
+    "M8 104 L52 18 L88 104 L122 32 L156 104 L192 14 L228 104";
 
 class ScopedComApartment final {
   public:
@@ -293,6 +297,19 @@ void draw_svg_path_in_rect(rendering::RenderCommandRecorder& recorder, std::stri
                              color, stroke_style);
 }
 
+void draw_svg_path_probe(rendering::RenderCommandRecorder& recorder, std::string_view path,
+                         layout::Rect container, float source_width, float source_height,
+                         float probe_size, rendering::Color color,
+                         const rendering::GeometryStrokeStyle& stroke_style) {
+    const auto scale = std::min(probe_size / source_width, probe_size / source_height);
+    const auto probe_rect = layout::Rect{
+        container.x + (container.width - source_width * scale) * 0.5F,
+        container.y + (container.height - source_height * scale) * 0.5F,
+        source_width * scale,
+        source_height * scale};
+    draw_svg_path_in_rect(recorder, path, probe_rect, source_width, source_height, color, stroke_style);
+}
+
 void draw_svg_stress_cell(rendering::RenderCommandRecorder& recorder, layout::Rect rect,
                           const SvgPathStressSpec& spec,
                           const rendering::GeometryStrokeStyle& stroke_style,
@@ -315,6 +332,43 @@ void draw_svg_stress_cell(rendering::RenderCommandRecorder& recorder, layout::Re
     draw_svg_path_in_rect(recorder, spec.path,
                           {rect.x + 16.0F, rect.y + 42.0F, rect.width - 32.0F, rect.height - 58.0F},
                           spec.view_width, spec.view_height, spec.color, stroke_style);
+}
+
+void draw_svg_scale_probe_tile(rendering::RenderCommandRecorder& recorder, layout::Rect rect,
+                               const SvgPathStressSpec& spec,
+                               const rendering::GeometryStrokeStyle& stroke_style) {
+    recorder.fill_rounded_rect(rect, core::CornerRadius::uniform(14.0F),
+                               rendering::Color::rgba(249, 250, 252));
+    recorder.stroke_rounded_rect(rect, core::CornerRadius::uniform(14.0F),
+                                 rendering::Color::rgba(226, 231, 238), 1.0F);
+    recorder.draw_text(std::string(spec.label), {rect.x + 14.0F, rect.y + 12.0F, rect.width - 28.0F, 20.0F},
+                       rendering::TextStyle{.font_family = "Segoe UI Semibold",
+                                            .locale = "en-us",
+                                            .font_size = 14.0F,
+                                            .color = rendering::Color::rgba(58, 70, 90)});
+    constexpr std::array<float, 3> probe_sizes = {16.0F, 20.0F, 24.0F};
+    constexpr float probe_box_size = 52.0F;
+    constexpr float probe_gap = 12.0F;
+    const auto total_width = probe_box_size * static_cast<float>(probe_sizes.size()) +
+                             probe_gap * static_cast<float>(probe_sizes.size() - 1U);
+    const auto start_x = rect.x + (rect.width - total_width) * 0.5F;
+    for (std::size_t index = 0; index < probe_sizes.size(); ++index) {
+        const auto cell_x = start_x + static_cast<float>(index) * (probe_box_size + probe_gap);
+        const auto box = layout::Rect{cell_x, rect.y + 42.0F, probe_box_size, probe_box_size};
+        recorder.fill_rounded_rect(box, core::CornerRadius::uniform(10.0F),
+                                   rendering::Color::rgba(255, 255, 255, 232));
+        recorder.stroke_rounded_rect(box, core::CornerRadius::uniform(10.0F),
+                                     rendering::Color::rgba(223, 228, 236), 1.0F);
+        draw_svg_path_probe(recorder, spec.path, box, spec.view_width, spec.view_height,
+                            probe_sizes[index], spec.color, stroke_style);
+        recorder.draw_text(std::to_string(static_cast<int>(probe_sizes[index])) + "px",
+                           {cell_x, rect.y + 100.0F, probe_box_size, 16.0F},
+                           rendering::TextStyle{.font_family = "Segoe UI",
+                                                .locale = "en-us",
+                                                .font_size = 11.0F,
+                                                .color = rendering::Color::rgba(118, 128, 145),
+                                                .alignment = rendering::TextAlignment::Center});
+    }
 }
 
 void draw_svg_probe_tile(rendering::RenderCommandRecorder& recorder, layout::Rect rect,
@@ -882,19 +936,25 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
     }
 
     const auto svg_panel = layout::Rect{page_margin, geometry_panel.y + geometry_panel.height + panel_gap,
-                                        panel_width, 560.0F};
+                                        panel_width, 800.0F};
     draw_panel(recorder, svg_panel, "SVG Path Stress",
-               "SVG parser coverage mirrored after Primitive Commands: straight lines, polylines, quadratic and cubic bezier curves, arcs and circle outlines in 1px and multi-pixel widths");
-    recorder.draw_text("1px SVG strokes", {svg_panel.x + 28.0F, svg_panel.y + 100.0F, 240.0F, 24.0F},
+               "parser-focused validation only: dense 1px diagonals, sharp miter joins, multi-pixel path primitives and 16/20/24 px scale probes");
+    recorder.draw_text("1px detail cases", {svg_panel.x + 28.0F, svg_panel.y + 100.0F, 240.0F, 24.0F},
                        rendering::TextStyle{.font_family = "Segoe UI Semibold",
                                             .locale = "en-us",
                                             .font_size = 18.0F,
                                             .color = rendering::Color::rgba(68, 80, 101)});
-    recorder.draw_text("4px-6px SVG strokes", {svg_panel.x + 612.0F, svg_panel.y + 100.0F, 240.0F, 24.0F},
+    recorder.draw_text("4px-6px parser primitives", {svg_panel.x + 612.0F, svg_panel.y + 100.0F, 260.0F, 24.0F},
                        rendering::TextStyle{.font_family = "Segoe UI Semibold",
                                             .locale = "en-us",
                                             .font_size = 18.0F,
                                             .color = rendering::Color::rgba(68, 80, 101)});
+    const std::array<SvgPathStressSpec, 4> svg_thin_detail_specs = {{
+        {.label = "Line", .path = svg_straight_line_path, .color = rendering::Color::rgba(214, 61, 61), .view_width = 220.0F, .view_height = 120.0F},
+        {.label = "Dense diagonals", .path = svg_dense_diagonal_path, .color = rendering::Color::rgba(45, 113, 198), .view_width = 152.0F, .view_height = 120.0F},
+        {.label = "Sharp miter join", .path = svg_sharp_join_path, .color = rendering::Color::rgba(111, 85, 214), .view_width = 236.0F, .view_height = 120.0F},
+        {.label = "Circle outline", .path = svg_circle_path, .color = rendering::Color::rgba(38, 154, 109), .view_width = 100.0F, .view_height = 100.0F},
+    }};
     const std::array<SvgPathStressSpec, 6> svg_stress_specs = {{
         {.label = "Line", .path = svg_straight_line_path, .color = rendering::Color::rgba(214, 61, 61), .view_width = 220.0F, .view_height = 120.0F},
         {.label = "Polyline", .path = svg_polyline_path, .color = rendering::Color::rgba(36, 113, 196), .view_width = 236.0F, .view_height = 120.0F},
@@ -913,23 +973,55 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
                                                                  .end_cap = rendering::StrokeLineCap::Round,
                                                                  .line_join = rendering::StrokeLineJoin::Round,
                                                                  .dash_style = rendering::StrokeDashStyle::Solid};
-    constexpr float svg_cell_width = 260.0F;
+    constexpr float svg_cell_width = 250.0F;
     constexpr float svg_cell_height = 120.0F;
     constexpr float svg_cell_gap_x = 18.0F;
     constexpr float svg_cell_gap_y = 16.0F;
-    for (std::size_t index = 0; index < svg_stress_specs.size(); ++index) {
+    for (std::size_t index = 0; index < svg_thin_detail_specs.size(); ++index) {
         const auto row = static_cast<float>(index / 2U);
         const auto column = static_cast<float>(index % 2U);
         const auto thin_rect = layout::Rect{svg_panel.x + 28.0F + column * (svg_cell_width + svg_cell_gap_x),
                                             svg_panel.y + 134.0F + row * (svg_cell_height + svg_cell_gap_y),
                                             svg_cell_width,
                                             svg_cell_height};
+        draw_svg_stress_cell(recorder, thin_rect, svg_thin_detail_specs[index], svg_stress_thin, "1px");
+    }
+    for (std::size_t index = 0; index < svg_stress_specs.size(); ++index) {
+        const auto row = static_cast<float>(index / 2U);
+        const auto column = static_cast<float>(index % 2U);
         const auto thick_rect = layout::Rect{svg_panel.x + 612.0F + column * (svg_cell_width + svg_cell_gap_x),
                                              svg_panel.y + 134.0F + row * (svg_cell_height + svg_cell_gap_y),
                                              svg_cell_width,
                                              svg_cell_height};
-        draw_svg_stress_cell(recorder, thin_rect, svg_stress_specs[index], svg_stress_thin, "1px");
         draw_svg_stress_cell(recorder, thick_rect, svg_stress_specs[index], svg_stress_thick, "4.5px");
+    }
+
+    recorder.draw_text("16px / 20px / 24px scale probes",
+                       {svg_panel.x + 28.0F, svg_panel.y + 554.0F, 340.0F, 24.0F},
+                       rendering::TextStyle{.font_family = "Segoe UI Semibold",
+                                            .locale = "en-us",
+                                            .font_size = 18.0F,
+                                            .color = rendering::Color::rgba(68, 80, 101)});
+    recorder.draw_text("small SVG path scaling only: dense diagonals, acute joins, arcs and circle edges at icon-like sizes.",
+                       {svg_panel.x + 28.0F, svg_panel.y + 582.0F, 700.0F, 22.0F},
+                       rendering::TextStyle{.font_family = "Segoe UI",
+                                            .locale = "en-us",
+                                            .font_size = 14.0F,
+                                            .color = rendering::Color::rgba(111, 122, 140)});
+    const std::array<SvgPathStressSpec, 4> svg_scale_probe_specs = {{
+        {.label = "Dense diagonals", .path = svg_dense_diagonal_path, .color = rendering::Color::rgba(45, 113, 198), .view_width = 152.0F, .view_height = 120.0F},
+        {.label = "Sharp miter join", .path = svg_sharp_join_path, .color = rendering::Color::rgba(111, 85, 214), .view_width = 236.0F, .view_height = 120.0F},
+        {.label = "Arc", .path = svg_arc_path, .color = rendering::Color::rgba(38, 154, 109), .view_width = 236.0F, .view_height = 120.0F},
+        {.label = "Circle", .path = svg_circle_path, .color = rendering::Color::rgba(60, 98, 173), .view_width = 100.0F, .view_height = 100.0F},
+    }};
+    constexpr float svg_probe_tile_width = 270.0F;
+    constexpr float svg_probe_tile_gap = 12.0F;
+    for (std::size_t index = 0; index < svg_scale_probe_specs.size(); ++index) {
+        const auto tile = layout::Rect{svg_panel.x + 28.0F + static_cast<float>(index) * (svg_probe_tile_width + svg_probe_tile_gap),
+                                       svg_panel.y + 620.0F,
+                                       svg_probe_tile_width,
+                                       126.0F};
+        draw_svg_scale_probe_tile(recorder, tile, svg_scale_probe_specs[index], svg_stress_thin);
     }
 
     const auto text_panel = layout::Rect{page_margin, svg_panel.y + svg_panel.height + panel_gap,
