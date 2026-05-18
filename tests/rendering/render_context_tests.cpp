@@ -156,20 +156,58 @@ TEST(RenderContextTests, DrawBatchesSplitByStateAndResourceKeys) {
     }));
 }
 
+TEST(RenderContextTests, RecorderBatchApisAppendCommandsWithSingleVisibleResult) {
+    const auto rects = std::vector<FillRectCommand>{
+        FillRectCommand{.rect = Rect{0.0F, 0.0F, 4.0F, 4.0F}, .color = Color::rgba(1, 2, 3)},
+        FillRectCommand{.rect = Rect{5.0F, 0.0F, 4.0F, 4.0F}, .color = Color::rgba(1, 2, 3)}};
+    const auto images = std::vector<DrawImageCommand>{
+        DrawImageCommand{.resource_id = RenderResourceId{1U},
+                         .options = RenderImageOptions{
+                             .destination = Rect{0.0F, 10.0F, 4.0F, 4.0F}}},
+        DrawImageCommand{.resource_id = RenderResourceId{2U},
+                         .options = RenderImageOptions{
+                             .destination = Rect{5.0F, 10.0F, 4.0F, 4.0F}}}};
+
+    RenderCommandRecorder recorder;
+    recorder.fill_rects(rects);
+    recorder.draw_images(images);
+    const auto command_list = recorder.take_command_list();
+
+    ASSERT_EQ(command_list.command_count(), 4U);
+    EXPECT_EQ(command_list.fill_rect_payloads().size(), 2U);
+    EXPECT_EQ(command_list.draw_image_payloads().size(), 2U);
+    EXPECT_FLOAT_EQ(command_list.bounds().height, 14.0F);
+}
+
+TEST(RenderContextTests, RecorderCompressesEmptySaveRestorePairs) {
+    RenderCommandRecorder recorder;
+    recorder.save();
+    recorder.restore();
+    recorder.fill_rect(Rect{0.0F, 0.0F, 10.0F, 10.0F}, Color::rgba(1, 2, 3));
+
+    const auto command_list = recorder.take_command_list();
+
+    ASSERT_EQ(command_list.command_count(), 1U);
+    EXPECT_EQ(command_list.commands().front().opcode, RenderCommandType::FillRect);
+}
+
 TEST(RenderContextTests, RecorderAppendsMovedCommandListWithoutCopyingTextPayload) {
     RenderCommandRecorder source;
     source.draw_text("interned", Rect{0.0F, 0.0F, 80.0F, 20.0F},
                      TextStyle{.color = Color::rgba(48, 49, 51)});
     auto cached = source.take_command_list();
-    const auto text_storage = cached.draw_text_payloads().front().text;
+    const auto text_handle = cached.draw_text_payloads().front().text_handle;
+    const auto text_storage = cached.text_parameters().at(text_handle.value - 1U);
 
     RenderCommandRecorder target;
     target.append(std::move(cached));
     const auto appended = target.take_command_list();
 
     ASSERT_EQ(appended.draw_text_payloads().size(), 1U);
-    EXPECT_EQ(appended.draw_text_payloads().front().text, text_storage);
+    const auto appended_handle = appended.draw_text_payloads().front().text_handle;
+    EXPECT_EQ(appended.text_parameters().at(appended_handle.value - 1U), text_storage);
     EXPECT_EQ(appended.draw_text_payloads().front().text_view(), "interned");
+    EXPECT_EQ(appended.text_parameter(appended_handle), "interned");
 }
 
 TEST(RenderContextTests, RenderFrameGraphKeepsOrderedPassesAndEstimatesDraws) {
@@ -206,6 +244,18 @@ TEST(RenderContextTests, RenderResourceUploadQueueDrainsAndKeepsLifetimeActions)
     queue.push(RenderResourceUpload{.id = RenderResourceId{7},
                                     .action = RenderResourceAction::Release,
                                     .reference_count = 1});
+    queue.push(RenderResourceUpload{.id = RenderResourceId{9},
+                                    .kind = RenderResourceKind::Image,
+                                    .width = 512,
+                                    .height = 512,
+                                    .payload = std::vector<std::byte>(128U * 1024U)});
+
+    EXPECT_EQ(queue.size(RenderResourceUploadLane::HighFrequencySmall), 2U);
+    EXPECT_EQ(queue.size(RenderResourceUploadLane::LowFrequencyLarge), 1U);
+
+    const auto large_uploads = queue.drain(RenderResourceUploadLane::LowFrequencyLarge);
+    ASSERT_EQ(large_uploads.size(), 1U);
+    EXPECT_FALSE(queue.empty());
 
     const auto uploads = queue.drain();
 

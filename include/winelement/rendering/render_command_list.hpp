@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -189,23 +190,39 @@ struct DrawImageCommand {
     RenderImageOptions options{};
 };
 
+struct RenderTextHandle {
+    std::uint32_t value = 0U;
+
+    [[nodiscard]] friend constexpr bool operator==(RenderTextHandle,
+                                                   RenderTextHandle) noexcept = default;
+};
+
+struct RenderTextLayoutHandle {
+    std::uint32_t value = 0U;
+
+    [[nodiscard]] friend constexpr bool operator==(RenderTextLayoutHandle,
+                                                   RenderTextLayoutHandle) noexcept = default;
+};
+
 struct DrawTextCommand {
-    std::shared_ptr<const std::string> text;
+    RenderTextHandle text_handle{};
+    std::string_view text{};
     layout::Rect rect{};
     TextStyle style{};
 
     [[nodiscard]] std::string_view text_view() const noexcept {
-        return text == nullptr ? std::string_view{} : std::string_view{*text};
+        return text;
     }
 };
 
 struct DrawTextLayoutCommand {
-    std::shared_ptr<const TextLayout> layout;
+    RenderTextLayoutHandle layout_handle{};
+    const TextLayout* layout = nullptr;
     layout::Point origin{};
     std::shared_ptr<const PreparedTextGlyphCoverageList> prepared_glyphs;
 
     [[nodiscard]] const TextLayout* layout_value() const noexcept {
-        return layout.get();
+        return layout;
     }
 };
 
@@ -315,6 +332,12 @@ class RenderCommandList final {
     draw_text_layout_payloads() const noexcept;
     [[nodiscard]] const std::vector<DrawBoxShadowCommand>&
     draw_box_shadow_payloads() const noexcept;
+    [[nodiscard]] const std::vector<std::shared_ptr<const std::string>>&
+    text_parameters() const noexcept;
+    [[nodiscard]] const std::vector<std::shared_ptr<const TextLayout>>&
+    text_layout_parameters() const noexcept;
+    [[nodiscard]] std::string_view text_parameter(RenderTextHandle handle) const noexcept;
+    [[nodiscard]] const TextLayout* text_layout_parameter(RenderTextLayoutHandle handle) const noexcept;
     template <typename Payload>
     [[nodiscard]] const Payload& payload(std::size_t opcode_index) const;
     template <typename Payload>
@@ -353,10 +376,14 @@ class RenderCommandList final {
     void append(DrawTextCommand command);
     void append(DrawTextLayoutCommand command);
     void append(DrawBoxShadowCommand command);
+    void append_fill_rects(std::span<const FillRectCommand> commands);
+    void append_draw_images(std::span<const DrawImageCommand> commands);
     void append(const RenderCommandList& command_list);
     void append(RenderCommandList&& command_list);
     void append_opcode(RenderCommandType type, std::uint32_t payload_index, layout::Rect bounds,
                        std::size_t payload_hash);
+    void append_opcode_unchecked(RenderCommandType type, std::uint32_t payload_index,
+                                 layout::Rect bounds, std::size_t payload_hash);
     void rebind_opcode_owners() noexcept;
     void reset_opcode_owner() noexcept;
     void invalidate_cached_views() const noexcept;
@@ -369,8 +396,8 @@ class RenderCommandList final {
     [[nodiscard]] std::shared_ptr<const PreparedTextGlyphCoverageList>
     cached_prepared_text_glyph_coverages(const TextLayout& layout);
     [[nodiscard]] PreparedRenderCache& ensure_prepared_cache();
-    [[nodiscard]] std::shared_ptr<const std::string> intern_text(std::string_view text);
-    [[nodiscard]] std::shared_ptr<const TextLayout> share_text_layout(const TextLayout& layout);
+    [[nodiscard]] RenderTextHandle store_text(std::shared_ptr<const std::string> text);
+    [[nodiscard]] RenderTextLayoutHandle store_text_layout(std::shared_ptr<const TextLayout> layout);
 
     struct CapacitySnapshot {
         std::size_t opcodes = 0;
@@ -393,6 +420,8 @@ class RenderCommandList final {
         std::size_t draw_text_payloads = 0;
         std::size_t draw_text_layout_payloads = 0;
         std::size_t draw_box_shadow_payloads = 0;
+        std::size_t text_parameters = 0;
+        std::size_t text_layout_parameters = 0;
     };
 
     [[nodiscard]] CapacitySnapshot capacity_snapshot() const noexcept;
@@ -421,6 +450,8 @@ class RenderCommandList final {
     std::vector<DrawTextCommand> draw_text_payloads_;
     std::vector<DrawTextLayoutCommand> draw_text_layout_payloads_;
     std::vector<DrawBoxShadowCommand> draw_box_shadow_payloads_;
+    std::vector<std::shared_ptr<const std::string>> text_parameters_;
+    std::vector<std::shared_ptr<const TextLayout>> text_layout_parameters_;
     layout::Rect bounds_{};
     std::uint64_t fingerprint_ = 0;
     std::uint64_t change_signature_ = 0;
@@ -461,6 +492,8 @@ class RenderCommandRecorder final : public RenderContext {
     void draw_box_shadow(layout::Rect rect, const ShadowStyle& style) override;
     void draw_text(std::string_view text, layout::Rect rect, const TextStyle& style) override;
     void draw_text_layout(const TextLayout& layout, layout::Point origin) override;
+    void fill_rects(std::span<const FillRectCommand> commands);
+    void draw_images(std::span<const DrawImageCommand> commands);
 
     [[nodiscard]] const std::vector<RenderOpcodeRecord>& commands() const noexcept;
     [[nodiscard]] const RenderCommandList& command_list() const noexcept;
@@ -474,10 +507,13 @@ class RenderCommandRecorder final : public RenderContext {
 
   private:
     [[nodiscard]] std::shared_ptr<const std::string> intern_text(std::string_view text);
+    [[nodiscard]] std::shared_ptr<const TextLayout> share_text_layout(const TextLayout& layout);
+    void flush_pending_saves();
     void prune_text_pool();
 
     RenderCommandList command_list_;
     std::unordered_map<std::size_t, std::vector<std::shared_ptr<const std::string>>> text_pool_;
+    std::size_t pending_save_depth_ = 0U;
 };
 
 } // namespace winelement::rendering

@@ -2205,6 +2205,8 @@ RenderCommandList& RenderCommandList::operator=(const RenderCommandList& other) 
     draw_text_payloads_ = other.draw_text_payloads_;
     draw_text_layout_payloads_ = other.draw_text_layout_payloads_;
     draw_box_shadow_payloads_ = other.draw_box_shadow_payloads_;
+    text_parameters_ = other.text_parameters_;
+    text_layout_parameters_ = other.text_layout_parameters_;
     bounds_ = other.bounds_;
     fingerprint_ = other.fingerprint_;
     change_signature_ = other.change_signature_;
@@ -2236,7 +2238,9 @@ RenderCommandList::RenderCommandList(RenderCommandList&& other) noexcept
       draw_image_payloads_(std::move(other.draw_image_payloads_)),
       draw_text_payloads_(std::move(other.draw_text_payloads_)),
       draw_text_layout_payloads_(std::move(other.draw_text_layout_payloads_)),
-      draw_box_shadow_payloads_(std::move(other.draw_box_shadow_payloads_)), bounds_(other.bounds_),
+      draw_box_shadow_payloads_(std::move(other.draw_box_shadow_payloads_)),
+      text_parameters_(std::move(other.text_parameters_)),
+      text_layout_parameters_(std::move(other.text_layout_parameters_)), bounds_(other.bounds_),
       fingerprint_(other.fingerprint_), change_signature_(other.change_signature_),
       serialized_opcodes_cache_(std::move(other.serialized_opcodes_cache_)),
       draw_batches_cache_(std::move(other.draw_batches_cache_)),
@@ -2285,6 +2289,8 @@ RenderCommandList& RenderCommandList::operator=(RenderCommandList&& other) noexc
     draw_text_payloads_ = std::move(other.draw_text_payloads_);
     draw_text_layout_payloads_ = std::move(other.draw_text_layout_payloads_);
     draw_box_shadow_payloads_ = std::move(other.draw_box_shadow_payloads_);
+    text_parameters_ = std::move(other.text_parameters_);
+    text_layout_parameters_ = std::move(other.text_layout_parameters_);
     bounds_ = other.bounds_;
     fingerprint_ = other.fingerprint_;
     change_signature_ = other.change_signature_;
@@ -2347,7 +2353,9 @@ RenderCommandList::CapacitySnapshot RenderCommandList::capacity_snapshot() const
                             .draw_text_payloads = draw_text_payloads_.capacity(),
                             .draw_text_layout_payloads =
                                 draw_text_layout_payloads_.capacity(),
-                            .draw_box_shadow_payloads = draw_box_shadow_payloads_.capacity()};
+                            .draw_box_shadow_payloads = draw_box_shadow_payloads_.capacity(),
+                            .text_parameters = text_parameters_.capacity(),
+                            .text_layout_parameters = text_layout_parameters_.capacity()};
 }
 
 void RenderCommandList::reserve(CapacitySnapshot capacities) {
@@ -2371,6 +2379,8 @@ void RenderCommandList::reserve(CapacitySnapshot capacities) {
     draw_text_payloads_.reserve(capacities.draw_text_payloads);
     draw_text_layout_payloads_.reserve(capacities.draw_text_layout_payloads);
     draw_box_shadow_payloads_.reserve(capacities.draw_box_shadow_payloads);
+    text_parameters_.reserve(capacities.text_parameters);
+    text_layout_parameters_.reserve(capacities.text_layout_parameters);
 }
 
 void RenderCommandList::reserve_for_append(const RenderCommandList& command_list) {
@@ -2414,6 +2424,9 @@ void RenderCommandList::reserve_for_append(const RenderCommandList& command_list
                                        command_list.draw_text_layout_payloads_.size());
     draw_box_shadow_payloads_.reserve(draw_box_shadow_payloads_.size() +
                                       command_list.draw_box_shadow_payloads_.size());
+    text_parameters_.reserve(text_parameters_.size() + command_list.text_parameters_.size());
+    text_layout_parameters_.reserve(text_layout_parameters_.size() +
+                                    command_list.text_layout_parameters_.size());
 }
 
 std::shared_ptr<const PreparedGeometryFlatten>
@@ -2443,17 +2456,34 @@ PreparedRenderCache& RenderCommandList::ensure_prepared_cache() {
     return *prepared_cache_;
 }
 
-std::shared_ptr<const std::string> RenderCommandList::intern_text(std::string_view text) {
-    return std::make_shared<const std::string>(text);
+RenderTextHandle RenderCommandList::store_text(std::shared_ptr<const std::string> text) {
+    if (text == nullptr) {
+        return {};
+    }
+    text_parameters_.push_back(std::move(text));
+    return RenderTextHandle{static_cast<std::uint32_t>(text_parameters_.size())};
 }
 
-std::shared_ptr<const TextLayout> RenderCommandList::share_text_layout(const TextLayout& layout) {
-    return std::make_shared<const TextLayout>(layout);
+RenderTextLayoutHandle
+RenderCommandList::store_text_layout(std::shared_ptr<const TextLayout> layout) {
+    if (layout == nullptr) {
+        return {};
+    }
+    text_layout_parameters_.push_back(std::move(layout));
+    return RenderTextLayoutHandle{static_cast<std::uint32_t>(text_layout_parameters_.size())};
 }
 
 void RenderCommandList::append_opcode(RenderCommandType type, std::uint32_t payload_index,
                                       layout::Rect bounds, std::size_t payload_hash) {
     reset_opcode_owner();
+    append_opcode_unchecked(type, payload_index, bounds, payload_hash);
+    invalidate_cached_views();
+}
+
+void RenderCommandList::append_opcode_unchecked(RenderCommandType type,
+                                                std::uint32_t payload_index,
+                                                layout::Rect bounds,
+                                                std::size_t payload_hash) {
     bounds_ = layout::union_rects(bounds_, bounds);
     auto seed = static_cast<std::size_t>(fingerprint_);
     hash_combine(seed, static_cast<int>(type));
@@ -2473,7 +2503,6 @@ void RenderCommandList::append_opcode(RenderCommandType type, std::uint32_t payl
         .bounds = bounds,
         .owner = opcode_owner_.get()});
     opcode_payload_indices_.push_back(payload_index);
-    invalidate_cached_views();
 }
 
 void RenderCommandList::append(SaveCommand command) {
@@ -2540,6 +2569,48 @@ void RenderCommandList::append(FillRectCommand command) {
     const auto index = static_cast<std::uint32_t>(fill_rect_payloads_.size());
     fill_rect_payloads_.push_back(std::move(command));
     append_opcode(RenderCommandType::FillRect, index, bounds, hash);
+}
+
+void RenderCommandList::append_fill_rects(std::span<const FillRectCommand> commands) {
+    if (commands.empty()) {
+        return;
+    }
+    reset_opcode_owner();
+    fill_rect_payloads_.reserve(fill_rect_payloads_.size() + commands.size());
+    opcodes_.reserve(opcodes_.size() + commands.size());
+    opcode_payload_indices_.reserve(opcode_payload_indices_.size() + commands.size());
+
+    auto block_bounds = layout::Rect{};
+    auto fingerprint_seed = static_cast<std::size_t>(fingerprint_);
+    auto signature_seed = static_cast<std::size_t>(change_signature_);
+    auto payload_index = static_cast<std::uint32_t>(fill_rect_payloads_.size());
+    for (const auto& command : commands) {
+        const auto hash = payload_fingerprint(command);
+        const auto bounds = visual_bounds(command);
+        fill_rect_payloads_.push_back(command);
+
+        hash_combine(fingerprint_seed, static_cast<int>(RenderCommandType::FillRect));
+        hash_rect(fingerprint_seed, bounds);
+        hash_combine(fingerprint_seed, hash);
+
+        hash_combine(signature_seed, opcodes_.size());
+        hash_combine(signature_seed, static_cast<int>(RenderCommandType::FillRect));
+        hash_combine(signature_seed, payload_index);
+        hash_rect(signature_seed, bounds);
+        hash_combine(signature_seed, hash);
+
+        block_bounds = layout::union_rects(block_bounds, bounds);
+        opcodes_.push_back(RenderOpcodeRecord{.opcode = RenderCommandType::FillRect,
+                                              .payload_index = payload_index,
+                                              .bounds = bounds,
+                                              .owner = opcode_owner_.get()});
+        opcode_payload_indices_.push_back(payload_index);
+        ++payload_index;
+    }
+    fingerprint_ = static_cast<std::uint64_t>(fingerprint_seed);
+    change_signature_ = static_cast<std::uint64_t>(signature_seed);
+    bounds_ = layout::union_rects(bounds_, block_bounds);
+    invalidate_cached_views();
 }
 
 void RenderCommandList::append(FillPixelSnappedRectCommand command) {
@@ -2629,6 +2700,48 @@ void RenderCommandList::append(DrawImageCommand command) {
     append_opcode(RenderCommandType::DrawImage, index, bounds, hash);
 }
 
+void RenderCommandList::append_draw_images(std::span<const DrawImageCommand> commands) {
+    if (commands.empty()) {
+        return;
+    }
+    reset_opcode_owner();
+    draw_image_payloads_.reserve(draw_image_payloads_.size() + commands.size());
+    opcodes_.reserve(opcodes_.size() + commands.size());
+    opcode_payload_indices_.reserve(opcode_payload_indices_.size() + commands.size());
+
+    auto block_bounds = layout::Rect{};
+    auto fingerprint_seed = static_cast<std::size_t>(fingerprint_);
+    auto signature_seed = static_cast<std::size_t>(change_signature_);
+    auto payload_index = static_cast<std::uint32_t>(draw_image_payloads_.size());
+    for (const auto& command : commands) {
+        const auto hash = payload_fingerprint(command);
+        const auto bounds = visual_bounds(command);
+        draw_image_payloads_.push_back(command);
+
+        hash_combine(fingerprint_seed, static_cast<int>(RenderCommandType::DrawImage));
+        hash_rect(fingerprint_seed, bounds);
+        hash_combine(fingerprint_seed, hash);
+
+        hash_combine(signature_seed, opcodes_.size());
+        hash_combine(signature_seed, static_cast<int>(RenderCommandType::DrawImage));
+        hash_combine(signature_seed, payload_index);
+        hash_rect(signature_seed, bounds);
+        hash_combine(signature_seed, hash);
+
+        block_bounds = layout::union_rects(block_bounds, bounds);
+        opcodes_.push_back(RenderOpcodeRecord{.opcode = RenderCommandType::DrawImage,
+                                              .payload_index = payload_index,
+                                              .bounds = bounds,
+                                              .owner = opcode_owner_.get()});
+        opcode_payload_indices_.push_back(payload_index);
+        ++payload_index;
+    }
+    fingerprint_ = static_cast<std::uint64_t>(fingerprint_seed);
+    change_signature_ = static_cast<std::uint64_t>(signature_seed);
+    bounds_ = layout::union_rects(bounds_, block_bounds);
+    invalidate_cached_views();
+}
+
 void RenderCommandList::append(DrawTextCommand command) {
     const auto hash = payload_fingerprint(command);
     const auto bounds = visual_bounds(command);
@@ -2695,6 +2808,9 @@ void RenderCommandList::append(const RenderCommandList& command_list) {
         static_cast<std::uint32_t>(draw_text_layout_payloads_.size());
     const auto draw_box_shadow_offset =
         static_cast<std::uint32_t>(draw_box_shadow_payloads_.size());
+    const auto text_parameter_offset = static_cast<std::uint32_t>(text_parameters_.size());
+    const auto text_layout_parameter_offset =
+        static_cast<std::uint32_t>(text_layout_parameters_.size());
 
     push_clip_payloads_.insert(push_clip_payloads_.end(), command_list.push_clip_payloads_.begin(),
                                command_list.push_clip_payloads_.end());
@@ -2747,6 +2863,28 @@ void RenderCommandList::append(const RenderCommandList& command_list) {
     draw_box_shadow_payloads_.insert(draw_box_shadow_payloads_.end(),
                                      command_list.draw_box_shadow_payloads_.begin(),
                                      command_list.draw_box_shadow_payloads_.end());
+    text_parameters_.insert(text_parameters_.end(), command_list.text_parameters_.begin(),
+                            command_list.text_parameters_.end());
+    text_layout_parameters_.insert(text_layout_parameters_.end(),
+                                   command_list.text_layout_parameters_.begin(),
+                                   command_list.text_layout_parameters_.end());
+
+    for (auto index = static_cast<std::size_t>(draw_text_offset);
+         index < draw_text_payloads_.size(); ++index) {
+        auto& payload = draw_text_payloads_[index];
+        if (payload.text_handle.value > 0U) {
+            payload.text_handle.value += text_parameter_offset;
+            payload.text = text_parameter(payload.text_handle);
+        }
+    }
+    for (auto index = static_cast<std::size_t>(draw_text_layout_offset);
+         index < draw_text_layout_payloads_.size(); ++index) {
+        auto& payload = draw_text_layout_payloads_[index];
+        if (payload.layout_handle.value > 0U) {
+            payload.layout_handle.value += text_layout_parameter_offset;
+            payload.layout = text_layout_parameter(payload.layout_handle);
+        }
+    }
 
     const auto offset_for = [&](RenderCommandType type) noexcept -> std::uint32_t {
         switch (type) {
@@ -2931,6 +3069,32 @@ RenderCommandList::draw_box_shadow_payloads() const noexcept {
     return draw_box_shadow_payloads_;
 }
 
+const std::vector<std::shared_ptr<const std::string>>&
+RenderCommandList::text_parameters() const noexcept {
+    return text_parameters_;
+}
+
+const std::vector<std::shared_ptr<const TextLayout>>&
+RenderCommandList::text_layout_parameters() const noexcept {
+    return text_layout_parameters_;
+}
+
+std::string_view RenderCommandList::text_parameter(RenderTextHandle handle) const noexcept {
+    if (handle.value == 0U || handle.value > text_parameters_.size()) {
+        return {};
+    }
+    const auto& text = text_parameters_[handle.value - 1U];
+    return text == nullptr ? std::string_view{} : std::string_view{*text};
+}
+
+const TextLayout*
+RenderCommandList::text_layout_parameter(RenderTextLayoutHandle handle) const noexcept {
+    if (handle.value == 0U || handle.value > text_layout_parameters_.size()) {
+        return nullptr;
+    }
+    return text_layout_parameters_[handle.value - 1U].get();
+}
+
 std::vector<std::byte> RenderCommandList::serialized_opcodes() const {
     if (!serialized_opcodes_dirty_) {
         return serialized_opcodes_cache_;
@@ -3016,7 +3180,9 @@ bool RenderCommandList::is_equivalent_to(const RenderCommandList& other) const n
            draw_image_payloads_.size() == other.draw_image_payloads_.size() &&
            draw_text_payloads_.size() == other.draw_text_payloads_.size() &&
            draw_text_layout_payloads_.size() == other.draw_text_layout_payloads_.size() &&
-           draw_box_shadow_payloads_.size() == other.draw_box_shadow_payloads_.size();
+           draw_box_shadow_payloads_.size() == other.draw_box_shadow_payloads_.size() &&
+           text_parameters_.size() == other.text_parameters_.size() &&
+           text_layout_parameters_.size() == other.text_layout_parameters_.size();
 }
 
 std::shared_ptr<PreparedRenderCache> RenderCommandList::prepared_cache() const noexcept {
@@ -3038,6 +3204,17 @@ std::shared_ptr<const std::string> RenderCommandRecorder::intern_text(std::strin
     auto storage = std::make_shared<const std::string>(text);
     bucket.push_back(storage);
     return storage;
+}
+
+std::shared_ptr<const TextLayout> RenderCommandRecorder::share_text_layout(const TextLayout& layout) {
+    return std::make_shared<const TextLayout>(layout);
+}
+
+void RenderCommandRecorder::flush_pending_saves() {
+    while (pending_save_depth_ > 0U) {
+        command_list_.append(SaveCommand{});
+        --pending_save_depth_;
+    }
 }
 
 void RenderCommandRecorder::prune_text_pool() {
@@ -3064,108 +3241,149 @@ void RenderCommandRecorder::prune_text_pool() {
 }
 
 void RenderCommandRecorder::save() {
-    command_list_.append(SaveCommand{});
+    ++pending_save_depth_;
 }
 
 void RenderCommandRecorder::restore() {
+    if (pending_save_depth_ > 0U) {
+        --pending_save_depth_;
+        return;
+    }
     command_list_.append(RestoreCommand{});
 }
 
 void RenderCommandRecorder::push_clip(layout::Rect rect) {
+    flush_pending_saves();
     command_list_.append(PushClipCommand{.rect = rect});
 }
 
 void RenderCommandRecorder::pop_clip() {
+    flush_pending_saves();
     command_list_.append(PopClipCommand{});
 }
 
 void RenderCommandRecorder::push_geometry_clip(const Geometry& geometry) {
+    flush_pending_saves();
     command_list_.append(PushGeometryClipCommand{.geometry = geometry});
 }
 
 void RenderCommandRecorder::pop_geometry_clip() {
+    flush_pending_saves();
     command_list_.append(PopGeometryClipCommand{});
 }
 
 void RenderCommandRecorder::push_layer(const RenderLayerOptions& options) {
+    flush_pending_saves();
     command_list_.append(PushLayerCommand{.options = options});
 }
 
 void RenderCommandRecorder::pop_layer() {
+    flush_pending_saves();
     command_list_.append(PopLayerCommand{});
 }
 
 void RenderCommandRecorder::draw_line(layout::Point start, layout::Point end, Color color,
                                       float stroke_width) {
+    flush_pending_saves();
     command_list_.append(
         DrawLineCommand{.start = start, .end = end, .color = color, .stroke_width = stroke_width});
 }
 
 void RenderCommandRecorder::fill_rect(layout::Rect rect, Color color) {
+    flush_pending_saves();
     command_list_.append(FillRectCommand{.rect = rect, .color = color});
 }
 
+void RenderCommandRecorder::fill_rects(std::span<const FillRectCommand> commands) {
+    flush_pending_saves();
+    command_list_.append_fill_rects(commands);
+}
+
 void RenderCommandRecorder::fill_pixel_snapped_rect(layout::Rect rect, Color color) {
+    flush_pending_saves();
     command_list_.append(FillPixelSnappedRectCommand{.rect = rect, .color = color});
 }
 
 void RenderCommandRecorder::stroke_pixel_snapped_rect(layout::Rect rect, Color color,
                                                       float stroke_width) {
+    flush_pending_saves();
     command_list_.append(
         StrokePixelSnappedRectCommand{.rect = rect, .color = color, .stroke_width = stroke_width});
 }
 
 void RenderCommandRecorder::stroke_rect(layout::Rect rect, Color color, float stroke_width) {
+    flush_pending_saves();
     command_list_.append(
         StrokeRectCommand{.rect = rect, .color = color, .stroke_width = stroke_width});
 }
 
 void RenderCommandRecorder::fill_rounded_rect(layout::Rect rect, CornerRadius radius, Color color) {
+    flush_pending_saves();
     command_list_.append(FillRoundedRectCommand{.rect = rect, .radius = radius, .color = color});
 }
 
 void RenderCommandRecorder::stroke_rounded_rect(layout::Rect rect, CornerRadius radius, Color color,
                                                 float stroke_width) {
+    flush_pending_saves();
     command_list_.append(StrokeRoundedRectCommand{
         .rect = rect, .radius = radius, .color = color, .stroke_width = stroke_width});
 }
 
 void RenderCommandRecorder::fill_ellipse(layout::Rect rect, Color color) {
+    flush_pending_saves();
     command_list_.append(FillEllipseCommand{.rect = rect, .color = color});
 }
 
 void RenderCommandRecorder::stroke_ellipse(layout::Rect rect, Color color, float stroke_width) {
+    flush_pending_saves();
     command_list_.append(
         StrokeEllipseCommand{.rect = rect, .color = color, .stroke_width = stroke_width});
 }
 
 void RenderCommandRecorder::fill_geometry(const Geometry& geometry, Color color) {
+    flush_pending_saves();
     command_list_.append(FillGeometryCommand{.geometry = geometry, .color = color});
 }
 
 void RenderCommandRecorder::stroke_geometry(const Geometry& geometry, Color color,
                                             const GeometryStrokeStyle& style) {
+    flush_pending_saves();
     command_list_.append(
         StrokeGeometryCommand{.geometry = geometry, .color = color, .style = style});
 }
 
 void RenderCommandRecorder::draw_image(RenderResourceId resource_id,
                                        const RenderImageOptions& options) {
+    flush_pending_saves();
     command_list_.append(DrawImageCommand{.resource_id = resource_id, .options = options});
 }
 
+void RenderCommandRecorder::draw_images(std::span<const DrawImageCommand> commands) {
+    flush_pending_saves();
+    command_list_.append_draw_images(commands);
+}
+
 void RenderCommandRecorder::draw_box_shadow(layout::Rect rect, const ShadowStyle& style) {
+    flush_pending_saves();
     command_list_.append(DrawBoxShadowCommand{.rect = rect, .style = style});
 }
 
 void RenderCommandRecorder::draw_text(std::string_view text, layout::Rect rect,
                                       const TextStyle& style) {
-    command_list_.append(DrawTextCommand{.text = intern_text(text), .rect = rect, .style = style});
+    flush_pending_saves();
+    auto storage = intern_text(text);
+    const auto handle = command_list_.store_text(storage);
+    command_list_.append(
+        DrawTextCommand{.text_handle = handle, .text = *storage, .rect = rect, .style = style});
 }
 
 void RenderCommandRecorder::draw_text_layout(const TextLayout& layout, layout::Point origin) {
-    command_list_.append(
-        DrawTextLayoutCommand{.layout = command_list_.share_text_layout(layout), .origin = origin});
+    flush_pending_saves();
+    auto storage = share_text_layout(layout);
+    const auto handle = command_list_.store_text_layout(storage);
+    command_list_.append(DrawTextLayoutCommand{.layout_handle = handle,
+                                               .layout = storage.get(),
+                                               .origin = origin});
 }
 
 const RenderCommandList& RenderCommandRecorder::command_list() const noexcept {
@@ -3177,6 +3395,7 @@ const std::vector<RenderOpcodeRecord>& RenderCommandRecorder::commands() const n
 }
 
 RenderCommandList RenderCommandRecorder::take_command_list() noexcept {
+    flush_pending_saves();
     auto prepared_cache = command_list_.prepared_cache();
     const auto capacities = command_list_.capacity_snapshot();
     auto command_list = std::move(command_list_);
@@ -3187,10 +3406,12 @@ RenderCommandList RenderCommandRecorder::take_command_list() noexcept {
 }
 
 void RenderCommandRecorder::append(const RenderCommandList& command_list) {
+    flush_pending_saves();
     command_list_.append(command_list);
 }
 
 void RenderCommandRecorder::append(RenderCommandList&& command_list) {
+    flush_pending_saves();
     command_list_.append(std::move(command_list));
 }
 

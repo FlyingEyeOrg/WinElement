@@ -18,6 +18,7 @@ enum class RenderResourceKind { Image, GlyphAtlas, Effect, User };
 enum class RenderResourceFormat { Bgra8Premultiplied, Bgra8IgnoreAlpha, Alpha8 };
 enum class RenderEffectKind { Shadow, GaussianBlur };
 enum class RenderResourceAction { Upload, Retain, Release, Discard };
+enum class RenderResourceUploadLane { HighFrequencySmall, LowFrequencyLarge };
 
 struct RenderResourceUpload {
     RenderResourceId id{};
@@ -41,12 +42,19 @@ class RenderResourceUploadQueue final {
 
     void push(RenderResourceUpload upload);
     [[nodiscard]] std::vector<RenderResourceUpload> drain();
+    [[nodiscard]] std::vector<RenderResourceUpload> drain(RenderResourceUploadLane lane);
     [[nodiscard]] bool empty() const noexcept;
+    [[nodiscard]] bool empty(RenderResourceUploadLane lane) const noexcept;
     [[nodiscard]] std::size_t size() const noexcept;
+    [[nodiscard]] std::size_t size(RenderResourceUploadLane lane) const noexcept;
 
   private:
-    mutable std::mutex mutex_;
-    std::vector<RenderResourceUpload> uploads_;
+    [[nodiscard]] static RenderResourceUploadLane lane_for(const RenderResourceUpload& upload) noexcept;
+
+    mutable std::mutex high_frequency_mutex_;
+    mutable std::mutex low_frequency_mutex_;
+    std::vector<RenderResourceUpload> high_frequency_uploads_;
+    std::vector<RenderResourceUpload> low_frequency_uploads_;
 };
 
 } // namespace winelement::rendering

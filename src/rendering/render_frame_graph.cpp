@@ -105,7 +105,18 @@ void finalize_pass_dependencies(RenderFrameGraph& graph) {
     }
 
     auto dependency_key = 0U;
-    for (auto& pass : graph.passes) {
+    auto group = RenderFramePassGroup{};
+    auto have_group = false;
+    const auto flush_group = [&]() {
+        if (have_group && group.pass_count > 0U) {
+            graph.pass_groups.push_back(group);
+        }
+        group = RenderFramePassGroup{};
+        have_group = false;
+    };
+
+    for (std::size_t index = 0U; index < graph.passes.size(); ++index) {
+        auto& pass = graph.passes[index];
         const auto barrier = pass_is_order_barrier(pass);
         if (barrier) {
             ++dependency_key;
@@ -120,22 +131,7 @@ void finalize_pass_dependencies(RenderFrameGraph& graph) {
         if (barrier) {
             ++dependency_key;
         }
-    }
-
-    auto group = RenderFramePassGroup{};
-    auto have_group = false;
-    const auto flush_group = [&]() {
-        if (have_group && group.pass_count > 0U) {
-            graph.pass_groups.push_back(group);
-        }
-        group = RenderFramePassGroup{};
-        have_group = false;
-    };
-
-    for (std::size_t index = 0U; index < graph.passes.size(); ++index) {
-        const auto& pass = graph.passes[index];
         const auto can_record_parallel = pass_can_record_parallel(pass);
-        const auto barrier = pass_is_order_barrier(pass);
         if (!have_group || group.dependency_key != pass.dependency_key ||
             group.can_record_parallel != can_record_parallel || group.barrier_before != barrier ||
             group.barrier_after != barrier) {
