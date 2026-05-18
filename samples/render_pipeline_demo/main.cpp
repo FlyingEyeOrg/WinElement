@@ -5,6 +5,8 @@
 #include "d3d11_render_device.hpp"
 #include "d3d11_render_resource_cache.hpp"
 
+#include <fmt/format.h>
+
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -1346,31 +1348,28 @@ void print_demo_summary(const DemoArtifacts& demo) {
         batch_counts[static_cast<std::size_t>(batch.kind)] += 1U;
     }
 
-    std::cout << "Render pipeline demo summary\n";
-    std::cout << "  commands: " << demo.commands.command_count() << "\n";
-    std::cout << "  serialized opcode bytes: " << demo.commands.serialized_opcodes().size() << "\n";
-    std::cout << "  dirty rects: " << demo.dirty_region.rects().size() << "\n";
-    std::cout << "  dirty tree nodes: " << demo.dirty_region.node_count() << "\n";
-    std::cout << "  frame graph passes: " << demo.frame_graph.passes.size() << "\n";
-    std::cout << "  frame graph draw calls: " << demo.frame_graph.estimated_draw_call_count << "\n";
-    std::cout << "  compositor promotion candidates: " << demo.promotion_plan.candidates.size()
-              << "\n";
-    std::cout << "  compositor frame layers: " << demo.compositor_frame.layers.size() << "\n";
-    std::cout << "  text glyphs: " << demo.text_layout.glyphs.size() << "\n";
-    std::cout << "  text lines: " << demo.text_layout.lines.size() << "\n";
-    std::cout << "  text selection rects: " << demo.selection_rects.size() << "\n";
-    std::cout << "  hit test byte offset: " << demo.hit_test.byte_offset << "\n";
-    std::cout << "  caret line index: " << demo.caret_metrics.line_index << "\n";
-    std::cout << "  draw batch counts [state, geometry, text, image, effect]: "
-              << batch_counts[0] << ", " << batch_counts[1] << ", " << batch_counts[2] << ", "
-              << batch_counts[3] << ", " << batch_counts[4] << "\n";
+    fmt::print("Render pipeline demo summary\n");
+    fmt::print("  commands: {}\n", demo.commands.command_count());
+    fmt::print("  serialized opcode bytes: {}\n", demo.commands.serialized_opcodes().size());
+    fmt::print("  dirty rects: {}\n", demo.dirty_region.rects().size());
+    fmt::print("  dirty tree nodes: {}\n", demo.dirty_region.node_count());
+    fmt::print("  frame graph passes: {}\n", demo.frame_graph.passes.size());
+    fmt::print("  frame graph draw calls: {}\n", demo.frame_graph.estimated_draw_call_count);
+    fmt::print("  compositor promotion candidates: {}\n", demo.promotion_plan.candidates.size());
+    fmt::print("  compositor frame layers: {}\n", demo.compositor_frame.layers.size());
+    fmt::print("  text glyphs: {}\n", demo.text_layout.glyphs.size());
+    fmt::print("  text lines: {}\n", demo.text_layout.lines.size());
+    fmt::print("  text selection rects: {}\n", demo.selection_rects.size());
+    fmt::print("  hit test byte offset: {}\n", demo.hit_test.byte_offset);
+    fmt::print("  caret line index: {}\n", demo.caret_metrics.line_index);
+    fmt::print("  draw batch counts [state, geometry, text, image, effect]: {}, {}, {}, {}, {}\n",
+               batch_counts[0], batch_counts[1], batch_counts[2], batch_counts[3], batch_counts[4]);
 
     for (std::size_t index = 0; index < demo.frame_graph.passes.size(); ++index) {
         const auto& pass = demo.frame_graph.passes[index];
-        std::cout << "    pass[" << index << "] kind=" << static_cast<int>(pass.kind)
-                  << " commands=" << pass.command_count
-                  << " draws=" << pass.estimated_draw_call_count
-                  << " stencil=" << pass.requires_stencil << "\n";
+        fmt::print("    pass[{}] kind={} commands={} draws={} stencil={}\n", index,
+                   static_cast<int>(pass.kind), pass.command_count, pass.estimated_draw_call_count,
+                   pass.requires_stencil);
     }
 }
 
@@ -1408,10 +1407,10 @@ int main(int argc, char** argv) {
         save_png(output_path, canvas_width, canvas_height, stride, pixels);
 
         print_demo_summary(demo);
-        std::cout << "  output: " << output_path.string() << "\n";
+        fmt::print("  output: {}\n", output_path.string());
         return 0;
     } catch (const std::exception& exception) {
-        std::cerr << "render_pipeline_demo failed: " << exception.what() << "\n";
+        fmt::print(stderr, "render_pipeline_demo failed: {}\n", exception.what());
         return 1;
     }
 }

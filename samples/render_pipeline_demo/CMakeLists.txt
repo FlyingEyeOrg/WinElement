@@ -11,6 +11,7 @@ target_include_directories(winelement_render_pipeline_demo
 target_link_libraries(winelement_render_pipeline_demo
     PRIVATE
         WinElement::platform
+    fmt::fmt
         ole32
         user32
         windowscodecs
