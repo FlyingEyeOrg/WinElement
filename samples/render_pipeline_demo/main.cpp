@@ -126,6 +126,28 @@ struct RenderTargetBundle {
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> target_view;
 };
 
+struct DemoVisualRegions {
+    layout::Rect full_canvas{};
+    layout::Rect header{};
+    layout::Rect primitives_panel{};
+    layout::Rect primitive_shapes{};
+    layout::Rect primitive_edges{};
+    layout::Rect primitive_curves{};
+    layout::Rect geometry_panel{};
+    layout::Rect geometry_feature_mix{};
+    layout::Rect geometry_clip_image{};
+    layout::Rect geometry_large_message{};
+    layout::Rect geometry_message_board{};
+    layout::Rect svg_panel{};
+    layout::Rect svg_detail_board{};
+    layout::Rect svg_scale_board{};
+    layout::Rect text_panel{};
+    layout::Rect text_content{};
+    layout::Rect text_selection{};
+    layout::Rect text_image{};
+    layout::Rect text_layer{};
+};
+
 struct DemoArtifacts {
     rendering::RenderCommandList commands;
     rendering::RenderScene scene;
@@ -139,6 +161,7 @@ struct DemoArtifacts {
     std::vector<layout::Rect> selection_rects;
     rendering::TextHitTestResult hit_test;
     rendering::TextCaretMetrics caret_metrics;
+    DemoVisualRegions visual_regions;
     rendering::Color clear_color = rendering::Color::rgba(245, 247, 250);
 };
 
@@ -630,10 +653,12 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
     rendering::RenderCommandRecorder recorder;
     const auto canvas = layout::Rect{0.0F, 0.0F, static_cast<float>(canvas_width),
                                      static_cast<float>(canvas_height)};
+    demo.visual_regions.full_canvas = canvas;
     recorder.save();
     recorder.fill_rect(canvas, demo.clear_color);
 
     const auto header_rect = layout::Rect{page_margin, 28.0F, panel_width, 124.0F};
+    demo.visual_regions.header = header_rect;
     recorder.draw_box_shadow(header_rect,
                              rendering::ShadowStyle{.color = rendering::Color::rgba(14, 30, 37, 42),
                                                     .offset = {0.0F, 10.0F},
@@ -656,6 +681,13 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
                                             .color = rendering::Color::rgba(96, 109, 129)});
 
     const auto primitives_panel = layout::Rect{page_margin, 180.0F, panel_width, 640.0F};
+    demo.visual_regions.primitives_panel = primitives_panel;
+    demo.visual_regions.primitive_shapes =
+        layout::Rect{primitives_panel.x + 24.0F, primitives_panel.y + 94.0F, 672.0F, 434.0F};
+    demo.visual_regions.primitive_edges =
+        layout::Rect{primitives_panel.x + 748.0F, primitives_panel.y + 146.0F, 346.0F, 184.0F};
+    demo.visual_regions.primitive_curves =
+        layout::Rect{primitives_panel.x + 748.0F, primitives_panel.y + 348.0F, 360.0F, 338.0F};
     draw_panel(recorder, primitives_panel, "Primitive Commands",
                "all base primitives in one vertical stack, including 1px edge cases, open curve paths and varied stroke styles");
     recorder.push_clip({primitives_panel.x + 20.0F, primitives_panel.y + 96.0F,
@@ -818,6 +850,15 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
 
     const auto geometry_panel = layout::Rect{page_margin, primitives_panel.y + primitives_panel.height + panel_gap,
                                              panel_width, 760.0F};
+    demo.visual_regions.geometry_panel = geometry_panel;
+    demo.visual_regions.geometry_feature_mix =
+        layout::Rect{geometry_panel.x + 46.0F, geometry_panel.y + 94.0F, 252.0F, 226.0F};
+    demo.visual_regions.geometry_clip_image =
+        layout::Rect{geometry_panel.x + 316.0F, geometry_panel.y + 128.0F, 164.0F, 164.0F};
+    demo.visual_regions.geometry_large_message =
+        layout::Rect{geometry_panel.x + 44.0F, geometry_panel.y + 370.0F, 256.0F, 348.0F};
+    demo.visual_regions.geometry_message_board =
+        layout::Rect{geometry_panel.x + 492.0F, geometry_panel.y + 374.0F, 620.0F, 384.0F};
     draw_panel(recorder, geometry_panel, "Geometry Stress: WinMochi Message Icons",
                "large envelope geometry on the left, plus a pure SVG probe board on the right for small-icon fidelity and edge quality checks");
     const auto feature_geometry = make_feature_geometry(geometry_panel.x + 56.0F, geometry_panel.y + 128.0F);
@@ -937,6 +978,11 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
 
     const auto svg_panel = layout::Rect{page_margin, geometry_panel.y + geometry_panel.height + panel_gap,
                                         panel_width, 800.0F};
+    demo.visual_regions.svg_panel = svg_panel;
+    demo.visual_regions.svg_detail_board =
+        layout::Rect{svg_panel.x + 28.0F, svg_panel.y + 134.0F, 834.0F, 420.0F};
+    demo.visual_regions.svg_scale_board =
+        layout::Rect{svg_panel.x + 28.0F, svg_panel.y + 554.0F, 1092.0F, 192.0F};
     draw_panel(recorder, svg_panel, "SVG Path Stress",
                "parser-focused validation only: dense 1px diagonals, sharp miter joins, multi-pixel path primitives and 16/20/24 px scale probes");
     recorder.draw_text("1px detail cases", {svg_panel.x + 28.0F, svg_panel.y + 100.0F, 240.0F, 24.0F},
@@ -1026,6 +1072,7 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
 
     const auto text_panel = layout::Rect{page_margin, svg_panel.y + svg_panel.height + panel_gap,
                                          panel_width, 740.0F};
+    demo.visual_regions.text_panel = text_panel;
     draw_panel(recorder, text_panel, "Text, Image and Layering",
                "selection rectangles, text layout, image sampling, box shadows and an offset composited layer");
 
@@ -1036,6 +1083,13 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
                                                       .clips_to_bounds = false});
     const auto text_content_panel = layout::Rect{text_panel.x + 44.0F, text_panel.y + 112.0F,
                                                  text_panel.width - 88.0F, 560.0F};
+    demo.visual_regions.text_content = text_content_panel;
+    demo.visual_regions.text_selection =
+        layout::Rect{text_content_panel.x + 18.0F, text_content_panel.y + 16.0F, 944.0F, 214.0F};
+    demo.visual_regions.text_image =
+        layout::Rect{text_content_panel.x + 26.0F, text_content_panel.y + 298.0F, 214.0F, 248.0F};
+    demo.visual_regions.text_layer =
+        layout::Rect{text_content_panel.x + 276.0F, text_content_panel.y + 330.0F, 338.0F, 154.0F};
     recorder.draw_box_shadow(text_content_panel,
                              rendering::ShadowStyle{.color = rendering::Color::rgba(22, 35, 54, 42),
                                                     .offset = {0.0F, 6.0F},
@@ -1320,38 +1374,45 @@ void print_demo_summary(const DemoArtifacts& demo) {
     }
 }
 
+[[nodiscard]] std::vector<std::byte> render_demo_frame(DemoArtifacts& demo, std::uint32_t& stride) {
+    demo = build_demo();
+
+    win32::DxRenderDevice device;
+    win32::DxRenderResourceCache resource_cache;
+    resource_cache.upload(device.d3d_device(), demo.image_upload);
+    resource_cache.upload(device.d3d_device(), demo.circle_image_upload);
+
+    auto render_target = create_render_target(device, canvas_width, canvas_height);
+    win32::D3D11DisplayListRenderer renderer(device.d3d_device());
+    renderer.render(device.d3d_context(), *render_target.target_view.Get(), demo.clear_color,
+                    demo.scene.empty() ? nullptr : &demo.scene, demo.dirty_region, dpi,
+                    canvas_width, canvas_height, resource_cache, &demo.frame_graph);
+
+    auto pixels =
+        read_back_texture(device, *render_target.texture.Get(), canvas_width, canvas_height, stride);
+    resource_cache.clear();
+    return pixels;
+}
+
 } // namespace
 
+#ifndef WINELEMENT_RENDER_PIPELINE_DEMO_AS_LIBRARY
 int main(int argc, char** argv) {
     try {
         const fs::path output_path =
             argc > 1 ? fs::path(argv[1]) : fs::current_path() / "render_pipeline_demo.png";
 
-        auto demo = build_demo();
-
-        win32::DxRenderDevice device;
-        win32::DxRenderResourceCache resource_cache;
-        resource_cache.upload(device.d3d_device(), demo.image_upload);
-        resource_cache.upload(device.d3d_device(), demo.circle_image_upload);
-
-        auto render_target = create_render_target(device, canvas_width, canvas_height);
-        win32::D3D11DisplayListRenderer renderer(device.d3d_device());
-        renderer.render(device.d3d_context(), *render_target.target_view.Get(), demo.clear_color,
-                        demo.scene.empty() ? nullptr : &demo.scene, demo.dirty_region, dpi,
-                        canvas_width, canvas_height, resource_cache, &demo.frame_graph);
-
+        DemoArtifacts demo;
         std::uint32_t stride = 0U;
-        const auto pixels =
-            read_back_texture(device, *render_target.texture.Get(), canvas_width, canvas_height, stride);
+        const auto pixels = render_demo_frame(demo, stride);
         save_png(output_path, canvas_width, canvas_height, stride, pixels);
 
         print_demo_summary(demo);
         std::cout << "  output: " << output_path.string() << "\n";
-
-        resource_cache.clear();
         return 0;
     } catch (const std::exception& exception) {
         std::cerr << "render_pipeline_demo failed: " << exception.what() << "\n";
         return 1;
     }
 }
+#endif
