@@ -14,8 +14,11 @@ include(cmake/winelement_target.cmake)
 
 find_package(yoga CONFIG REQUIRED)
 
+include(CTest)
+
 option(WINELEMENT_BUILD_SAMPLES "Build WinElement sample applications" OFF)
 option(WINELEMENT_WARNINGS_AS_ERRORS "Treat WinElement compiler warnings as errors" OFF)
+option(WINELEMENT_BUILD_TESTS "Build WinElement tests" ${BUILD_TESTING})
 
 add_subdirectory(src/core)
 add_subdirectory(src/layout)
@@ -24,6 +27,12 @@ add_subdirectory(src/platform)
 
 if(WINELEMENT_BUILD_SAMPLES)
     add_subdirectory(samples/render_pipeline_demo)
+endif()
+
+if(WINELEMENT_BUILD_TESTS)
+    enable_testing()
+    find_package(GTest CONFIG REQUIRED)
+    add_subdirectory(tests)
 endif()
 
 add_library(winelement INTERFACE)
