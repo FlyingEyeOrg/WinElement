@@ -136,6 +136,12 @@ TEST(RenderContextTests, RenderFrameGraphKeepsOrderedPassesAndEstimatesDraws) {
     ASSERT_GE(graph.passes.size(), 4U);
     EXPECT_EQ(graph.passes[0].kind, RenderFramePassKind::State);
     EXPECT_EQ(graph.passes[1].kind, RenderFramePassKind::Geometry);
+    ASSERT_FALSE(graph.pass_groups.empty());
+    EXPECT_TRUE(graph.pass_groups.front().barrier_before);
+    EXPECT_TRUE(std::any_of(graph.pass_groups.begin(), graph.pass_groups.end(),
+                            [](const RenderFramePassGroup& group) {
+                                return group.can_record_parallel;
+                            }));
 }
 
 TEST(RenderContextTests, RenderResourceUploadQueueDrainsAndKeepsLifetimeActions) {

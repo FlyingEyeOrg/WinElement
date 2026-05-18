@@ -2,6 +2,7 @@
 #include "d3d11_render_device.hpp"
 #include "d3d11_render_resource_cache.hpp"
 
+#include <winelement/platform/render_thread_pool.hpp>
 #include <winelement/rendering.hpp>
 
 #include <gtest/gtest.h>
@@ -172,6 +173,68 @@ struct RenderTargetBundle {
     return read_region(device, *target.texture.Get(), 8U, 56U, 304U, 48U);
 }
 
+[[nodiscard]] rendering::RenderScene build_parallel_recording_scene() {
+    rendering::RenderNode root;
+    root.kind = rendering::RenderNodeKind::Picture;
+    root.bounds = layout::Rect{0.0F, 0.0F, 160.0F, 160.0F};
+    root.debug_name = "parallel.recording.root";
+    root.fingerprint = 0xCAFE1000ULL;
+    root.children.reserve(8U);
+
+    for (std::uint32_t child_index = 0U; child_index < 8U; ++child_index) {
+        rendering::RenderCommandRecorder recorder;
+        const auto x = static_cast<float>((child_index % 4U) * 40U);
+        const auto y = static_cast<float>((child_index / 4U) * 80U);
+        for (std::uint32_t command_index = 0U; command_index < 16U; ++command_index) {
+            const auto row = command_index / 4U;
+            const auto column = command_index % 4U;
+            const auto color = core::Color::rgba(
+                static_cast<std::uint8_t>(30U + child_index * 20U),
+                static_cast<std::uint8_t>(40U + command_index * 8U),
+                static_cast<std::uint8_t>(210U - child_index * 12U));
+            recorder.fill_rect(layout::Rect{x + static_cast<float>(column) * 9.0F,
+                                            y + static_cast<float>(row) * 17.0F, 8.0F,
+                                            16.0F},
+                               color);
+        }
+
+        auto commands = recorder.take_command_list();
+        root.children.push_back(rendering::RenderNode{
+            .kind = rendering::RenderNodeKind::Picture,
+            .bounds = commands.bounds(),
+            .debug_name = "parallel.recording.child",
+            .fingerprint = commands.fingerprint(),
+            .commands = std::move(commands)});
+        root.fingerprint ^= root.children.back().fingerprint + child_index + 0x9E3779B9U;
+    }
+
+    rendering::RenderScene scene;
+    scene.set_root(std::move(root));
+    return scene;
+}
+
+[[nodiscard]] std::vector<std::uint8_t> render_parallel_recording_scene(
+    bool parallel_enabled,
+    win32::D3D11DisplayListRenderer::RenderTimingMetrics* metrics = nullptr) {
+    win32::D3D11RenderDevice device;
+    auto target = create_render_target(device.d3d_device(), 160U, 160U);
+    win32::D3D11RenderResourceCache resource_cache;
+    win32::D3D11DisplayListRenderer renderer(device.d3d_device());
+    renderer.set_parallel_recording_enabled(parallel_enabled);
+
+    auto scene = build_parallel_recording_scene();
+    const auto frame_graph = rendering::build_render_frame_graph(scene);
+    rendering::DirtyRegion dirty_region;
+    dirty_region.add(layout::Rect{0.0F, 0.0F, 160.0F, 160.0F});
+
+    renderer.render(device.d3d_context(), *target.target_view.Get(), core::Color::rgba(0, 0, 0),
+                    &scene, dirty_region, 96.0F, 160U, 160U, resource_cache, &frame_graph);
+    if (metrics != nullptr) {
+        *metrics = renderer.last_timing_metrics();
+    }
+    return read_region(device, *target.texture.Get(), 0U, 0U, 160U, 160U);
+}
+
 TEST(DeferredContextTests, RendererExecutesDeferredClearOnImmediateContext) {
     win32::D3D11RenderDevice device;
     auto target = create_render_target(device.d3d_device(), 64U, 64U);
@@ -245,6 +308,20 @@ TEST(DeferredContextTests, RendererUploadsIncrementalGlyphAtlasBeforeExecutingCo
 
     EXPECT_GT(dark_pixel_count, 100U);
     EXPECT_LT(total_delta, 4000U);
+}
+
+TEST(DeferredContextTests, ParallelRecordingMatchesSerialPixelsAndReportsWorkItems) {
+    auto parallel_metrics = win32::D3D11DisplayListRenderer::RenderTimingMetrics{};
+    const auto serial = render_parallel_recording_scene(false);
+    const auto parallel = render_parallel_recording_scene(true, &parallel_metrics);
+
+    ASSERT_EQ(serial.size(), parallel.size());
+    EXPECT_EQ(serial, parallel);
+    EXPECT_GT(parallel_metrics.work_item_count, 1U);
+    if (winelement::platform::shared_render_thread_pool().worker_count() > 1U) {
+        EXPECT_TRUE(parallel_metrics.parallel_recording);
+        EXPECT_GT(parallel_metrics.command_list_count, 1U);
+    }
 }
 
 } // namespace

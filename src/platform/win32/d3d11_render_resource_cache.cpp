@@ -71,6 +71,23 @@ create_texture(ID3D11Device& device, const rendering::RenderResourceUpload& uplo
 
 } // namespace
 
+D3D11RenderResourceCache::TextureResource const*
+D3D11RenderResourceCache::Snapshot::texture(rendering::RenderResourceId id) const noexcept {
+    if (const auto iterator = image_textures.find(id.value); iterator != image_textures.end()) {
+        return &iterator->second;
+    }
+    if (const auto iterator = glyph_atlases.find(id.value); iterator != glyph_atlases.end()) {
+        return &iterator->second;
+    }
+    return nullptr;
+}
+
+std::uint32_t D3D11RenderResourceCache::Snapshot::reference_count(
+    rendering::RenderResourceId id) const noexcept {
+    const auto iterator = reference_counts.find(id.value);
+    return iterator == reference_counts.end() ? 0U : iterator->second;
+}
+
 D3D11RenderResourceCache::~D3D11RenderResourceCache() {
     assert_no_live_resources();
 }
@@ -139,6 +156,12 @@ D3D11RenderResourceCache::texture(rendering::RenderResourceId id) const noexcept
         return &iterator->second;
     }
     return nullptr;
+}
+
+D3D11RenderResourceCache::Snapshot D3D11RenderResourceCache::snapshot() const {
+    return Snapshot{.image_textures = image_textures_,
+                    .glyph_atlases = glyph_atlases_,
+                    .reference_counts = reference_counts_};
 }
 
 std::size_t D3D11RenderResourceCache::image_texture_count() const noexcept {

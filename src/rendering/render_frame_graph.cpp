@@ -51,6 +51,26 @@ namespace {
            type == RenderCommandType::PopGeometryClip;
 }
 
+[[nodiscard]] bool pass_is_order_barrier(const RenderFramePass& pass) noexcept {
+    return pass.kind == RenderFramePassKind::State || pass.kind == RenderFramePassKind::Composite ||
+           pass.requires_stencil;
+}
+
+[[nodiscard]] bool pass_can_record_parallel(const RenderFramePass& pass) noexcept {
+    switch (pass.kind) {
+    case RenderFramePassKind::Geometry:
+    case RenderFramePassKind::Text:
+    case RenderFramePassKind::Image:
+    case RenderFramePassKind::Effect:
+        return !pass.requires_stencil;
+    case RenderFramePassKind::State:
+    case RenderFramePassKind::Composite:
+    case RenderFramePassKind::Present:
+    default:
+        return false;
+    }
+}
+
 [[nodiscard]] std::uint32_t estimated_draw_calls(RenderFramePassKind kind,
                                                  std::uint32_t command_count) noexcept {
     switch (kind) {
@@ -75,11 +95,68 @@ void add_command_to_pass(RenderFramePass& pass, const RenderOpcodeRecord& opcode
     pass.estimated_draw_call_count = estimated_draw_calls(pass.kind, pass.command_count);
 }
 
+void finalize_pass_dependencies(RenderFrameGraph& graph) {
+    graph.pass_groups.clear();
+    if (graph.passes.empty()) {
+        return;
+    }
+
+    auto dependency_key = 0U;
+    for (auto& pass : graph.passes) {
+        const auto barrier = pass_is_order_barrier(pass);
+        if (barrier) {
+            ++dependency_key;
+        }
+        pass.dependency_key = dependency_key;
+        pass.starts_barrier = barrier;
+        pass.ends_barrier = barrier;
+        pass.dependency_kind = barrier ? RenderFramePassDependencyKind::Barrier
+                                       : (pass_can_record_parallel(pass)
+                                              ? RenderFramePassDependencyKind::Parallel
+                                              : RenderFramePassDependencyKind::Ordered);
+        if (barrier) {
+            ++dependency_key;
+        }
+    }
+
+    auto group = RenderFramePassGroup{};
+    auto have_group = false;
+    const auto flush_group = [&]() {
+        if (have_group && group.pass_count > 0U) {
+            graph.pass_groups.push_back(group);
+        }
+        group = RenderFramePassGroup{};
+        have_group = false;
+    };
+
+    for (std::size_t index = 0U; index < graph.passes.size(); ++index) {
+        const auto& pass = graph.passes[index];
+        const auto can_record_parallel = pass_can_record_parallel(pass);
+        const auto barrier = pass_is_order_barrier(pass);
+        if (!have_group || group.dependency_key != pass.dependency_key ||
+            group.can_record_parallel != can_record_parallel || group.barrier_before != barrier ||
+            group.barrier_after != barrier) {
+            flush_group();
+            group = RenderFramePassGroup{
+                .first_pass_index = static_cast<std::uint32_t>(index),
+                .pass_count = 0U,
+                .dependency_key = pass.dependency_key,
+                .can_record_parallel = can_record_parallel,
+                .barrier_before = barrier,
+                .barrier_after = barrier};
+            have_group = true;
+        }
+        ++group.pass_count;
+    }
+    flush_group();
+}
+
 void append_child_graph(RenderFrameGraph& graph, const RenderFrameGraph& child_graph) {
     graph.command_count += child_graph.command_count;
     graph.estimated_draw_call_count += child_graph.estimated_draw_call_count;
     graph.bounds = layout::union_rects(graph.bounds, child_graph.bounds);
     graph.passes.insert(graph.passes.end(), child_graph.passes.begin(), child_graph.passes.end());
+    finalize_pass_dependencies(graph);
 }
 
 struct CachedNodeFrameGraph {
@@ -173,6 +250,7 @@ RenderFrameGraph build_render_frame_graph(const RenderCommandList& command_list)
     for (const auto& pass : graph.passes) {
         graph.estimated_draw_call_count += pass.estimated_draw_call_count;
     }
+    finalize_pass_dependencies(graph);
     return graph;
 }
 
@@ -183,6 +261,7 @@ RenderFrameGraph build_render_frame_graph(const RenderScene& scene) {
     if (scene.root() != nullptr) {
         append_child_graph(graph, build_render_frame_graph_for_node(*scene.root()));
     }
+    finalize_pass_dependencies(graph);
     return graph;
 }
 

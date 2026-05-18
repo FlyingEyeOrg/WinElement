@@ -31,6 +31,16 @@ class D3D11RenderResourceCache final {
             rendering::RenderResourceFormat::Bgra8Premultiplied;
     };
 
+    struct Snapshot {
+        std::unordered_map<std::uint64_t, TextureResource> image_textures;
+        std::unordered_map<std::uint64_t, TextureResource> glyph_atlases;
+        std::unordered_map<std::uint64_t, std::uint32_t> reference_counts;
+
+        [[nodiscard]] const TextureResource*
+        texture(rendering::RenderResourceId id) const noexcept;
+        [[nodiscard]] std::uint32_t reference_count(rendering::RenderResourceId id) const noexcept;
+    };
+
     ~D3D11RenderResourceCache();
 
     void upload(ID3D11Device& device, const rendering::RenderResourceUpload& upload);
@@ -38,6 +48,7 @@ class D3D11RenderResourceCache final {
     void clear() noexcept;
 
     [[nodiscard]] const TextureResource* texture(rendering::RenderResourceId id) const noexcept;
+    [[nodiscard]] Snapshot snapshot() const;
     [[nodiscard]] std::size_t image_texture_count() const noexcept;
     [[nodiscard]] std::size_t glyph_atlas_count() const noexcept;
     [[nodiscard]] std::size_t effect_count() const noexcept;

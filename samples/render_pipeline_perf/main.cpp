@@ -33,9 +33,16 @@ struct PerfOptions {
 
 struct FrameSample {
     double render_ms = 0.0;
+    double task_split_ms = 0.0;
+    double resource_sync_ms = 0.0;
+    double worker_record_ms = 0.0;
+    double command_submit_ms = 0.0;
     double readback_ms = 0.0;
     double total_ms = 0.0;
     std::uint64_t pixel_hash = 0U;
+    std::size_t work_item_count = 0U;
+    std::size_t command_list_count = 0U;
+    bool parallel_recording = false;
 };
 
 struct SummaryStats {
@@ -154,6 +161,10 @@ void write_json_report(const fs::path& report_path, const PerfOptions& options,
     };
 
     const auto render_stats = summarize(collect(&FrameSample::render_ms));
+    const auto task_split_stats = summarize(collect(&FrameSample::task_split_ms));
+    const auto resource_sync_stats = summarize(collect(&FrameSample::resource_sync_ms));
+    const auto worker_record_stats = summarize(collect(&FrameSample::worker_record_ms));
+    const auto command_submit_stats = summarize(collect(&FrameSample::command_submit_ms));
     const auto readback_stats = summarize(collect(&FrameSample::readback_ms));
     const auto total_stats = summarize(collect(&FrameSample::total_ms));
 
@@ -185,6 +196,10 @@ void write_json_report(const fs::path& report_path, const PerfOptions& options,
     };
 
     write_stats("render_ms", render_stats);
+    write_stats("task_split_ms", task_split_stats);
+    write_stats("resource_sync_ms", resource_sync_stats);
+    write_stats("worker_record_ms", worker_record_stats);
+    write_stats("command_submit_ms", command_submit_stats);
     write_stats("readback_ms", readback_stats);
     write_stats("total_ms", total_stats);
 
@@ -194,9 +209,17 @@ void write_json_report(const fs::path& report_path, const PerfOptions& options,
         report << "    {\n";
         report << "      \"index\": " << index << ",\n";
         report << "      \"render_ms\": " << sample.render_ms << ",\n";
+        report << "      \"task_split_ms\": " << sample.task_split_ms << ",\n";
+        report << "      \"resource_sync_ms\": " << sample.resource_sync_ms << ",\n";
+        report << "      \"worker_record_ms\": " << sample.worker_record_ms << ",\n";
+        report << "      \"command_submit_ms\": " << sample.command_submit_ms << ",\n";
         report << "      \"readback_ms\": " << sample.readback_ms << ",\n";
         report << "      \"total_ms\": " << sample.total_ms << ",\n";
-        report << "      \"pixel_hash\": " << std::quoted(format_hex(sample.pixel_hash)) << "\n";
+        report << "      \"pixel_hash\": " << std::quoted(format_hex(sample.pixel_hash)) << ",\n";
+        report << "      \"work_item_count\": " << sample.work_item_count << ",\n";
+        report << "      \"command_list_count\": " << sample.command_list_count << ",\n";
+        report << "      \"parallel_recording\": " << (sample.parallel_recording ? "true" : "false")
+               << "\n";
         report << "    }";
         report << (index + 1U == samples.size() ? "\n" : ",\n");
     }
@@ -217,6 +240,14 @@ void write_json_report(const fs::path& report_path, const PerfOptions& options,
                         demo.scene.empty() ? nullptr : &demo.scene, demo.dirty_region, dpi,
                         width, height, resource_cache, &demo.frame_graph);
     });
+    const auto renderer_metrics = renderer.last_timing_metrics();
+    sample.task_split_ms = renderer_metrics.task_split_ms;
+    sample.resource_sync_ms = renderer_metrics.resource_sync_ms;
+    sample.worker_record_ms = renderer_metrics.worker_record_ms;
+    sample.command_submit_ms = renderer_metrics.command_submit_ms;
+    sample.work_item_count = renderer_metrics.work_item_count;
+    sample.command_list_count = renderer_metrics.command_list_count;
+    sample.parallel_recording = renderer_metrics.parallel_recording;
 
     sample.readback_ms = measure_milliseconds([&] {
         pixels = read_back_texture(device, *target.texture.Get(), width, height, stride);
@@ -597,9 +628,12 @@ void upload_render_resources(win32::D3D11RenderDevice& device,
             render_frame(renderer, device, render_target, demo, resource_cache, spec.canvas_width,
                          spec.canvas_height, stride, pixels));
         const auto& sample = result.frames.back();
-        fmt::print("  frame {:02}: render {:8.3f} ms, readback {:8.3f} ms, total {:8.3f} ms, hash {}\n",
-                   index, sample.render_ms, sample.readback_ms, sample.total_ms,
-                   format_hex(sample.pixel_hash));
+        fmt::print("  frame {:02}: render {:8.3f} ms (split {:6.3f}, record {:6.3f}, "
+                   "submit {:6.3f}, sync {:6.3f}), readback {:8.3f} ms, total {:8.3f} ms, "
+                   "lists {:02}, hash {}\n",
+                   index, sample.render_ms, sample.task_split_ms, sample.worker_record_ms,
+                   sample.command_submit_ms, sample.resource_sync_ms, sample.readback_ms,
+                   sample.total_ms, sample.command_list_count, format_hex(sample.pixel_hash));
     }
 
     if (options.write_png && !result.png_path.empty()) {
@@ -640,6 +674,14 @@ void write_json_report(const fs::path& report_path, std::span<const PerfScenario
     for (std::size_t scenario_index = 0; scenario_index < scenarios.size(); ++scenario_index) {
         const auto& scenario = scenarios[scenario_index];
         const auto render_stats = summarize_frames(scenario.frames, &FrameSample::render_ms);
+        const auto task_split_stats =
+            summarize_frames(scenario.frames, &FrameSample::task_split_ms);
+        const auto resource_sync_stats =
+            summarize_frames(scenario.frames, &FrameSample::resource_sync_ms);
+        const auto worker_record_stats =
+            summarize_frames(scenario.frames, &FrameSample::worker_record_ms);
+        const auto command_submit_stats =
+            summarize_frames(scenario.frames, &FrameSample::command_submit_ms);
         const auto readback_stats = summarize_frames(scenario.frames, &FrameSample::readback_ms);
         const auto total_stats = summarize_frames(scenario.frames, &FrameSample::total_ms);
 
@@ -663,6 +705,18 @@ void write_json_report(const fs::path& report_path, std::span<const PerfScenario
         report << "        \"median_ms\": " << render_stats.median << ",\n";
         report << "        \"max_ms\": " << render_stats.max << "\n";
         report << "      },\n";
+        const auto write_metric_stats = [&](std::string_view key, const SummaryStats& stats) {
+            report << "      \"" << key << "\": {\n";
+            report << "        \"min_ms\": " << stats.min << ",\n";
+            report << "        \"mean_ms\": " << stats.mean << ",\n";
+            report << "        \"median_ms\": " << stats.median << ",\n";
+            report << "        \"max_ms\": " << stats.max << "\n";
+            report << "      },\n";
+        };
+        write_metric_stats("task_split_ms", task_split_stats);
+        write_metric_stats("resource_sync_ms", resource_sync_stats);
+        write_metric_stats("worker_record_ms", worker_record_stats);
+        write_metric_stats("command_submit_ms", command_submit_stats);
         report << "      \"readback_ms\": {\n";
         report << "        \"min_ms\": " << readback_stats.min << ",\n";
         report << "        \"mean_ms\": " << readback_stats.mean << ",\n";
@@ -681,9 +735,18 @@ void write_json_report(const fs::path& report_path, std::span<const PerfScenario
             report << "        {\n";
             report << "          \"index\": " << frame_index << ",\n";
             report << "          \"render_ms\": " << frame.render_ms << ",\n";
+            report << "          \"task_split_ms\": " << frame.task_split_ms << ",\n";
+            report << "          \"resource_sync_ms\": " << frame.resource_sync_ms << ",\n";
+            report << "          \"worker_record_ms\": " << frame.worker_record_ms << ",\n";
+            report << "          \"command_submit_ms\": " << frame.command_submit_ms << ",\n";
             report << "          \"readback_ms\": " << frame.readback_ms << ",\n";
             report << "          \"total_ms\": " << frame.total_ms << ",\n";
-            report << "          \"pixel_hash\": " << std::quoted(format_hex(frame.pixel_hash)) << "\n";
+            report << "          \"pixel_hash\": " << std::quoted(format_hex(frame.pixel_hash))
+                   << ",\n";
+            report << "          \"work_item_count\": " << frame.work_item_count << ",\n";
+            report << "          \"command_list_count\": " << frame.command_list_count << ",\n";
+            report << "          \"parallel_recording\": "
+                   << (frame.parallel_recording ? "true" : "false") << "\n";
             report << "        }";
             report << (frame_index + 1U == scenario.frames.size() ? "\n" : ",\n");
         }

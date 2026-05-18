@@ -1,14 +1,17 @@
 #pragma once
 
 #include <winelement/core/core_types.hpp>
+#include <winelement/rendering/render_frame_graph.hpp>
 
 #include "d3d11_render_resource_cache.hpp"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <future>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <span>
 #include <string>
 #include <string_view>
@@ -66,6 +69,16 @@ struct D3D11RenderDirtyClip {
 
 class D3D11DisplayListRenderer final {
   public:
+    struct RenderTimingMetrics {
+        double task_split_ms = 0.0;
+        double resource_sync_ms = 0.0;
+        double worker_record_ms = 0.0;
+        double command_submit_ms = 0.0;
+        std::size_t work_item_count = 0U;
+        std::size_t command_list_count = 0U;
+        bool parallel_recording = false;
+    };
+
     explicit D3D11DisplayListRenderer(ID3D11Device& device);
     ~D3D11DisplayListRenderer();
 
@@ -78,6 +91,9 @@ class D3D11DisplayListRenderer final {
                 std::uint32_t target_pixel_width, std::uint32_t target_pixel_height,
                 const D3D11RenderResourceCache& resource_cache,
                 const rendering::RenderFrameGraph* frame_graph = nullptr);
+    void set_parallel_recording_enabled(bool enabled) noexcept;
+    [[nodiscard]] bool parallel_recording_enabled() const noexcept;
+    [[nodiscard]] RenderTimingMetrics last_timing_metrics() const noexcept;
 
   private:
     enum class StateKind : std::uint8_t { Base, Save, RectClip, GeometryClip, Layer };
@@ -97,8 +113,25 @@ class D3D11DisplayListRenderer final {
     };
     enum class StencilUpdateOp : std::uint8_t { Increment, Decrement };
 
-    struct Vertex;
-    struct DrawState;
+    struct Vertex {
+        float x = 0.0F;
+        float y = 0.0F;
+        float red = 0.0F;
+        float green = 0.0F;
+        float blue = 0.0F;
+        float alpha = 1.0F;
+        float u = 0.0F;
+        float v = 0.0F;
+    };
+    struct DrawState {
+        rendering::Transform2D transform{};
+        float opacity = 1.0F;
+        D3D11_RECT clip{};
+        std::uint8_t stencil_depth = 0U;
+        StateKind kind = StateKind::Base;
+        std::shared_ptr<const rendering::Geometry> geometry_clip;
+        std::shared_ptr<const rendering::PreparedGeometryFill> prepared_geometry_clip;
+    };
     struct GlyphAtlasKey {
         std::string font_family;
         std::uint32_t glyph_index = 0U;
@@ -140,6 +173,28 @@ class D3D11DisplayListRenderer final {
     struct PositionedTextGlyph {
         std::size_t glyph_index = std::numeric_limits<std::size_t>::max();
         GlyphAtlasEntry entry{};
+    };
+    struct RecorderState {
+        std::vector<DrawState> state_stack;
+        std::vector<Vertex> batch_vertices;
+        const rendering::RenderFrameGraph* active_frame_graph = nullptr;
+        ID3D11ShaderResourceView* batch_texture = nullptr;
+        TextureSamplingMode batch_texture_mode = TextureSamplingMode::None;
+        std::uint8_t batch_stencil_depth = 0U;
+        bool batch_active = false;
+        ID3D11BlendState* bound_blend_state = nullptr;
+        ID3D11DepthStencilState* bound_depth_stencil_state = nullptr;
+        std::uint8_t bound_stencil_reference = 0U;
+        ID3D11ShaderResourceView* bound_shader_resource = nullptr;
+        std::vector<Vertex> primitive_vertices;
+        std::vector<PositionedTextGlyph> positioned_text_glyphs;
+        std::vector<std::size_t> outline_text_glyph_indices;
+        std::vector<std::uint32_t> light_plan_command_indices;
+        bool constant_buffer_state_valid = false;
+        float uploaded_constant_target_width = 0.0F;
+        float uploaded_constant_target_height = 0.0F;
+        float uploaded_constant_textured = -1.0F;
+        float uploaded_constant_texture_mode = -1.0F;
     };
     struct GlyphBitmap {
         int left = 0;
@@ -202,14 +257,106 @@ class D3D11DisplayListRenderer final {
         ID3D11DepthStencilState* depth_stencil_state = nullptr;
     };
     struct RenderPlanCacheState;
+    enum class RendererInstanceKind : std::uint8_t { Primary, Worker };
+    enum class RenderWorkKind : std::uint8_t { Clear, NodeCommandsOnly, NodeSubtree };
+
+    struct RenderWorkSortKey {
+        std::uint32_t pass_order = 0U;
+        std::uint32_t scene_order = 0U;
+        std::uint32_t layer_depth = 0U;
+        std::uint32_t z_order = 0U;
+        std::uint32_t dirty_bucket_order = 0U;
+    };
+
+    struct RenderFrameGraphSnapshot {
+        rendering::RenderFrameGraph graph{};
+    };
+
+    struct PreparedDrawTextLayoutSnapshot {
+        const rendering::RenderCommandList* commands = nullptr;
+        std::size_t opcode_index = std::numeric_limits<std::size_t>::max();
+        std::shared_ptr<const rendering::TextLayout> layout;
+    };
+
+    struct GlyphAtlasSnapshot {
+        std::unordered_map<GlyphAtlasKey, GlyphAtlasEntry, GlyphAtlasKeyHash> entries;
+        std::vector<PreparedDrawTextLayoutSnapshot> prepared_text_layouts;
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+        Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> view;
+        std::uint32_t generation = 0U;
+    };
+
+    struct RenderWorkItem {
+        RenderWorkKind kind = RenderWorkKind::NodeSubtree;
+        const rendering::RenderNode* scene_subtree = nullptr;
+        std::vector<D3D11RenderDirtyClip> dirty_clips;
+        std::shared_ptr<const RenderFrameGraphSnapshot> frame_graph_snapshot;
+        std::shared_ptr<const D3D11RenderResourceCache::Snapshot> resource_snapshot;
+        std::shared_ptr<const GlyphAtlasSnapshot> glyph_atlas_snapshot;
+        RenderWorkSortKey sort_key{};
+        std::uint64_t dependency_key = 0U;
+        std::size_t estimated_command_count = 0U;
+        std::size_t estimated_vertex_budget = 0U;
+        core::Color clear_color{};
+        float dpi = 96.0F;
+        std::uint32_t target_pixel_width = 1U;
+        std::uint32_t target_pixel_height = 1U;
+        bool barrier = false;
+        bool may_record_parallel = true;
+        Microsoft::WRL::ComPtr<ID3D11CommandList> command_list;
+        std::shared_ptr<D3D11DisplayListRenderer> recorder_lease;
+    };
+
+    struct RenderFrameAnalysis {
+        std::vector<D3D11RenderDirtyClip> dirty_clips;
+        std::vector<D3D11RenderDirtyClip> dirty_tiles;
+        std::shared_ptr<const RenderFrameGraphSnapshot> frame_graph_snapshot;
+        std::shared_ptr<const D3D11RenderResourceCache::Snapshot> resource_snapshot;
+        std::shared_ptr<const GlyphAtlasSnapshot> glyph_atlas_snapshot;
+        std::vector<RenderWorkItem> work_items;
+        std::uint32_t target_pixel_width = 1U;
+        std::uint32_t target_pixel_height = 1U;
+        float dpi = 96.0F;
+        float target_dip_width = 1.0F;
+        float target_dip_height = 1.0F;
+        bool use_parallel_recording = false;
+    };
+
+    D3D11DisplayListRenderer(ID3D11Device& device, RendererInstanceKind instance_kind);
 
     void render_to_context(ID3D11DeviceContext& context, ID3D11RenderTargetView& target,
                            core::Color clear_color, const rendering::RenderScene* scene,
                            const rendering::DirtyRegion& dirty_region, float dpi,
                            std::uint32_t target_pixel_width,
                            std::uint32_t target_pixel_height,
-                           const D3D11RenderResourceCache& resource_cache,
+                           const D3D11RenderResourceCache::Snapshot& resource_snapshot,
                            const rendering::RenderFrameGraph* frame_graph);
+    [[nodiscard]] RenderFrameAnalysis
+    analyze_render_frame(core::Color clear_color, const rendering::RenderScene* scene,
+                         const rendering::DirtyRegion& dirty_region, float dpi,
+                         std::uint32_t target_pixel_width, std::uint32_t target_pixel_height,
+                         const D3D11RenderResourceCache& resource_cache,
+                         const rendering::RenderFrameGraph* frame_graph);
+    void prepare_text_resources_for_scene(const rendering::RenderScene* scene);
+    void prepare_text_resources_for_node(const rendering::RenderNode& node);
+    void prepare_text_resources_for_command_list(const rendering::RenderCommandList& commands);
+    void prepare_text_layout_resources(const rendering::TextLayout& layout,
+                                       const rendering::PreparedTextGlyphCoverageList* prepared);
+    [[nodiscard]] std::shared_ptr<const GlyphAtlasSnapshot> snapshot_glyph_atlas() const;
+    void assign_glyph_snapshot(RenderFrameAnalysis& analysis,
+                               std::shared_ptr<const GlyphAtlasSnapshot> snapshot) const;
+    void record_render_work_items(RenderFrameAnalysis& analysis, ID3D11RenderTargetView& target);
+    void record_work_item_to_command_list(RenderWorkItem& work_item,
+                                          ID3D11RenderTargetView& target);
+    void render_work_item_to_context(ID3D11DeviceContext& context, ID3D11RenderTargetView& target,
+                                     const RenderWorkItem& work_item, float dpi,
+                                     std::uint32_t target_pixel_width,
+                                     std::uint32_t target_pixel_height);
+    void submit_recorded_work_items(ID3D11DeviceContext& context, RenderFrameAnalysis& analysis);
+    [[nodiscard]] std::shared_ptr<D3D11DisplayListRenderer> acquire_worker_recorder();
+    void release_worker_recorder(std::shared_ptr<D3D11DisplayListRenderer> recorder);
+    void ensure_worker_recorder_pool(std::size_t recorder_count);
+    void adopt_glyph_atlas_snapshot(const GlyphAtlasSnapshot& snapshot);
 
     void create_pipeline(ID3D11Device& device);
     void rebuild_pipeline_cache() noexcept;
@@ -223,14 +370,16 @@ class D3D11DisplayListRenderer final {
     void end_frame();
     void render_node(const rendering::RenderNode& node,
                      std::span<const D3D11RenderDirtyClip> dirty_clips,
-                     const D3D11RenderResourceCache& resource_cache, bool force_commands = false);
+                     const D3D11RenderResourceCache::Snapshot& resource_snapshot,
+                     bool force_commands = false);
     void render_command_list(const rendering::RenderCommandList& commands,
                              std::span<const D3D11RenderDirtyClip> dirty_clips,
-                             const D3D11RenderResourceCache& resource_cache, bool force_commands);
+                             const D3D11RenderResourceCache::Snapshot& resource_snapshot,
+                             bool force_commands);
     void clear_dirty_region(core::Color clear_color,
                             std::span<const D3D11RenderDirtyClip> dirty_clips);
     void render_command(const rendering::RenderCommandList& commands, std::size_t opcode_index,
-                        const D3D11RenderResourceCache& resource_cache);
+                        const D3D11RenderResourceCache::Snapshot& resource_snapshot);
     void push_clip(core::Rect rect);
     void push_device_clip(core::Rect rect);
     void pop_clip();
@@ -273,7 +422,7 @@ class D3D11DisplayListRenderer final {
                          const rendering::GeometryStrokeStyle& style, bool closed);
     void draw_image(rendering::RenderResourceId resource_id,
                     const rendering::RenderImageOptions& options,
-                    const D3D11RenderResourceCache& resource_cache);
+                    const D3D11RenderResourceCache::Snapshot& resource_snapshot);
     void append_batch_vertices(std::span<const Vertex> vertices);
     void submit_vertices(std::span<const Vertex> vertices, ID3D11ShaderResourceView* texture,
                          TextureSamplingMode texture_mode = TextureSamplingMode::None);
@@ -316,6 +465,9 @@ class D3D11DisplayListRenderer final {
     void clear_glyph_atlas_dirty() noexcept;
     void reset_glyph_atlas();
     void prune_frame_caches_if_needed();
+    [[nodiscard]] const rendering::TextLayout*
+    prepared_draw_text_layout_for(const rendering::RenderCommandList& commands,
+                                  std::size_t opcode_index) const noexcept;
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
     Microsoft::WRL::ComPtr<ID3D11VertexShader> vertex_shader_;
@@ -336,7 +488,7 @@ class D3D11DisplayListRenderer final {
     Microsoft::WRL::ComPtr<ID3D11DepthStencilState> stencil_decrement_state_;
     Microsoft::WRL::ComPtr<ID3D11Texture2D> glyph_atlas_texture_;
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> glyph_atlas_view_;
-    Microsoft::WRL::ComPtr<ID3D11DeviceContext> deferred_context_;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> primary_deferred_context_;
     std::array<CachedDrawPipeline, static_cast<std::size_t>(PipelineVariant::Count)>
         draw_pipeline_cache_{};
 
@@ -347,33 +499,20 @@ class D3D11DisplayListRenderer final {
     float target_dip_height_ = 1.0F;
     std::uint32_t target_pixel_width_ = 1U;
     std::uint32_t target_pixel_height_ = 1U;
-    std::vector<DrawState> state_stack_;
-    std::vector<Vertex> batch_vertices_;
-    const rendering::RenderFrameGraph* active_frame_graph_ = nullptr;
-    ID3D11ShaderResourceView* batch_texture_ = nullptr;
-    TextureSamplingMode batch_texture_mode_ = TextureSamplingMode::None;
-    std::uint8_t batch_stencil_depth_ = 0U;
-    bool batch_active_ = false;
-    ID3D11BlendState* bound_blend_state_ = nullptr;
-    ID3D11DepthStencilState* bound_depth_stencil_state_ = nullptr;
-    std::uint8_t bound_stencil_reference_ = 0U;
-    ID3D11ShaderResourceView* bound_shader_resource_ = nullptr;
+    RecorderState recorder_state_{};
     std::uint64_t frame_sequence_ = 0U;
     std::uint64_t next_cache_prune_frame_ = 32U;
     PrimitivePointCache primitive_point_cache_;
-    std::vector<Vertex> primitive_vertices_;
     std::vector<TransformedGeometryFill> transformed_geometry_fill_cache_;
-    std::vector<PositionedTextGlyph> positioned_text_glyphs_;
-    std::vector<std::size_t> outline_text_glyph_indices_;
     std::vector<CachedTextGlyphRun> text_glyph_run_cache_;
     std::vector<D3D11RenderDirtyClip> frame_dirty_clips_;
-    std::vector<std::uint32_t> light_plan_command_indices_;
     std::unique_ptr<RenderPlanCacheState> render_plan_cache_;
     std::size_t applied_frame_graph_plan_key_ = 0U;
     std::size_t applied_frame_graph_plan_vertices_ = 0U;
     std::unordered_map<GlyphAtlasKey, GlyphAtlasEntry, GlyphAtlasKeyHash> glyph_atlas_entries_;
     std::unordered_map<TextFaceKey, Microsoft::WRL::ComPtr<IDWriteFontFace>, TextFaceKeyHash>
         text_face_cache_;
+    std::vector<PreparedDrawTextLayoutSnapshot> prepared_draw_text_layouts_;
     std::vector<std::byte> glyph_atlas_pixels_;
     std::uint32_t glyph_atlas_cursor_x_ = 0U;
     std::uint32_t glyph_atlas_cursor_y_ = 0U;
@@ -384,11 +523,11 @@ class D3D11DisplayListRenderer final {
     std::uint32_t glyph_atlas_dirty_top_ = 0U;
     std::uint32_t glyph_atlas_dirty_right_ = 0U;
     std::uint32_t glyph_atlas_dirty_bottom_ = 0U;
-    bool constant_buffer_state_valid_ = false;
-    float uploaded_constant_target_width_ = 0.0F;
-    float uploaded_constant_target_height_ = 0.0F;
-    float uploaded_constant_textured_ = -1.0F;
-    float uploaded_constant_texture_mode_ = -1.0F;
+    std::vector<std::shared_ptr<D3D11DisplayListRenderer>> worker_recorders_;
+    mutable std::mutex worker_recorder_mutex_;
+    RenderTimingMetrics last_timing_metrics_{};
+    bool parallel_recording_enabled_ = true;
+    bool resource_updates_allowed_ = true;
 };
 
 } // namespace winelement::platform::win32
