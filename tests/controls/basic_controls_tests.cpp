@@ -732,6 +732,26 @@ TEST(BasicControlsTests, ButtonHandlesPointerAndKeyboardClick) {
     EXPECT_EQ(command_text_style(*text_command).alignment, TextAlignment::Center);
 }
 
+TEST(BasicControlsTests, ButtonIntrinsicHeightsMatchElementPlusSizes) {
+    auto engine = create_unrounded_engine();
+    StackPanel root;
+    root.bind_layout_tree(engine);
+    root.set_orientation(Orientation::Horizontal).set_gap(8.0F).set_align_items(Align::FlexStart);
+
+    auto& large = root.append_new_child<Button>();
+    large.set_text("Large").set_size(ButtonSize::Large);
+    auto& normal = root.append_new_child<Button>();
+    normal.set_text("Default");
+    auto& small = root.append_new_child<Button>();
+    small.set_text("Small").set_size(ButtonSize::Small);
+
+    root.calculate_layout(LayoutConstraints{.width = 360.0F, .height = 80.0F});
+
+    EXPECT_FLOAT_EQ(large.frame().height, 40.0F);
+    EXPECT_FLOAT_EQ(normal.frame().height, 32.0F);
+    EXPECT_FLOAT_EQ(small.frame().height, 24.0F);
+}
+
 TEST(BasicControlsTests, ButtonLoadingAnimationUsesBuiltInSvgIconAndFrameTick) {
     auto engine = create_unrounded_engine();
     Panel root;
@@ -1353,7 +1373,7 @@ TEST(BasicControlsTests, ClearAffordancesUseHandCursor) {
 
     const auto input_frame = input.absolute_frame();
     const auto input_clear_point =
-        Point{input_frame.x + input_frame.width - 24.0F, input_frame.y + input_frame.height * 0.5F};
+        Point{input_frame.x + input_frame.width - 24.0F, input_frame.y + 2.0F};
     static_cast<void>(router.route_pointer_event(
         PointerEvent{.kind = PointerEventKind::Move, .position = input_clear_point}));
     EXPECT_EQ(router.cursor_for_point(input_clear_point), PointerCursor::Hand);
@@ -1361,7 +1381,7 @@ TEST(BasicControlsTests, ClearAffordancesUseHandCursor) {
     const auto select_frame = select.absolute_frame();
     const auto select_clear_point =
         Point{select_frame.x + select_frame.width - select.style().padding.right - 28.0F,
-              select_frame.y + select_frame.height * 0.5F};
+              select_frame.y + 2.0F};
     static_cast<void>(router.route_pointer_event(
         PointerEvent{.kind = PointerEventKind::Move, .position = select_clear_point}));
     EXPECT_EQ(router.cursor_for_point(select_clear_point), PointerCursor::Hand);
@@ -2472,7 +2492,7 @@ TEST(BasicControlsTests, ButtonTextLayoutIsVerticallyCenteredInContentBox) {
     EXPECT_EQ(command_text_style(*text_command).trimming, TextTrimming::CharacterEllipsis);
 }
 
-TEST(BasicControlsTests, ButtonUsesSvgIconAndPaintsClickPulse) {
+TEST(BasicControlsTests, ButtonUsesSvgIconAndElementPlusActiveBorder) {
     auto engine = create_unrounded_engine();
     Button button;
     button.bind_layout_tree(engine);
@@ -2492,6 +2512,19 @@ TEST(BasicControlsTests, ButtonUsesSvgIconAndPaintsClickPulse) {
                                                       .position = Point{8.0F, 8.0F},
                                                       .button = PointerButton::Primary})
                     .handled);
+    const auto now = winelement::animation::AnimationClockType::now();
+    EXPECT_TRUE(button.tick_animations(now + std::chrono::milliseconds(80)));
+
+    RenderCommandRecorder active_context;
+    button.paint(active_context);
+    const auto active_border =
+        std::find_if(active_context.commands().begin(), active_context.commands().end(),
+                     [&](const auto& command) {
+                         return command.type() == RenderCommandType::StrokeRoundedRect &&
+                                command_stroke_color(command) == button.style().focus_border_color;
+                     });
+    ASSERT_NE(active_border, active_context.commands().end());
+
     ASSERT_TRUE(router
                     .route_pointer_event(PointerEvent{.kind = PointerEventKind::Up,
                                                       .position = Point{8.0F, 8.0F},
@@ -2501,7 +2534,7 @@ TEST(BasicControlsTests, ButtonUsesSvgIconAndPaintsClickPulse) {
     RenderCommandRecorder click_context;
     button.paint(click_context);
     EXPECT_GE(command_count(click_context, RenderCommandType::FillGeometry), 1U);
-    EXPECT_GT(command_count(click_context, RenderCommandType::FillRoundedRect),
+    EXPECT_EQ(command_count(click_context, RenderCommandType::FillRoundedRect),
               command_count(icon_context, RenderCommandType::FillRoundedRect));
 }
 
@@ -3522,6 +3555,72 @@ TEST(BasicControlsTests, VerticalScrollbarDragSynchronizesViewportScrollOffset) 
     EXPECT_GT(scrollbar.value(), 100.0F);
     EXPECT_FLOAT_EQ(viewport.scroll_offset().y, scrollbar.value());
     EXPECT_LT(content.absolute_frame().y, initial_content_y - 100.0F);
+}
+
+TEST(BasicControlsTests, HorizontalScrollbarDragSynchronizesViewportScrollOffset) {
+    auto engine = create_unrounded_engine();
+    StackPanel root;
+    root.bind_layout_tree(engine);
+    root.set_orientation(Orientation::Vertical).set_gap(8.0F);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(240.0F), Length::points(120.0F));
+    });
+
+    auto& viewport = root.append_new_child<Panel>();
+    viewport.set_viewport(Rect{0.0F, 0.0F, 220.0F, 84.0F}).set_overflow(Overflow::Hidden);
+    viewport.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(220.0F), Length::points(84.0F)).set_flex_shrink(0.0F);
+    });
+
+    auto& content = viewport.append_new_child<StackPanel>();
+    content.set_orientation(Orientation::Horizontal).set_gap(8.0F).set_wrap(Wrap::NoWrap);
+    content.configure_layout([](LayoutElement& layout) {
+        layout.set_width(Length::points(520.0F))
+            .set_height(Length::points(84.0F))
+            .set_flex_shrink(0.0F);
+    });
+    for (auto index = 0; index < 5; ++index) {
+        auto& item = content.append_new_child<Border>();
+        item.configure_layout([](LayoutElement& layout) {
+            layout.set_size(Length::points(96.0F), Length::points(64.0F)).set_flex_shrink(0.0F);
+        });
+    }
+
+    auto& scrollbar = root.append_new_child<Scrollbar>();
+    scrollbar.set_orientation(ScrollbarOrientation::Horizontal)
+        .set_range(0.0F, 300.0F, 220.0F)
+        .set_always_visible(true)
+        .set_on_scroll_data([&viewport](ScrollbarScrollData data) {
+            viewport.set_scroll_offset(Point{data.scroll_left, 0.0F});
+        });
+    scrollbar.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(220.0F), Length::points(12.0F)).set_flex_shrink(0.0F);
+    });
+
+    root.calculate_layout(LayoutConstraints{.width = 240.0F, .height = 120.0F});
+    const auto initial_content_x = content.absolute_frame().x;
+
+    EventRouter router(root);
+    const auto bar = scrollbar.absolute_frame();
+    const auto y = bar.y + bar.height * 0.5F;
+    EXPECT_TRUE(router
+                    .route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
+                                                      .position = Point{bar.x + 8.0F, y},
+                                                      .button = PointerButton::Primary})
+                    .handled);
+    EXPECT_TRUE(router
+                    .route_pointer_event(PointerEvent{.kind = PointerEventKind::Move,
+                                                      .position = Point{bar.x + 170.0F, y}})
+                    .handled);
+    EXPECT_TRUE(router
+                    .route_pointer_event(PointerEvent{.kind = PointerEventKind::Up,
+                                                      .position = Point{bar.x + 170.0F, y},
+                                                      .button = PointerButton::Primary})
+                    .handled);
+
+    EXPECT_GT(scrollbar.value(), 180.0F);
+    EXPECT_FLOAT_EQ(viewport.scroll_offset().x, scrollbar.value());
+    EXPECT_LT(content.absolute_frame().x, initial_content_x - 180.0F);
 }
 
 TEST(BasicControlsTests, SelectUsesSvgIconArrowAndAnimatedDropdownLayer) {

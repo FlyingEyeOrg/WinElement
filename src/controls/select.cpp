@@ -1051,7 +1051,8 @@ void Select::on_paint(rendering::RenderContext& context, layout::Rect absolute_f
         winelement::style::rectangle_style_from(style, background, border));
 
     auto content = detail::inset_rect(absolute_frame, style.padding);
-    const auto clear_visible = clearable_ && selected_index_ && hovered_ && !disabled_ && !loading_;
+    const auto has_value = selected_index_.has_value() || !selected_indices_.empty();
+    const auto clear_visible = clearable_ && has_value && hovered_ && !disabled_ && !loading_;
     content.width = std::max(0.0F, content.width - arrow_width * (clear_visible ? 2.0F : 1.0F));
     const auto draw_plain_label = [&]() {
         const auto label = loading_          ? std::string("Loading")
@@ -1283,7 +1284,8 @@ std::optional<std::size_t> Select::tag_close_index_at(layout::Point local_positi
     const auto style = resolved_style();
     const auto local_frame = layout::Rect{0.0F, 0.0F, frame().width, frame().height};
     auto content = detail::inset_rect(local_frame, style.padding);
-    const auto clear_visible = clearable_ && selected_index_ && hovered_;
+    const auto has_value = selected_index_.has_value() || !selected_indices_.empty();
+    const auto clear_visible = clearable_ && has_value && hovered_;
     content.width = std::max(0.0F, content.width - arrow_width * (clear_visible ? 2.0F : 1.0F));
     if (!contains_local_point(content, local_position)) {
         return std::nullopt;

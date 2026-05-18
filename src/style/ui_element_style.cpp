@@ -35,7 +35,7 @@ namespace {
     constexpr auto colors = element_colors();
     auto style = UIElementStyle{.background = colors.neutral.fill_blank,
                                 .hover_background = colors.primary.light9,
-                                .active_background = colors.primary.light9,
+                                .active_background = colors.neutral.fill_blank,
                                 .read_only_background = colors.neutral.fill_blank,
                                 .border_color = colors.neutral.border_base,
                                 .focus_border_color = colors.primary.base,

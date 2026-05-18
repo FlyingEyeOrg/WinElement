@@ -2568,13 +2568,13 @@ Input::Geometry Input::create_geometry(layout::Rect frame) const {
         suffix_x += width;
     }
     if (geometry.has_clear_button) {
-        geometry.clear_button_rect = layout::Rect{suffix_x, geometry.text_rect.y,
-                                                  default_icon_extent, geometry.text_rect.height};
+        geometry.clear_button_rect = layout::Rect{
+            suffix_x, geometry.control_rect.y, default_icon_extent, geometry.control_rect.height};
         suffix_x += default_icon_extent;
     }
     if (geometry.has_password_button) {
         geometry.password_button_rect = layout::Rect{
-            suffix_x, geometry.text_rect.y, default_icon_extent, geometry.text_rect.height};
+            suffix_x, geometry.control_rect.y, default_icon_extent, geometry.control_rect.height};
         suffix_x += default_icon_extent;
     }
     if (geometry.has_inside_word_limit) {

@@ -573,21 +573,12 @@ void Button::on_paint(rendering::RenderContext& context, layout::Rect absolute_f
     const auto background = disabled_ ? current_style.read_only_background : interactive_background;
     const auto hover_border = animation::interpolate_value(
         current_style.border_color, current_style.semantic.hover_border, focus_hover_progress);
-    const auto border = focus_visible_ ? current_style.focus_border_color : hover_border;
+    const auto active_border = animation::interpolate_value(
+        hover_border, current_style.focus_border_color, pressed_progress);
+    const auto border = focus_visible_ ? current_style.focus_border_color : active_border;
     const auto is_link = has_flag(flags_, ButtonFlag::LinkVariant);
     style::paint_rectangle(context, absolute_frame,
                            style::rectangle_style_from(style_storage(), background, border));
-
-    const auto click_progress = animated_click_progress();
-    if (click_progress > 0.0F && !disabled_) {
-        const auto pulse_alpha =
-            static_cast<std::uint8_t>(std::clamp(std::round(42.0F * click_progress), 0.0F, 42.0F));
-        context.fill_rounded_rect(absolute_frame, style_storage().corner_radius,
-                                  rendering::Color::rgba(style_storage().focus_border_color.red,
-                                                         style_storage().focus_border_color.green,
-                                                         style_storage().focus_border_color.blue,
-                                                         pulse_alpha));
-    }
 
     const auto content_rect = detail::inset_rect(absolute_frame, style_storage().padding);
     if (!std::isfinite(content_rect.width) || !std::isfinite(content_rect.height) ||
@@ -698,9 +689,7 @@ void Button::update_measure_callback() {
         return layout::Size{std::max(text_size.width + icon_width + style_storage().padding.left +
                                          style_storage().padding.right + indicator_width,
                                      min_width),
-                            std::max(text_size.height + style_storage().padding.top +
-                                         style_storage().padding.bottom,
-                                     style_storage().min_height)};
+                            style_storage().min_height};
     });
 }
 
@@ -739,11 +728,11 @@ void Button::apply_type_style(style::UIElementStyle& next_style) const {
     switch (size_) {
     case ButtonSize::Large:
         next_style.min_height = 40.0F;
-        next_style.padding = layout::EdgeInsets{19.0F, 12.0F, 19.0F, 12.0F};
+        next_style.padding = layout::EdgeInsets{19.0F, 11.0F, 19.0F, 11.0F};
         break;
     case ButtonSize::Small:
         next_style.min_height = 24.0F;
-        next_style.padding = layout::EdgeInsets{11.0F, 5.0F, 11.0F, 5.0F};
+        next_style.padding = layout::EdgeInsets{11.0F, 4.0F, 11.0F, 4.0F};
         next_style.font_size = 12.0F;
         break;
     case ButtonSize::Default:

@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -122,6 +123,30 @@ controls::StackPanel& add_demo_group(controls::StackPanel& parent, std::string_v
     return "Info";
 }
 
+[[nodiscard]] std::string message_box_action_label(controls::MessageBoxAction action) {
+    switch (action) {
+    case controls::MessageBoxAction::Confirm:
+        return "confirm";
+    case controls::MessageBoxAction::Cancel:
+        return "cancel";
+    case controls::MessageBoxAction::Close:
+        return "close";
+    }
+    return "close";
+}
+
+[[nodiscard]] std::string dialog_action_label(controls::DialogAction action) {
+    switch (action) {
+    case controls::DialogAction::Confirm:
+        return "confirm";
+    case controls::DialogAction::Cancel:
+        return "cancel";
+    case controls::DialogAction::Close:
+        return "close";
+    }
+    return "close";
+}
+
 [[nodiscard]] std::string easing_curve_label(animation::EasingCurve curve) {
     switch (curve) {
     case animation::EasingCurve::Linear:
@@ -180,9 +205,9 @@ void add_button_section(controls::StackPanel& root) {
     add_button(type_row, "Default", controls::ButtonType::Default);
     add_button(type_row, "Primary", controls::ButtonType::Primary);
     add_button(type_row, "Success", controls::ButtonType::Success);
+    add_button(type_row, "Info", controls::ButtonType::Info);
     add_button(type_row, "Warning", controls::ButtonType::Warning);
     add_button(type_row, "Danger", controls::ButtonType::Danger);
-    add_button(type_row, "Info", controls::ButtonType::Info);
     add_button(type_row, "Text", controls::ButtonType::Text).set_text_variant(true);
 
     auto& plain_row = section.append_new_child<controls::StackPanel>();
@@ -190,9 +215,54 @@ void add_button_section(controls::StackPanel& root) {
     add_button(plain_row, "Plain", controls::ButtonType::Default).set_plain(true);
     add_button(plain_row, "Primary", controls::ButtonType::Primary).set_plain(true);
     add_button(plain_row, "Success", controls::ButtonType::Success).set_plain(true);
+    add_button(plain_row, "Info", controls::ButtonType::Info).set_plain(true);
     add_button(plain_row, "Warning", controls::ButtonType::Warning).set_plain(true);
     add_button(plain_row, "Danger", controls::ButtonType::Danger).set_plain(true);
-    add_button(plain_row, "Info", controls::ButtonType::Info).set_plain(true);
+
+    auto& round_row = section.append_new_child<controls::StackPanel>();
+    configure_row(round_row);
+    add_button(round_row, "Round", controls::ButtonType::Default).set_round(true);
+    add_button(round_row, "Primary", controls::ButtonType::Primary).set_round(true);
+    add_button(round_row, "Success", controls::ButtonType::Success).set_round(true);
+    add_button(round_row, "Info", controls::ButtonType::Info).set_round(true);
+    add_button(round_row, "Warning", controls::ButtonType::Warning).set_round(true);
+    add_button(round_row, "Danger", controls::ButtonType::Danger).set_round(true);
+
+    auto& dashed_row = section.append_new_child<controls::StackPanel>();
+    configure_row(dashed_row);
+    add_button(dashed_row, "Dashed", controls::ButtonType::Default).set_dashed(true);
+    add_button(dashed_row, "Primary", controls::ButtonType::Primary)
+        .set_plain(true)
+        .set_dashed(true);
+    add_button(dashed_row, "Success", controls::ButtonType::Success)
+        .set_plain(true)
+        .set_dashed(true);
+    add_button(dashed_row, "Info", controls::ButtonType::Info).set_plain(true).set_dashed(true);
+    add_button(dashed_row, "Warning", controls::ButtonType::Warning)
+        .set_plain(true)
+        .set_dashed(true);
+    add_button(dashed_row, "Danger", controls::ButtonType::Danger).set_plain(true).set_dashed(true);
+
+    auto& icon_row = section.append_new_child<controls::StackPanel>();
+    configure_row(icon_row);
+    add_button(icon_row, "", controls::ButtonType::Default)
+        .set_circle(true)
+        .set_icon_paths(elements::icons::Search);
+    add_button(icon_row, "", controls::ButtonType::Primary)
+        .set_circle(true)
+        .set_icon_paths(elements::icons::Edit);
+    add_button(icon_row, "", controls::ButtonType::Success)
+        .set_circle(true)
+        .set_icon_paths(elements::icons::Check);
+    add_button(icon_row, "", controls::ButtonType::Info)
+        .set_circle(true)
+        .set_icon_paths(elements::icons::Message);
+    add_button(icon_row, "", controls::ButtonType::Warning)
+        .set_circle(true)
+        .set_icon_paths(elements::icons::Star);
+    add_button(icon_row, "", controls::ButtonType::Danger)
+        .set_circle(true)
+        .set_icon_paths(elements::icons::Delete);
 
     auto& variant_row = section.append_new_child<controls::StackPanel>();
     configure_row(variant_row);
@@ -200,11 +270,6 @@ void add_button_section(controls::StackPanel& root) {
         .set_size(controls::ButtonSize::Large);
     add_button(variant_row, "Small", controls::ButtonType::Default)
         .set_size(controls::ButtonSize::Small);
-    add_button(variant_row, "Round", controls::ButtonType::Warning).set_round(true);
-    add_button(variant_row, "", controls::ButtonType::Primary)
-        .set_circle(true)
-        .set_icon_paths(elements::icons::Search);
-    add_button(variant_row, "Dashed", controls::ButtonType::Info).set_dashed(true);
     add_button(variant_row, "Link", controls::ButtonType::Text).set_link_variant(true);
     add_button(variant_row, "Loading", controls::ButtonType::Primary).set_loading(true);
     add_button(variant_row, "Disabled", controls::ButtonType::Default).set_disabled(true);
@@ -358,7 +423,10 @@ void add_choice_scroll_section(controls::StackPanel& root) {
     vertical.set_orientation(controls::ScrollbarOrientation::Vertical)
         .set_visibility_mode(controls::ScrollbarVisibility::Always)
         .set_range(0.0F, 384.0F, 156.0F)
-        .set_value(96.0F);
+        .set_value(96.0F)
+        .set_on_scroll([&vertical_viewport](float value) {
+            vertical_viewport.set_scroll_offset(layout::Point{0.0F, value});
+        });
     vertical.configure_layout([](layout::LayoutElement& item) {
         item.set_size(layout::Length::points(14.0F), layout::Length::points(156.0F))
             .set_flex_shrink(0.0F);
@@ -408,7 +476,10 @@ void add_choice_scroll_section(controls::StackPanel& root) {
     horizontal.set_orientation(controls::ScrollbarOrientation::Horizontal)
         .set_visibility_mode(controls::ScrollbarVisibility::Always)
         .set_range(0.0F, 860.0F, 540.0F)
-        .set_value(180.0F);
+        .set_value(180.0F)
+        .set_on_scroll([&horizontal_viewport](float value) {
+            horizontal_viewport.set_scroll_offset(layout::Point{value, 0.0F});
+        });
     horizontal.configure_layout([](layout::LayoutElement& item) {
         item.set_size(layout::Length::points(540.0F), layout::Length::points(14.0F))
             .set_flex_shrink(0.0F);
@@ -494,106 +565,123 @@ void add_feedback_section(controls::StackPanel& root) {
                             controls::MessageType::Warning, controls::MessageType::Info,
                             controls::MessageType::Error}) {
         const auto label = message_type_label(type);
-        auto& message = message_row.append_new_child<controls::Message>();
-        message.set_text(label + " message").set_type(type).set_show_close(true);
-        message.configure_layout([](layout::LayoutElement& item) {
-            item.set_width(layout::Length::points(260.0F))
-                .set_min_height(layout::Length::points(44.0F))
-                .set_flex_shrink(0.0F);
+        auto& button = add_button(message_row, "Show " + label, controls::ButtonType::Default);
+        button.set_on_click([&root, type, label]() {
+            controls::Message::show(root, controls::MessageOptions{.text = label + " message",
+                                                                   .type = type,
+                                                                   .show_close = true});
         });
     }
 
     auto& message_boxes = add_demo_group(section, "MessageBox");
     auto& box_row = message_boxes.append_new_child<controls::StackPanel>();
     configure_row(box_row);
-    box_row.append_new_child<controls::MessageBox>()
-        .set_title("Alert")
-        .set_message("Simple notification with one primary action.")
-        .set_kind(controls::MessageBoxKind::Alert)
-        .set_type(controls::MessageType::Info)
-        .set_show_cancel_button(false)
-        .configure_layout([](layout::LayoutElement& item) {
-            item.set_width(layout::Length::points(400.0F))
-                .set_min_height(layout::Length::points(150.0F))
-                .set_flex_shrink(0.0F);
-        });
-    box_row.append_new_child<controls::MessageBox>()
-        .set_title("Confirm")
-        .set_message("Confirm and cancel actions with close distinction.")
-        .set_kind(controls::MessageBoxKind::Confirm)
-        .set_type(controls::MessageType::Warning)
-        .set_distinguish_cancel_and_close(true)
-        .set_draggable(true)
-        .configure_layout([](layout::LayoutElement& item) {
-            item.set_width(layout::Length::points(400.0F))
-                .set_min_height(layout::Length::points(150.0F))
-                .set_flex_shrink(0.0F);
-        });
-    box_row.append_new_child<controls::MessageBox>()
-        .set_title("Prompt")
-        .set_message("Input validation, loading confirm and centered layout.")
-        .set_kind(controls::MessageBoxKind::Prompt)
-        .set_type(controls::MessageType::Success)
-        .set_input_placeholder("Project name")
-        .set_input_text("WinElement")
-        .set_input_error_message("Project name is required")
-        .set_confirm_loading(true)
-        .set_center(true)
-        .set_content_builder([](controls::StackPanel& content) {
-            content.append_new_child<controls::Text>()
-                .set_text("Custom content builder")
-                .set_type(controls::TextType::Info)
-                .set_size(controls::TextSize::Small);
-        })
-        .configure_layout([](layout::LayoutElement& item) {
-            item.set_width(layout::Length::points(400.0F))
-                .set_min_height(layout::Length::points(220.0F))
-                .set_flex_shrink(0.0F);
-        });
+    add_button(box_row, "Alert", controls::ButtonType::Info).set_on_click([&root]() {
+        controls::MessageBox::show(
+            root,
+            controls::MessageBoxOptions{.title = "Alert",
+                                        .message = "Simple notification with one primary action.",
+                                        .kind = controls::MessageBoxKind::Alert,
+                                        .type = controls::MessageType::Info,
+                                        .show_cancel_button = false});
+    });
+    add_button(box_row, "Confirm", controls::ButtonType::Warning).set_on_click([&root]() {
+        controls::MessageBox::show(
+            root, controls::MessageBoxOptions{
+                      .title = "Confirm",
+                      .message = "Confirm and cancel actions with close distinction.",
+                      .kind = controls::MessageBoxKind::Confirm,
+                      .type = controls::MessageType::Warning,
+                      .distinguish_cancel_and_close = true,
+                      .draggable = true,
+                      .on_action = [&root](controls::MessageBoxAction action, std::string value) {
+                          static_cast<void>(value);
+                          controls::Message::show(
+                              root, controls::MessageOptions{
+                                        .text = "MessageBox " + message_box_action_label(action),
+                                        .type = controls::MessageType::Info,
+                                        .show_close = true});
+                      }});
+    });
+    add_button(box_row, "Prompt", controls::ButtonType::Success).set_on_click([&root]() {
+        controls::MessageBox::show(
+            root, controls::MessageBoxOptions{
+                      .title = "Prompt",
+                      .message = "Input validation, loading confirm and centered layout.",
+                      .kind = controls::MessageBoxKind::Prompt,
+                      .type = controls::MessageType::Success,
+                      .input_placeholder = "Project name",
+                      .input_text = "WinElement",
+                      .confirm_loading = false,
+                      .center = true,
+                      .content_builder =
+                          [](controls::StackPanel& content) {
+                              content.append_new_child<controls::Text>()
+                                  .set_text("Custom content builder")
+                                  .set_type(controls::TextType::Info)
+                                  .set_size(controls::TextSize::Small);
+                          },
+                      .input_error_message = "Project name is required",
+                      .input_validator = [](std::string_view value) -> std::optional<std::string> {
+                          return value.empty()
+                                     ? std::optional<std::string>{"Project name is required"}
+                                     : std::nullopt;
+                      },
+                      .on_action =
+                          [&root](controls::MessageBoxAction action, std::string value) {
+                              controls::Message::show(
+                                  root, controls::MessageOptions{
+                                            .text = "Prompt " + message_box_action_label(action) +
+                                                    ": " + value,
+                                            .type = controls::MessageType::Success,
+                                            .show_close = true});
+                          }});
+    });
 
     auto& dialogs = add_demo_group(section, "Dialog");
     auto& dialog_row = dialogs.append_new_child<controls::StackPanel>();
     configure_row(dialog_row);
-    dialog_row.append_new_child<controls::Dialog>()
-        .set_title("Dialog")
-        .set_body("Modal surface with header, body, footer, close and confirm actions.")
-        .set_show_cancel_button(true)
-        .set_draggable(true)
-        .configure_layout([](layout::LayoutElement& item) {
-            item.set_width(layout::Length::points(420.0F))
-                .set_min_height(layout::Length::points(210.0F))
-                .set_flex_shrink(0.0F);
-        });
-    dialog_row.append_new_child<controls::Dialog>()
-        .set_title("Compact dialog")
-        .set_body("A compact dialog variant without a cancel button.")
-        .set_show_cancel_button(false)
-        .set_draggable(false)
-        .configure_layout([](layout::LayoutElement& item) {
-            item.set_width(layout::Length::points(420.0F))
-                .set_min_height(layout::Length::points(190.0F))
-                .set_flex_shrink(0.0F);
-        });
+    add_button(dialog_row, "Open dialog", controls::ButtonType::Primary).set_on_click([&root]() {
+        controls::Dialog::show(
+            root, controls::DialogOptions{
+                      .title = "Dialog",
+                      .body = "Modal surface with header, body, footer, close and confirm actions.",
+                      .show_cancel_button = true,
+                      .draggable = true,
+                      .on_action = [&root](controls::DialogAction action) {
+                          controls::Message::show(
+                              root, controls::MessageOptions{.text = "Dialog " +
+                                                                     dialog_action_label(action),
+                                                             .type = controls::MessageType::Primary,
+                                                             .show_close = true});
+                      }});
+    });
+    add_button(dialog_row, "No cancel", controls::ButtonType::Default).set_on_click([&root]() {
+        controls::Dialog::show(
+            root,
+            controls::DialogOptions{.title = "Compact dialog",
+                                    .body = "A compact dialog variant without a cancel button.",
+                                    .show_cancel_button = false,
+                                    .draggable = false,
+                                    .width = 420.0F});
+    });
 
     auto& loading_group = add_demo_group(section, "Loading");
     auto& loading_row = loading_group.append_new_child<controls::StackPanel>();
     configure_row(loading_row);
-    loading_row.append_new_child<controls::Loading>()
-        .set_text("Loading service")
-        .set_active(true)
-        .set_spinner_color(rendering::Color::rgba(64, 158, 255))
-        .configure_layout([](layout::LayoutElement& item) {
-            item.set_size(layout::Length::points(260.0F), layout::Length::points(120.0F))
-                .set_flex_shrink(0.0F);
+    add_button(loading_row, "Loading service", controls::ButtonType::Primary)
+        .set_on_click([&root]() {
+            controls::Loading::show(
+                root, controls::LoadingOptions{.text = "Loading service", .fullscreen = false});
         });
-    loading_row.append_new_child<controls::Loading>()
-        .set_text("Custom color")
-        .set_active(true)
-        .set_background(rendering::Color::rgba(240, 249, 235, 224))
-        .set_spinner_color(rendering::Color::rgba(103, 194, 58))
-        .configure_layout([](layout::LayoutElement& item) {
-            item.set_size(layout::Length::points(260.0F), layout::Length::points(120.0F))
-                .set_flex_shrink(0.0F);
+    add_button(loading_row, "Custom loading", controls::ButtonType::Success)
+        .set_on_click([&root]() {
+            controls::Loading::show(
+                root,
+                controls::LoadingOptions{.text = "Custom color",
+                                         .background = rendering::Color::rgba(240, 249, 235, 224),
+                                         .spinner_color = rendering::Color::rgba(103, 194, 58),
+                                         .fullscreen = false});
         });
 }
 
@@ -814,7 +902,7 @@ int run_headless_showcase() {
     std::cout << "  styles: Element Plus semantic variants sizes status borders shadows text "
                  "states dark/custom\n";
     std::cout << "  scroll: vertical and horizontal viewports with clipped overflowing content\n";
-    std::cout << "  feedback: message message-box dialog loading split into dedicated blocks\n";
+    std::cout << "  feedback: message message-box dialog loading triggered from buttons\n";
     std::cout << "  animations: transforms shadows all easing curves timeline keyframes physics "
                  "implicit property\n";
     std::cout << "  render nodes: " << node_count << '\n';
