@@ -16,7 +16,7 @@
                 "CMAKE_CXX_STANDARD": "20",
                 "CMAKE_CXX_STANDARD_REQUIRED": "ON",
                 "CMAKE_CXX_EXTENSIONS": "OFF",
-                "VCPKG_MANIFEST_FEATURES": "tests"
+                "VCPKG_MANIFEST_FEATURES": ""
             }
         },
         {
@@ -70,24 +70,6 @@
             "displayName": "Build x86 Release",
             "configurePreset": "vs2022-x86",
             "configuration": "Release"
-        }
-    ],
-    "testPresets": [
-        {
-            "name": "vs2022-x64-debug-tests",
-            "configurePreset": "vs2022-x64",
-            "configuration": "Debug",
-            "output": {
-                "outputOnFailure": true
-            }
-        },
-        {
-            "name": "vs2022-x86-debug-tests",
-            "configurePreset": "vs2022-x86",
-            "configuration": "Debug",
-            "output": {
-                "outputOnFailure": true
-            }
         }
     ]
 }

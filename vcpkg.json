@@ -1,15 +1,5 @@
 {
   "dependencies": [
-    "fmt",
-    "nlohmann-json",
     "yoga"
-  ],
-  "features": {
-    "tests": {
-      "description": "Dependencies required to build and run WinElement tests.",
-      "dependencies": [
-        "gtest"
-      ]
-    }
-  }
+  ]
 }

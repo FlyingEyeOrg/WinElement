@@ -10,34 +10,34 @@
       "problemMatcher": []
     },
     {
-      "label": "cmake: debug winelement sample",
+      "label": "cmake: debug rendering",
       "type": "shell",
       "command": "cmake",
-      "args": ["--build", "--preset=vs2022-x64-debug", "--target", "winelement_winelement"],
+      "args": ["--build", "--preset=vs2022-x64-debug", "--target", "winelement_rendering"],
       "group": "build",
       "problemMatcher": ["$msCompile"]
     },
     {
-      "label": "cmake: debug controls gallery",
+      "label": "cmake: debug platform",
       "type": "shell",
       "command": "cmake",
-      "args": ["--build", "--preset=vs2022-x64-debug", "--target", "winelement_controls_gallery"],
+      "args": ["--build", "--preset=vs2022-x64-debug", "--target", "winelement_platform"],
       "group": "build",
       "problemMatcher": ["$msCompile"]
     },
     {
-      "label": "cmake: build winelement sample",
+      "label": "cmake: build rendering",
       "type": "shell",
       "command": "cmake",
-      "args": ["--build", "--preset=vs2022-x64-release", "--target", "winelement_winelement"],
+      "args": ["--build", "--preset=vs2022-x64-release", "--target", "winelement_rendering"],
       "group": "build",
       "problemMatcher": ["$msCompile"]
     },
     {
-      "label": "cmake: build controls gallery",
+      "label": "cmake: build platform",
       "type": "shell",
       "command": "cmake",
-      "args": ["--build", "--preset=vs2022-x64-release", "--target", "winelement_controls_gallery"],
+      "args": ["--build", "--preset=vs2022-x64-release", "--target", "winelement_platform"],
       "group": "build",
       "problemMatcher": ["$msCompile"]
     }
