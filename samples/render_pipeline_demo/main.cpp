@@ -41,6 +41,7 @@ constexpr std::uint32_t canvas_width = 1280U;
 constexpr std::uint32_t canvas_height = 2480U;
 constexpr float dpi = 96.0F;
 constexpr auto demo_texture_id = rendering::RenderResourceId{1001U};
+constexpr auto demo_circle_texture_id = rendering::RenderResourceId{1002U};
 constexpr float page_margin = 40.0F;
 constexpr float panel_gap = 28.0F;
 constexpr float panel_width = static_cast<float>(canvas_width) - page_margin * 2.0F;
@@ -122,6 +123,7 @@ struct DemoArtifacts {
     rendering::CompositorPromotionPlan promotion_plan;
     rendering::CompositorFrame compositor_frame;
     rendering::RenderResourceUpload image_upload;
+    rendering::RenderResourceUpload circle_image_upload;
     rendering::TextLayout text_layout;
     std::vector<layout::Rect> selection_rects;
     rendering::TextHitTestResult hit_test;
@@ -247,80 +249,6 @@ struct MessageDemoIconSpec {
     MessageDemoPalette palette;
 };
 
-struct BoundsAccumulator {
-    float left = std::numeric_limits<float>::max();
-    float top = std::numeric_limits<float>::max();
-    float right = std::numeric_limits<float>::lowest();
-    float bottom = std::numeric_limits<float>::lowest();
-
-    void add(layout::Point point) noexcept {
-        left = std::min(left, point.x);
-        top = std::min(top, point.y);
-        right = std::max(right, point.x);
-        bottom = std::max(bottom, point.y);
-    }
-
-    [[nodiscard]] layout::Rect rect() const noexcept {
-        if (left > right || top > bottom) {
-            return {0.0F, 0.0F, 0.0F, 0.0F};
-        }
-        return {left, top, right - left, bottom - top};
-    }
-};
-
-[[nodiscard]] layout::Rect approximate_geometry_bounds(const rendering::Geometry& geometry) {
-    BoundsAccumulator bounds;
-    for (const auto& figure : geometry.figures) {
-        auto current = figure.start;
-        bounds.add(current);
-        for (const auto& segment : figure.segments) {
-            bounds.add(segment.point);
-            bounds.add(segment.control_point1);
-            bounds.add(segment.control_point2);
-            if (segment.type == rendering::GeometrySegmentType::Arc) {
-                bounds.add({current.x - segment.radius.width, current.y - segment.radius.height});
-                bounds.add({current.x + segment.radius.width, current.y + segment.radius.height});
-                bounds.add({segment.point.x - segment.radius.width,
-                            segment.point.y - segment.radius.height});
-                bounds.add({segment.point.x + segment.radius.width,
-                            segment.point.y + segment.radius.height});
-            }
-            current = segment.point;
-        }
-    }
-    return bounds.rect();
-}
-
-[[nodiscard]] layout::Rect union_rect(layout::Rect left, layout::Rect right) noexcept {
-    if (left.width <= 0.0F || left.height <= 0.0F) {
-        return right;
-    }
-    if (right.width <= 0.0F || right.height <= 0.0F) {
-        return left;
-    }
-    const auto union_left = std::min(left.x, right.x);
-    const auto union_top = std::min(left.y, right.y);
-    const auto union_right = std::max(left.x + left.width, right.x + right.width);
-    const auto union_bottom = std::max(left.y + left.height, right.y + right.height);
-    return {union_left, union_top, union_right - union_left, union_bottom - union_top};
-}
-
-[[nodiscard]] rendering::Geometry fit_geometry_to_rect(const rendering::Geometry& geometry,
-                                                       layout::Rect source_bounds,
-                                                       layout::Rect target_rect) {
-    if (source_bounds.width <= 0.0F || source_bounds.height <= 0.0F ||
-        target_rect.width <= 0.0F || target_rect.height <= 0.0F) {
-        return geometry;
-    }
-    const auto scale =
-        std::min(target_rect.width / source_bounds.width, target_rect.height / source_bounds.height);
-    const auto offset_x = target_rect.x + (target_rect.width - source_bounds.width * scale) * 0.5F -
-                          source_bounds.x * scale;
-    const auto offset_y = target_rect.y + (target_rect.height - source_bounds.height * scale) * 0.5F -
-                          source_bounds.y * scale;
-    return transform_geometry(geometry, scale, {offset_x, offset_y});
-}
-
 void draw_svg_icon(rendering::RenderCommandRecorder& recorder,
                    std::span<const std::string_view> paths, core::Point offset, float size,
                    rendering::Color color) {
@@ -333,21 +261,10 @@ void draw_svg_icon(rendering::RenderCommandRecorder& recorder,
 void draw_svg_icon_in_box(rendering::RenderCommandRecorder& recorder,
                           std::span<const std::string_view> paths, layout::Rect rect,
                           rendering::Color color, float content_scale = 1.0F) {
-    const auto inset_x = (rect.width * (1.0F - content_scale)) * 0.5F;
-    const auto inset_y = (rect.height * (1.0F - content_scale)) * 0.5F;
-    const auto target_rect = layout::Rect{rect.x + inset_x, rect.y + inset_y,
-                                          rect.width - inset_x * 2.0F, rect.height - inset_y * 2.0F};
-    std::vector<rendering::Geometry> geometries;
-    geometries.reserve(paths.size());
-    auto combined_bounds = layout::Rect{0.0F, 0.0F, 0.0F, 0.0F};
-    for (const auto path : paths) {
-        auto geometry = rendering::parse_svg_path(path);
-        combined_bounds = union_rect(combined_bounds, approximate_geometry_bounds(geometry));
-        geometries.push_back(std::move(geometry));
-    }
-    for (const auto& geometry : geometries) {
-        recorder.fill_geometry(fit_geometry_to_rect(geometry, combined_bounds, target_rect), color);
-    }
+    const auto size = std::min(rect.width, rect.height) * content_scale;
+    draw_svg_icon(recorder, paths,
+                  {rect.x + (rect.width - size) * 0.5F, rect.y + (rect.height - size) * 0.5F},
+                  size, color);
 }
 
 void draw_svg_probe_tile(rendering::RenderCommandRecorder& recorder, layout::Rect rect,
@@ -518,13 +435,14 @@ make_wave_points(float start_x, float baseline_y, float width, float amplitude,
     return points;
 }
 
-[[nodiscard]] rendering::RenderResourceUpload make_demo_texture() {
+[[nodiscard]] rendering::RenderResourceUpload make_demo_texture(rendering::RenderResourceId id,
+                                                                bool circular_mask = false) {
     constexpr std::uint32_t width = 160U;
     constexpr std::uint32_t height = 160U;
     constexpr std::uint32_t stride = width * 4U;
 
     rendering::RenderResourceUpload upload;
-    upload.id = demo_texture_id;
+    upload.id = id;
     upload.action = rendering::RenderResourceAction::Upload;
     upload.kind = rendering::RenderResourceKind::Image;
     upload.format = rendering::RenderResourceFormat::Bgra8Premultiplied;
@@ -540,12 +458,23 @@ make_wave_points(float start_x, float baseline_y, float width, float amplitude,
             const auto blue = static_cast<std::uint8_t>(32U + (x * 180U) / width);
             const auto green = static_cast<std::uint8_t>(70U + (y * 150U) / height);
             const auto red = static_cast<std::uint8_t>(checker == 0U ? 230U : 120U);
-            const auto alpha = static_cast<std::uint8_t>(255U - ((x + y) % 28U));
+            auto alpha = static_cast<float>(255U - ((x + y) % 28U));
+            if (circular_mask) {
+                const auto center_x = (static_cast<float>(width) - 1.0F) * 0.5F;
+                const auto center_y = (static_cast<float>(height) - 1.0F) * 0.5F;
+                const auto dx = static_cast<float>(x) - center_x;
+                const auto dy = static_cast<float>(y) - center_y;
+                const auto distance = std::sqrt(dx * dx + dy * dy);
+                const auto radius = 71.0F;
+                const auto feather = 2.25F;
+                const auto coverage = std::clamp((radius + feather - distance) / feather, 0.0F, 1.0F);
+                alpha *= coverage;
+            }
             const auto offset = static_cast<std::size_t>(y) * stride + static_cast<std::size_t>(x) * 4U;
             upload.payload[offset + 0U] = static_cast<std::byte>(blue);
             upload.payload[offset + 1U] = static_cast<std::byte>(green);
             upload.payload[offset + 2U] = static_cast<std::byte>(red);
-            upload.payload[offset + 3U] = static_cast<std::byte>(alpha);
+            upload.payload[offset + 3U] = static_cast<std::byte>(static_cast<std::uint8_t>(alpha));
         }
     }
 
@@ -561,7 +490,8 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
 
 [[nodiscard]] DemoArtifacts build_demo() {
     DemoArtifacts demo;
-    demo.image_upload = make_demo_texture();
+    demo.image_upload = make_demo_texture(demo_texture_id);
+    demo.circle_image_upload = make_demo_texture(demo_circle_texture_id, true);
 
     rendering::TextEngine text_engine;
     rendering::TextStyle body_style;
@@ -818,15 +748,11 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
                                                     .offset = {5.0F, 7.0F},
                                                     .blur_radius = 14.0F,
                                                     .spread = 2.0F});
-    recorder.draw_image(demo_texture_id,
+    recorder.draw_image(demo_circle_texture_id,
                         rendering::RenderImageOptions{.destination = {geometry_panel.x + 316.0F, geometry_panel.y + 128.0F, 164.0F, 164.0F},
                                                       .source = {0.0F, 0.0F, 160.0F, 160.0F},
                                                       .opacity = 0.94F});
     recorder.pop_geometry_clip();
-    recorder.stroke_ellipse({geometry_panel.x + 316.0F, geometry_panel.y + 128.0F, 140.0F, 140.0F},
-                            rendering::Color::rgba(255, 255, 255, 220), 2.0F);
-    recorder.stroke_ellipse({geometry_panel.x + 316.5F, geometry_panel.y + 128.5F, 139.0F, 139.0F},
-                            rendering::Color::rgba(191, 204, 224, 150), 1.0F);
 
     recorder.draw_text("Message icon outline + flap", {geometry_panel.x + 56.0F, geometry_panel.y + 374.0F,
                                                         280.0F, 24.0F},
@@ -1212,6 +1138,7 @@ int main(int argc, char** argv) {
         win32::DxRenderDevice device;
         win32::DxRenderResourceCache resource_cache;
         resource_cache.upload(device.d3d_device(), demo.image_upload);
+        resource_cache.upload(device.d3d_device(), demo.circle_image_upload);
 
         auto render_target = create_render_target(device, canvas_width, canvas_height);
         win32::D3D11DisplayListRenderer renderer(device.d3d_device());
