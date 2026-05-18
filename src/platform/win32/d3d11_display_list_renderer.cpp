@@ -2334,6 +2334,7 @@ void D3D11DisplayListRenderer::render(ID3D11DeviceContext& context, ID3D11Render
     Microsoft::WRL::ComPtr<ID3D11CommandList> command_list;
     throw_if_failed(deferred_context_->FinishCommandList(FALSE, &command_list),
                     "failed to finish display-list deferred command list");
+    upload_glyph_atlas_if_dirty(context, false);
     context.ExecuteCommandList(command_list.Get(), FALSE);
 }
 
@@ -4650,7 +4651,19 @@ void D3D11DisplayListRenderer::ensure_glyph_atlas_texture() {
 }
 
 void D3D11DisplayListRenderer::upload_glyph_atlas_if_dirty() {
-    if (!glyph_atlas_dirty_ || context_ == nullptr) {
+    if (!glyph_atlas_dirty_) {
+        return;
+    }
+    if (context_ == nullptr || context_ == deferred_context_.Get()) {
+        ensure_glyph_atlas_texture();
+        return;
+    }
+    upload_glyph_atlas_if_dirty(*context_, true);
+}
+
+void D3D11DisplayListRenderer::upload_glyph_atlas_if_dirty(ID3D11DeviceContext& context,
+                                                           bool flush_pending_batch) {
+    if (!glyph_atlas_dirty_) {
         return;
     }
     const auto texture_existed = glyph_atlas_texture_ != nullptr;
@@ -4671,20 +4684,22 @@ void D3D11DisplayListRenderer::upload_glyph_atlas_if_dirty() {
         return;
     }
 
-    flush_batch();
+    if (flush_pending_batch) {
+        flush_batch();
+    }
     const auto row_pitch = glyph_atlas_width * glyph_atlas_bytes_per_pixel;
     const auto dirty_area = static_cast<std::size_t>(right - left) * (bottom - top);
     constexpr auto full_upload_threshold =
         static_cast<std::size_t>(glyph_atlas_width) * glyph_atlas_height / 2U;
     if (dirty_area >= full_upload_threshold) {
-        context_->UpdateSubresource(glyph_atlas_texture_.Get(), 0U, nullptr,
-                                    glyph_atlas_pixels_.data(), row_pitch, 0U);
+        context.UpdateSubresource(glyph_atlas_texture_.Get(), 0U, nullptr,
+                                  glyph_atlas_pixels_.data(), row_pitch, 0U);
     } else {
         const auto source_offset = (static_cast<std::size_t>(top) * glyph_atlas_width + left) *
                                    glyph_atlas_bytes_per_pixel;
         const D3D11_BOX box{left, top, 0U, right, bottom, 1U};
-        context_->UpdateSubresource(glyph_atlas_texture_.Get(), 0U, &box,
-                                    glyph_atlas_pixels_.data() + source_offset, row_pitch, 0U);
+        context.UpdateSubresource(glyph_atlas_texture_.Get(), 0U, &box,
+                                  glyph_atlas_pixels_.data() + source_offset, row_pitch, 0U);
     }
     clear_glyph_atlas_dirty();
 }

@@ -305,6 +305,7 @@ class D3D11DisplayListRenderer final {
                                   core::Transform2D transform);
     void ensure_glyph_atlas_texture();
     void upload_glyph_atlas_if_dirty();
+    void upload_glyph_atlas_if_dirty(ID3D11DeviceContext& context, bool flush_pending_batch);
     void mark_glyph_atlas_dirty(std::uint32_t left, std::uint32_t top, std::uint32_t width,
                                 std::uint32_t height) noexcept;
     void clear_glyph_atlas_dirty() noexcept;
