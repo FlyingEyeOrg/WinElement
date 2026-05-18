@@ -2144,6 +2144,8 @@ struct D3D11DisplayListRenderer::RenderPlanCacheState {
 D3D11DisplayListRenderer::D3D11DisplayListRenderer(ID3D11Device& device)
     : device_(&device), render_plan_cache_(std::make_unique<RenderPlanCacheState>()) {
     create_pipeline(device);
+    throw_if_failed(device.CreateDeferredContext(0U, &deferred_context_),
+                    "failed to create display-list deferred context");
 }
 
 D3D11DisplayListRenderer::~D3D11DisplayListRenderer() = default;
@@ -2321,7 +2323,26 @@ void D3D11DisplayListRenderer::render(ID3D11DeviceContext& context, ID3D11Render
                                       std::uint32_t target_pixel_height,
                                       const DxRenderResourceCache& resource_cache,
                                       const rendering::RenderFrameGraph* frame_graph) {
+    if (deferred_context_ == nullptr) {
+        throw std::runtime_error("display-list deferred context is not available");
+    }
+
     ++frame_sequence_;
+    render_to_context(*deferred_context_.Get(), target, clear_color, scene, dirty_region, dpi,
+                      target_pixel_width, target_pixel_height, resource_cache, frame_graph);
+
+    Microsoft::WRL::ComPtr<ID3D11CommandList> command_list;
+    throw_if_failed(deferred_context_->FinishCommandList(FALSE, &command_list),
+                    "failed to finish display-list deferred command list");
+    context.ExecuteCommandList(command_list.Get(), FALSE);
+}
+
+void D3D11DisplayListRenderer::render_to_context(
+    ID3D11DeviceContext& context, ID3D11RenderTargetView& target, core::Color clear_color,
+    const rendering::RenderScene* scene, const rendering::DirtyRegion& dirty_region, float dpi,
+    std::uint32_t target_pixel_width, std::uint32_t target_pixel_height,
+    const DxRenderResourceCache& resource_cache,
+    const rendering::RenderFrameGraph* frame_graph) {
     active_frame_graph_ = frame_graph;
     apply_frame_graph_plan(frame_graph);
     begin_frame(context, target, dpi, target_pixel_width, target_pixel_height);

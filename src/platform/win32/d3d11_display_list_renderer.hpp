@@ -203,6 +203,14 @@ class D3D11DisplayListRenderer final {
     };
     struct RenderPlanCacheState;
 
+    void render_to_context(ID3D11DeviceContext& context, ID3D11RenderTargetView& target,
+                           core::Color clear_color, const rendering::RenderScene* scene,
+                           const rendering::DirtyRegion& dirty_region, float dpi,
+                           std::uint32_t target_pixel_width,
+                           std::uint32_t target_pixel_height,
+                           const DxRenderResourceCache& resource_cache,
+                           const rendering::RenderFrameGraph* frame_graph);
+
     void create_pipeline(ID3D11Device& device);
     void rebuild_pipeline_cache() noexcept;
     [[nodiscard]] const CachedDrawPipeline&
@@ -321,6 +329,7 @@ class D3D11DisplayListRenderer final {
     Microsoft::WRL::ComPtr<ID3D11DepthStencilState> stencil_decrement_state_;
     Microsoft::WRL::ComPtr<ID3D11Texture2D> glyph_atlas_texture_;
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> glyph_atlas_view_;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> deferred_context_;
     std::array<CachedDrawPipeline, static_cast<std::size_t>(PipelineVariant::Count)>
         draw_pipeline_cache_{};
 
