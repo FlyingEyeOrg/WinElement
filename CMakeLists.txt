@@ -23,6 +23,9 @@ option(WINELEMENT_BUILD_TESTS "Build WinElement tests" ${BUILD_TESTING})
 add_subdirectory(src/core)
 add_subdirectory(src/layout)
 add_subdirectory(src/rendering)
+add_subdirectory(src/animation)
+add_subdirectory(src/style)
+add_subdirectory(src/elements)
 add_subdirectory(src/platform)
 
 if(WINELEMENT_BUILD_SAMPLES)
@@ -46,5 +49,8 @@ target_link_libraries(winelement
         WinElement::core
         WinElement::layout
         WinElement::rendering
+        WinElement::animation
+        WinElement::style
+        WinElement::elements
         WinElement::platform
 )

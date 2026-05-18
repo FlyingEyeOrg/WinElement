@@ -2,6 +2,18 @@ add_executable(winelement_rendering_tests
     rendering/render_context_tests.cpp
 )
 
+add_executable(winelement_animation_tests
+    animation/animation_tests.cpp
+)
+
+add_executable(winelement_style_tests
+    style/style_tests.cpp
+)
+
+add_executable(winelement_elements_tests
+    elements/ui_element_tests.cpp
+)
+
 add_executable(winelement_platform_tests
     platform/deferred_context_tests.cpp
 )
@@ -13,6 +25,24 @@ add_executable(winelement_visual_regression_tests
 target_link_libraries(winelement_rendering_tests
     PRIVATE
         WinElement::rendering
+        GTest::gtest_main
+)
+
+target_link_libraries(winelement_animation_tests
+    PRIVATE
+        WinElement::animation
+        GTest::gtest_main
+)
+
+target_link_libraries(winelement_style_tests
+    PRIVATE
+        WinElement::style
+        GTest::gtest_main
+)
+
+target_link_libraries(winelement_elements_tests
+    PRIVATE
+        WinElement::elements
         GTest::gtest_main
 )
 
@@ -50,10 +80,16 @@ target_compile_definitions(winelement_visual_regression_tests
 )
 
 winelement_configure_executable(winelement_rendering_tests)
+winelement_configure_executable(winelement_animation_tests)
+winelement_configure_executable(winelement_style_tests)
+winelement_configure_executable(winelement_elements_tests)
 winelement_configure_executable(winelement_platform_tests)
 winelement_configure_executable(winelement_visual_regression_tests)
 
 include(GoogleTest)
 gtest_discover_tests(winelement_rendering_tests)
+gtest_discover_tests(winelement_animation_tests)
+gtest_discover_tests(winelement_style_tests)
+gtest_discover_tests(winelement_elements_tests)
 gtest_discover_tests(winelement_platform_tests)
 gtest_discover_tests(winelement_visual_regression_tests)
