@@ -1383,6 +1383,12 @@ void Input::on_key_event(elements::KeyEvent& event) {
 
     if (event.kind == elements::KeyEventKind::CompositionStart) {
         composition_active_ = true;
+        composition_deleted_selection_ = false;
+        if (!read_only_ && has_selection()) {
+            push_undo_state();
+            delete_selection();
+            composition_deleted_selection_ = true;
+        }
         composition_text_.clear();
         restart_caret_blink();
         ensure_caret_visible();
@@ -1411,11 +1417,15 @@ void Input::on_key_event(elements::KeyEvent& event) {
         composition_active_ = false;
         composition_text_.clear();
         if (!read_only_ && !event.text.empty()) {
-            replace_selection_with_text(event.text);
+            replace_selection_with_text(event.text, !composition_deleted_selection_);
+        } else if (composition_deleted_selection_ && !undo_stack_.empty()) {
+            restore_undo_state(undo_stack_.back());
+            undo_stack_.pop_back();
         } else {
             restart_caret_blink();
             ensure_caret_visible();
         }
+        composition_deleted_selection_ = false;
         if (composition_end_handler_) {
             composition_end_handler_(event.text);
         }
@@ -1597,6 +1607,27 @@ void Input::on_key_event(elements::KeyEvent& event) {
         restart_caret_blink();
         ensure_caret_visible();
     }
+}
+
+elements::PointerCursor Input::cursor_for_local_point(layout::Point local_position) const noexcept {
+    if (disabled_) {
+        return elements::PointerCursor::Default;
+    }
+    const auto geometry = create_geometry(layout::Rect{0.0F, 0.0F, frame().width, frame().height});
+    if ((geometry.has_clear_button &&
+         contains_local_point(geometry.clear_button_rect, local_position)) ||
+        (geometry.has_password_button &&
+         contains_local_point(geometry.password_button_rect, local_position))) {
+        return elements::PointerCursor::Hand;
+    }
+    if (textarea()) {
+        const auto text_layout = create_text_layout(display_text(), geometry.text_rect.width);
+        if (vertical_scrollbar_visible_for(geometry, text_layout) &&
+            contains_local_point(vertical_scrollbar_track_rect(geometry), local_position)) {
+            return elements::PointerCursor::Hand;
+        }
+    }
+    return elements::PointerCursor::Default;
 }
 
 void Input::on_focus_changed(const elements::FocusChangeEvent& event) {
@@ -2156,7 +2187,7 @@ void Input::insert_text_at_caret(std::string_view text) {
     replace_selection_with_text(text);
 }
 
-void Input::replace_selection_with_text(std::string_view text) {
+void Input::replace_selection_with_text(std::string_view text, bool record_undo) {
     if (!editable()) {
         return;
     }
@@ -2171,7 +2202,9 @@ void Input::replace_selection_with_text(std::string_view text) {
     auto next_text = text_storage();
     next_text.erase(start, end - start);
     next_text.insert(start, insert_text);
-    push_undo_state();
+    if (record_undo) {
+        push_undo_state();
+    }
     apply_user_text(std::move(next_text), start + insert_text.size());
 }
 

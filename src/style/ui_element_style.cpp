@@ -35,17 +35,17 @@ namespace {
     constexpr auto colors = element_colors();
     auto style = UIElementStyle{.background = colors.neutral.fill_blank,
                                 .hover_background = colors.primary.light9,
-                                .active_background = colors.primary.dark2,
-                                .read_only_background = colors.neutral.fill_light,
+                                .active_background = colors.primary.light9,
+                                .read_only_background = colors.neutral.fill_blank,
                                 .border_color = colors.neutral.border_base,
                                 .focus_border_color = colors.primary.base,
                                 .text_color = colors.neutral.text_regular,
                                 .placeholder_color = colors.neutral.text_placeholder,
                                 .caret_color = colors.primary.base,
-                                .padding = layout::EdgeInsets{15.0F, 6.0F, 15.0F, 6.0F},
+                                .padding = layout::EdgeInsets{15.0F, 8.0F, 15.0F, 8.0F},
                                 .border_width = 1.0F,
                                 .font_size = 14.0F,
-                                .min_width = 64.0F,
+                                .min_width = 0.0F,
                                 .min_height = 32.0F,
                                 .caret_width = 1.0F,
                                 .corner_radius = rendering::CornerRadius::uniform(4.0F),
@@ -230,12 +230,12 @@ namespace {
     constexpr auto colors = element_colors();
     auto style = make_default_panel_style();
     style.background = rendering::Color::rgba(0, 0, 0, 0);
-    style.hover_background = rendering::Color::rgba(
-        colors.neutral.text_secondary.red, colors.neutral.text_secondary.green,
-        colors.neutral.text_secondary.blue, 76);
-    style.active_background = rendering::Color::rgba(
-        colors.neutral.text_secondary.red, colors.neutral.text_secondary.green,
-        colors.neutral.text_secondary.blue, 128);
+    style.hover_background = rendering::Color::rgba(colors.neutral.text_secondary.red,
+                                                    colors.neutral.text_secondary.green,
+                                                    colors.neutral.text_secondary.blue, 76);
+    style.active_background = rendering::Color::rgba(colors.neutral.text_secondary.red,
+                                                     colors.neutral.text_secondary.green,
+                                                     colors.neutral.text_secondary.blue, 128);
     style.border_width = 0.0F;
     style.corner_radius = rendering::CornerRadius::uniform(4.0F);
     style.min_width = 6.0F;

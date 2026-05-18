@@ -420,6 +420,8 @@ class WindowRenderCache final {
     switch (cursor) {
     case elements::PointerCursor::Move:
         return IDC_SIZEALL;
+    case elements::PointerCursor::Hand:
+        return IDC_HAND;
     case elements::PointerCursor::Arrow:
     case elements::PointerCursor::Default:
     default:

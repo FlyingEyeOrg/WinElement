@@ -148,8 +148,8 @@ struct ScopedThemeReset {
                       [type](const auto& command) { return command.type() == type; }));
 }
 
-[[nodiscard]] const FillGeometryCommand* find_fill_geometry_command(
-    const RenderCommandRecorder& context, Color color) noexcept {
+[[nodiscard]] const FillGeometryCommand*
+find_fill_geometry_command(const RenderCommandRecorder& context, Color color) noexcept {
     for (const auto& command : context.commands()) {
         if (command.type() != RenderCommandType::FillGeometry) {
             continue;
@@ -381,8 +381,8 @@ TEST(BasicControlsTests, MessageBoxAlertKeepsHeaderContentGapAtDefaultHeight) {
     box.paint(context);
 
     const auto* title_command = find_command(context, RenderCommandType::DrawTextLayout, "Notice");
-    const auto* message_command = find_command(
-        context, RenderCommandType::DrawTextLayout, "This is an Element-style alert message box.");
+    const auto* message_command = find_command(context, RenderCommandType::DrawTextLayout,
+                                               "This is an Element-style alert message box.");
     const auto* confirm_command = find_command(context, RenderCommandType::DrawTextLayout, "OK");
     ASSERT_NE(title_command, nullptr);
     ASSERT_NE(message_command, nullptr);
@@ -494,7 +494,7 @@ TEST(BasicControlsTests, MessageBoxAndDialogCanDragTopLayerBounds) {
     EXPECT_EQ(router.cursor_for_point({box_start.x + 24.0F, box_start.y + 20.0F}),
               PointerCursor::Move);
     EXPECT_EQ(router.cursor_for_point({box_start.x + box_start.width - 12.0F, box_start.y + 20.0F}),
-              PointerCursor::Arrow);
+              PointerCursor::Hand);
     EXPECT_EQ(router.cursor_for_point({box_start.x + 24.0F, box_start.y + 42.0F}),
               PointerCursor::Arrow);
     EXPECT_EQ(router.cursor_for_point({box_start.x + 24.0F, box_start.y + 70.0F}),
@@ -539,7 +539,7 @@ TEST(BasicControlsTests, MessageBoxAndDialogCanDragTopLayerBounds) {
               PointerCursor::Move);
     EXPECT_EQ(router.cursor_for_point(
                   {dialog_start.x + dialog_start.width - 12.0F, dialog_start.y + 24.0F}),
-              PointerCursor::Arrow);
+              PointerCursor::Hand);
     EXPECT_EQ(router.cursor_for_point({dialog_start.x + 24.0F, dialog_start.y + 48.0F}),
               PointerCursor::Arrow);
     router.route_pointer_event(
@@ -1279,6 +1279,92 @@ TEST(BasicControlsTests, InputUndoRedoRestoresCaretAndSelectionState) {
     EXPECT_EQ(input.text(), "aXef");
     EXPECT_EQ(input.caret_byte_offset(), 2U);
     EXPECT_FALSE(input.has_selection());
+}
+
+TEST(BasicControlsTests, InputCompositionStartReplacesSelectedTextWithoutOverlap) {
+    auto engine = create_unrounded_engine();
+    Input input;
+    input.bind_layout_tree(engine);
+    input.set_text("abcdef").set_selection(1U, 4U);
+    input.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(180.0F), Length::points(40.0F));
+    });
+    input.calculate_layout(LayoutConstraints{.width = 180.0F, .height = 40.0F});
+
+    EventRouter router(input);
+    ASSERT_TRUE(router.focus_manager().set_focus(&input));
+
+    ASSERT_TRUE(router.route_key_event(KeyEvent{.kind = KeyEventKind::CompositionStart}).handled);
+    EXPECT_EQ(input.text(), "aef");
+    EXPECT_EQ(input.caret_byte_offset(), 1U);
+    EXPECT_FALSE(input.has_selection());
+
+    ASSERT_TRUE(
+        router.route_key_event(KeyEvent{.kind = KeyEventKind::CompositionUpdate, .text = "X"})
+            .handled);
+
+    RenderCommandRecorder composing_context;
+    input.paint(composing_context);
+    EXPECT_NE(find_command(composing_context, RenderCommandType::DrawTextLayout, "aef"), nullptr);
+    EXPECT_NE(find_command(composing_context, RenderCommandType::DrawTextLayout, "X"), nullptr);
+    EXPECT_EQ(find_command(composing_context, RenderCommandType::DrawTextLayout, "abcdef"),
+              nullptr);
+
+    ASSERT_TRUE(router.route_key_event(KeyEvent{.kind = KeyEventKind::CompositionEnd, .text = "X"})
+                    .handled);
+    EXPECT_EQ(input.text(), "aXef");
+    EXPECT_EQ(input.caret_byte_offset(), 2U);
+
+    ASSERT_TRUE(router
+                    .route_key_event(KeyEvent{.kind = KeyEventKind::Down,
+                                              .key = Key::Z,
+                                              .modifiers = KeyModifiers{.control = true}})
+                    .handled);
+    EXPECT_EQ(input.text(), "abcdef");
+    EXPECT_EQ(input.selection_anchor_byte_offset(), 1U);
+    EXPECT_EQ(input.selection_active_byte_offset(), 4U);
+}
+
+TEST(BasicControlsTests, ClearAffordancesUseHandCursor) {
+    auto engine = create_unrounded_engine();
+    StackPanel root;
+    root.bind_layout_tree(engine);
+    root.set_orientation(Orientation::Vertical).set_gap(8.0F);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(240.0F), Length::points(96.0F));
+    });
+
+    auto& input = root.append_new_child<Input>();
+    input.set_text("value").set_clearable(true);
+    input.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(220.0F), Length::points(40.0F)).set_flex_shrink(0.0F);
+    });
+
+    auto& select = root.append_new_child<Select>();
+    select.set_options({SelectOption{.label = "One", .value = "1"}})
+        .set_selected_index(0U)
+        .set_clearable(true);
+    select.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(220.0F), Length::points(40.0F)).set_flex_shrink(0.0F);
+    });
+
+    root.calculate_layout(LayoutConstraints{.width = 240.0F, .height = 96.0F});
+    EventRouter router(root);
+
+    const auto input_frame = input.absolute_frame();
+    const auto input_clear_point =
+        Point{input_frame.x + input_frame.width - 24.0F, input_frame.y + input_frame.height * 0.5F};
+    static_cast<void>(router.route_pointer_event(
+        PointerEvent{.kind = PointerEventKind::Move, .position = input_clear_point}));
+    EXPECT_EQ(router.cursor_for_point(input_clear_point), PointerCursor::Hand);
+
+    const auto select_frame = select.absolute_frame();
+    const auto select_clear_point =
+        Point{select_frame.x + select_frame.width - select.style().padding.right - 28.0F,
+              select_frame.y + select_frame.height * 0.5F};
+    static_cast<void>(router.route_pointer_event(
+        PointerEvent{.kind = PointerEventKind::Move, .position = select_clear_point}));
+    EXPECT_EQ(router.cursor_for_point(select_clear_point), PointerCursor::Hand);
 }
 
 TEST(BasicControlsTests, InputCaretCommandKeepsStyleWidthWithAndWithoutText) {

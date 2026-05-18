@@ -4,6 +4,7 @@
 
 #include <winelement/elements/all_icons.hpp>
 #include <winelement/rendering/render_context.hpp>
+#include <winelement/style/element_colors.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -39,6 +40,37 @@ constexpr auto split_indicator_width = 24.0F;
 [[nodiscard]] float button_icon_size_for(const style::UIElementStyle& style,
                                          float available_height) noexcept {
     return std::min(std::max(style.font_size, 0.0F), std::max(available_height, 0.0F));
+}
+
+struct ButtonColorScale {
+    rendering::Color base{};
+    rendering::Color dark2{};
+    rendering::Color light5{};
+    rendering::Color light9{};
+};
+
+[[nodiscard]] ButtonColorScale button_color_scale_for(ButtonType type) noexcept {
+    constexpr auto colors = style::element_colors();
+    switch (type) {
+    case ButtonType::Success:
+        return ButtonColorScale{colors.success.base, colors.success.dark2, colors.success.light5,
+                                colors.success.light9};
+    case ButtonType::Warning:
+        return ButtonColorScale{colors.warning.base, colors.warning.dark2, colors.warning.light5,
+                                colors.warning.light9};
+    case ButtonType::Danger:
+        return ButtonColorScale{colors.danger.base, colors.danger.dark2, colors.danger.light5,
+                                colors.danger.light9};
+    case ButtonType::Info:
+        return ButtonColorScale{colors.info.base, colors.info.dark2, colors.info.light5,
+                                colors.info.light9};
+    case ButtonType::Primary:
+    case ButtonType::Default:
+    case ButtonType::Text:
+    default:
+        return ButtonColorScale{colors.primary.base, colors.primary.dark2, colors.primary.light5,
+                                colors.primary.light9};
+    }
 }
 
 } // namespace
@@ -508,6 +540,16 @@ void Button::on_focus_changed(const elements::FocusChangeEvent& event) {
     }
 }
 
+elements::PointerCursor
+Button::cursor_for_local_point(layout::Point local_position) const noexcept {
+    if (disabled_ || has_flag(flags_, ButtonFlag::Loading)) {
+        return elements::PointerCursor::Default;
+    }
+    const auto local_frame = layout::Rect{0.0F, 0.0F, frame().width, frame().height};
+    return contains_local_point(local_frame, local_position) ? elements::PointerCursor::Hand
+                                                             : elements::PointerCursor::Default;
+}
+
 bool Button::on_animation_frame(animation::AnimationTimePoint now) {
     auto active = hover_progress_.tick(now);
     active = pressed_progress_.tick(now) || active;
@@ -697,7 +739,7 @@ void Button::apply_type_style(style::UIElementStyle& next_style) const {
     switch (size_) {
     case ButtonSize::Large:
         next_style.min_height = 40.0F;
-        next_style.padding = layout::EdgeInsets{19.0F, 8.0F, 19.0F, 8.0F};
+        next_style.padding = layout::EdgeInsets{19.0F, 12.0F, 19.0F, 12.0F};
         break;
     case ButtonSize::Small:
         next_style.min_height = 24.0F;
@@ -712,14 +754,14 @@ void Button::apply_type_style(style::UIElementStyle& next_style) const {
 void Button::apply_shape_style(style::UIElementStyle& next_style) const {
     if (has_flag(flags_, ButtonFlag::Plain) && type_ != ButtonType::Default &&
         type_ != ButtonType::Text) {
-        const auto accent = next_style.background;
-        next_style.background = rendering::Color::rgba(accent.red, accent.green, accent.blue, 24);
-        next_style.hover_background =
-            rendering::Color::rgba(accent.red, accent.green, accent.blue, 40);
-        next_style.active_background =
-            rendering::Color::rgba(accent.red, accent.green, accent.blue, 56);
-        next_style.border_color = accent;
-        next_style.text_color = accent;
+        const auto colors = button_color_scale_for(type_);
+        next_style.background = colors.light9;
+        next_style.hover_background = colors.base;
+        next_style.active_background = colors.dark2;
+        next_style.border_color = colors.light5;
+        next_style.semantic.hover_border = colors.base;
+        next_style.focus_border_color = colors.base;
+        next_style.text_color = colors.base;
     }
 
     if (has_flag(flags_, ButtonFlag::Round)) {
@@ -831,6 +873,14 @@ rendering::Color Button::interactive_text_color() const noexcept {
     const auto& current_style = style_storage();
     if (disabled_) {
         return current_style.semantic.disabled_text;
+    }
+    const auto plain_semantic = has_flag(flags_, ButtonFlag::Plain) &&
+                                type_ != ButtonType::Default && type_ != ButtonType::Text &&
+                                !custom_color_.has_value();
+    if (plain_semantic) {
+        const auto progress = std::max(animated_hover_progress(), animated_pressed_progress());
+        return animation::interpolate_value(current_style.text_color,
+                                            rendering::Color::rgba(255, 255, 255), progress);
     }
     const auto default_variant = type_ == ButtonType::Default && !custom_color_.has_value() &&
                                  !has_flag(flags_, ButtonFlag::TextVariant) &&

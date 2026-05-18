@@ -168,6 +168,8 @@ class Input final : public Control {
     void on_pointer_event(elements::PointerEvent& event) override;
     void on_key_event(elements::KeyEvent& event) override;
     void on_focus_changed(const elements::FocusChangeEvent& event) override;
+    [[nodiscard]] elements::PointerCursor
+    cursor_for_local_point(layout::Point local_position) const noexcept override;
     [[nodiscard]] bool on_animation_frame(animation::AnimationTimePoint now) override;
     void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override;
     void on_paint_overlay(rendering::RenderContext& context,
@@ -227,7 +229,7 @@ class Input final : public Control {
     void move_caret_visually_down();
     void delete_selection();
     void insert_text_at_caret(std::string_view text);
-    void replace_selection_with_text(std::string_view text);
+    void replace_selection_with_text(std::string_view text, bool record_undo = true);
     void apply_user_text(std::string text, std::size_t preferred_caret_offset);
     void push_undo_state();
     void undo();
@@ -336,6 +338,7 @@ class Input final : public Control {
     bool scrollbar_dragging_ = false;
     bool context_menu_open_ = false;
     bool composition_active_ = false;
+    bool composition_deleted_selection_ = false;
     bool spellcheck_ = false;
     std::string composition_text_;
     std::vector<UndoState> undo_stack_;

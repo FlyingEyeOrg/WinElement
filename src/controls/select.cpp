@@ -924,9 +924,13 @@ void Select::on_pointer_event(elements::PointerEvent& event) {
         if (const auto tag_index = tag_close_index_at(event.local_position)) {
             remove_selected_index(*tag_index);
             hovered_tag_close_index_.reset();
-        } else if (clearable_ && selected_index_ &&
+        } else if (clearable_ && (selected_index_.has_value() || !selected_indices_.empty()) &&
                    contains_local_point(clear_rect, event.local_position)) {
-            set_selected_index(std::nullopt);
+            if (multiple_) {
+                set_selected_indices({});
+            } else {
+                set_selected_index(std::nullopt);
+            }
         } else if (popup_open_) {
             dismiss_popup();
         } else {
@@ -934,6 +938,29 @@ void Select::on_pointer_event(elements::PointerEvent& event) {
         }
         event.handled = true;
     }
+}
+
+elements::PointerCursor
+Select::cursor_for_local_point(layout::Point local_position) const noexcept {
+    if (disabled_ || loading_) {
+        return elements::PointerCursor::Default;
+    }
+    if (tag_close_index_at(local_position)) {
+        return elements::PointerCursor::Hand;
+    }
+    const auto local_frame = layout::Rect{0.0F, 0.0F, frame().width, frame().height};
+    const auto arrow_rect =
+        layout::Rect{local_frame.width - resolved_style().padding.right - arrow_width, 0.0F,
+                     arrow_width, local_frame.height};
+    const auto clear_rect =
+        layout::Rect{arrow_rect.x - arrow_width, 0.0F, arrow_width, local_frame.height};
+    const auto has_value = selected_index_.has_value() || !selected_indices_.empty();
+    if (clearable_ && has_value && contains_local_point(clear_rect, local_position)) {
+        return elements::PointerCursor::Hand;
+    }
+    return contains_local_point(local_frame, local_position) && !filterable_
+               ? elements::PointerCursor::Hand
+               : elements::PointerCursor::Default;
 }
 
 void Select::on_key_event(elements::KeyEvent& event) {
