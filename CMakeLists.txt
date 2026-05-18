@@ -14,12 +14,17 @@ include(cmake/winelement_target.cmake)
 
 find_package(yoga CONFIG REQUIRED)
 
+option(WINELEMENT_BUILD_SAMPLES "Build WinElement sample applications" OFF)
 option(WINELEMENT_WARNINGS_AS_ERRORS "Treat WinElement compiler warnings as errors" OFF)
 
 add_subdirectory(src/core)
 add_subdirectory(src/layout)
 add_subdirectory(src/rendering)
 add_subdirectory(src/platform)
+
+if(WINELEMENT_BUILD_SAMPLES)
+    add_subdirectory(samples/render_pipeline_demo)
+endif()
 
 add_library(winelement INTERFACE)
 add_library(WinElement::winelement ALIAS winelement)
