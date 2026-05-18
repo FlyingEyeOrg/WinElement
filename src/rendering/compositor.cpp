@@ -9,30 +9,58 @@
 namespace winelement::rendering {
 namespace {
 
-[[nodiscard]] bool should_promote_layer(const RenderLayerOptions& options,
-                                        CompositorPromotionOptions promotion_options) noexcept {
-    if (!layout::is_visible_rect(options.bounds)) {
-        return false;
-    }
+struct LayerPromotionMetadata {
+    RenderLayerOptions options{};
+    float area = 0.0F;
+    bool visible = false;
+    bool identity_transform = true;
+    bool should_promote = false;
+    CompositorPromotionReason reason = CompositorPromotionReason::StableLayer;
+};
 
-    const auto area = options.bounds.width * options.bounds.height;
-    if (!std::isfinite(area) || area < promotion_options.minimum_area) {
-        return false;
+[[nodiscard]] LayerPromotionMetadata
+layer_promotion_metadata(const RenderLayerOptions& options,
+                         CompositorPromotionOptions promotion_options) noexcept {
+    auto metadata = LayerPromotionMetadata{.options = options,
+                                           .area = options.bounds.width * options.bounds.height,
+                                           .visible = layout::is_visible_rect(options.bounds),
+                                           .identity_transform =
+                                               is_identity_transform(options.transform)};
+    if (!metadata.visible) {
+        return metadata;
     }
-
-    return promotion_options.include_stable_layers || options.opacity < 1.0F ||
-           !is_identity_transform(options.transform);
+    if (!std::isfinite(metadata.area) || metadata.area < promotion_options.minimum_area) {
+        return metadata;
+    }
+    metadata.should_promote = promotion_options.include_stable_layers || options.opacity < 1.0F ||
+                              !metadata.identity_transform;
+    if (!metadata.identity_transform) {
+        metadata.reason = CompositorPromotionReason::AnimatedTransform;
+    } else if (options.opacity < 1.0F) {
+        metadata.reason = CompositorPromotionReason::AnimatedOpacity;
+    }
+    return metadata;
 }
 
-[[nodiscard]] CompositorPromotionReason
-promotion_reason_for(const RenderLayerOptions& options) noexcept {
-    if (!is_identity_transform(options.transform)) {
-        return CompositorPromotionReason::AnimatedTransform;
+void append_candidate(CompositorPromotionPlan& plan, std::uint64_t element_id,
+                      const LayerPromotionMetadata& metadata) {
+    if (!metadata.should_promote) {
+        return;
     }
-    if (options.opacity < 1.0F) {
-        return CompositorPromotionReason::AnimatedOpacity;
-    }
-    return CompositorPromotionReason::StableLayer;
+    const auto& layer_options = metadata.options;
+    plan.candidates.push_back(CompositorPromotionCandidate{
+        .element_id = element_id,
+        .bounds = layer_options.bounds,
+        .transform = layer_options.transform,
+        .opacity = std::clamp(layer_options.opacity, 0.0F, 1.0F),
+        .reason = metadata.reason,
+        .clips_to_bounds = layer_options.clips_to_bounds,
+        .animates_on_compositor = metadata.reason != CompositorPromotionReason::StableLayer});
+}
+
+[[nodiscard]] bool should_stop_promotions(const CompositorPromotionPlan& plan,
+                                          CompositorPromotionOptions options) noexcept {
+    return plan.candidates.size() >= options.max_candidates;
 }
 
 void hash_combine(std::size_t& seed, std::size_t value) noexcept {
@@ -68,6 +96,25 @@ void hash_float_bucket(std::size_t& seed, float value) noexcept {
     return static_cast<std::uint64_t>(seed == 0U ? sibling_index + 1U : seed);
 }
 
+void append_command_promotions(CompositorPromotionPlan& plan,
+                               const RenderCommandList& command_list,
+                               CompositorPromotionOptions options) {
+    const auto& opcodes = command_list.opcodes();
+    for (std::size_t index = 0; index < opcodes.size(); ++index) {
+        if (should_stop_promotions(plan, options)) {
+            return;
+        }
+        const auto& opcode = opcodes[index];
+        if (opcode.opcode != RenderCommandType::PushLayer) {
+            continue;
+        }
+
+        const auto& layer = command_list.payload<PushLayerCommand>(index).options;
+        const auto metadata = layer_promotion_metadata(layer, options);
+        append_candidate(plan, stable_layer_id(command_list, index, layer), metadata);
+    }
+}
+
 void append_scene_promotions(CompositorPromotionPlan& plan, const RenderNode& node,
                              CompositorPromotionOptions options, std::size_t sibling_index = 0U) {
     if (node.kind == RenderNodeKind::Layer) {
@@ -75,34 +122,19 @@ void append_scene_promotions(CompositorPromotionPlan& plan, const RenderNode& no
                                                       .opacity = node.opacity,
                                                       .transform = node.transform,
                                                       .clips_to_bounds = node.clips_to_bounds};
-        if (should_promote_layer(layer_options, options)) {
-            const auto reason = promotion_reason_for(layer_options);
-            plan.candidates.push_back(CompositorPromotionCandidate{
-                .element_id = stable_node_layer_id(node, sibling_index),
-                .bounds = layer_options.bounds,
-                .transform = layer_options.transform,
-                .opacity = std::clamp(layer_options.opacity, 0.0F, 1.0F),
-                .reason = reason,
-                .clips_to_bounds = layer_options.clips_to_bounds,
-                .animates_on_compositor = reason != CompositorPromotionReason::StableLayer});
-            if (plan.candidates.size() >= options.max_candidates) {
-                return;
-            }
+        append_candidate(plan, stable_node_layer_id(node, sibling_index),
+                         layer_promotion_metadata(layer_options, options));
+        if (should_stop_promotions(plan, options)) {
+            return;
         }
     }
 
     if (!node.commands.empty()) {
-        auto command_plan = build_compositor_promotion_plan(node.commands, options);
-        for (auto& candidate : command_plan.candidates) {
-            if (plan.candidates.size() >= options.max_candidates) {
-                return;
-            }
-            plan.candidates.push_back(std::move(candidate));
-        }
+        append_command_promotions(plan, node.commands, options);
     }
 
     for (std::size_t index = 0; index < node.children.size(); ++index) {
-        if (plan.candidates.size() >= options.max_candidates) {
+        if (should_stop_promotions(plan, options)) {
             return;
         }
         append_scene_promotions(plan, node.children[index], options, index);
@@ -120,30 +152,7 @@ CompositorPromotionPlan build_compositor_promotion_plan(const RenderCommandList&
 
     const auto& opcodes = command_list.opcodes();
     plan.candidates.reserve(std::min(options.max_candidates, opcodes.size()));
-    for (std::size_t index = 0; index < opcodes.size(); ++index) {
-        const auto& opcode = opcodes[index];
-        if (opcode.opcode != RenderCommandType::PushLayer) {
-            continue;
-        }
-
-        const auto& layer = command_list.payload<PushLayerCommand>(index).options;
-        if (!should_promote_layer(layer, options)) {
-            continue;
-        }
-
-        const auto reason = promotion_reason_for(layer);
-        plan.candidates.push_back(CompositorPromotionCandidate{
-            .element_id = stable_layer_id(command_list, index, layer),
-            .bounds = layer.bounds,
-            .transform = layer.transform,
-            .opacity = std::clamp(layer.opacity, 0.0F, 1.0F),
-            .reason = reason,
-            .clips_to_bounds = layer.clips_to_bounds,
-            .animates_on_compositor = reason != CompositorPromotionReason::StableLayer});
-        if (plan.candidates.size() >= options.max_candidates) {
-            break;
-        }
-    }
+    append_command_promotions(plan, command_list, options);
 
     return plan;
 }

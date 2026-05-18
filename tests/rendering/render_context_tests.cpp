@@ -119,6 +119,59 @@ TEST(RenderContextTests, CommandListExposesFlatOpcodesAndBatchSummary) {
     }));
 }
 
+TEST(RenderContextTests, CommandListMoveKeepsOpcodePayloadOwnersAndSerializedCache) {
+    RenderCommandRecorder recorder;
+    recorder.fill_rect(Rect{1.0F, 2.0F, 3.0F, 4.0F}, Color::rgba(10, 20, 30));
+    recorder.draw_text("shared text", Rect{0.0F, 10.0F, 80.0F, 20.0F},
+                       TextStyle{.color = Color::rgba(48, 49, 51)});
+
+    auto command_list = recorder.take_command_list();
+    const auto first_serialized = command_list.serialized_opcodes();
+    const auto second_serialized = command_list.serialized_opcodes();
+    EXPECT_EQ(first_serialized, second_serialized);
+
+    auto moved = std::move(command_list);
+    ASSERT_EQ(moved.commands().size(), 2U);
+    const auto& rect = moved.commands()[0].payload<FillRectCommand>();
+    EXPECT_FLOAT_EQ(rect.rect.x, 1.0F);
+    EXPECT_EQ(moved.commands()[1].payload<DrawTextCommand>().text_view(), "shared text");
+}
+
+TEST(RenderContextTests, DrawBatchesSplitByStateAndResourceKeys) {
+    RenderCommandRecorder recorder;
+    recorder.draw_image(RenderResourceId{1U},
+                        RenderImageOptions{.destination = Rect{0.0F, 0.0F, 8.0F, 8.0F}});
+    recorder.draw_image(RenderResourceId{2U},
+                        RenderImageOptions{.destination = Rect{10.0F, 0.0F, 8.0F, 8.0F}});
+    recorder.fill_rect(Rect{0.0F, 12.0F, 8.0F, 8.0F}, Color::rgba(1, 2, 3));
+    recorder.fill_rect(Rect{10.0F, 12.0F, 8.0F, 8.0F}, Color::rgba(1, 2, 3));
+
+    const auto batches = recorder.take_command_list().draw_batches();
+    const auto image_batches =
+        std::count_if(batches.begin(), batches.end(),
+                      [](const auto& batch) { return batch.kind == RenderBatchKind::Image; });
+    EXPECT_EQ(image_batches, 2);
+    EXPECT_TRUE(std::any_of(batches.begin(), batches.end(), [](const auto& batch) {
+        return batch.kind == RenderBatchKind::Geometry && batch.command_count == 2U;
+    }));
+}
+
+TEST(RenderContextTests, RecorderAppendsMovedCommandListWithoutCopyingTextPayload) {
+    RenderCommandRecorder source;
+    source.draw_text("interned", Rect{0.0F, 0.0F, 80.0F, 20.0F},
+                     TextStyle{.color = Color::rgba(48, 49, 51)});
+    auto cached = source.take_command_list();
+    const auto text_storage = cached.draw_text_payloads().front().text;
+
+    RenderCommandRecorder target;
+    target.append(std::move(cached));
+    const auto appended = target.take_command_list();
+
+    ASSERT_EQ(appended.draw_text_payloads().size(), 1U);
+    EXPECT_EQ(appended.draw_text_payloads().front().text, text_storage);
+    EXPECT_EQ(appended.draw_text_payloads().front().text_view(), "interned");
+}
+
 TEST(RenderContextTests, RenderFrameGraphKeepsOrderedPassesAndEstimatesDraws) {
     RenderCommandRecorder recorder;
     recorder.push_clip(Rect{0.0F, 0.0F, 200.0F, 120.0F});
@@ -160,6 +213,7 @@ TEST(RenderContextTests, RenderResourceUploadQueueDrainsAndKeepsLifetimeActions)
     EXPECT_TRUE(queue.empty());
     EXPECT_EQ(uploads[0].action, RenderResourceAction::Upload);
     EXPECT_EQ(uploads[1].action, RenderResourceAction::Release);
+    EXPECT_TRUE(queue.drain().empty());
 }
 
 TEST(RenderContextTests, RenderSceneBuildsOrderedRetainedLayerTree) {

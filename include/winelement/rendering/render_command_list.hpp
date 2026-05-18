@@ -190,15 +190,23 @@ struct DrawImageCommand {
 };
 
 struct DrawTextCommand {
-    std::string text;
+    std::shared_ptr<const std::string> text;
     layout::Rect rect{};
     TextStyle style{};
+
+    [[nodiscard]] std::string_view text_view() const noexcept {
+        return text == nullptr ? std::string_view{} : std::string_view{*text};
+    }
 };
 
 struct DrawTextLayoutCommand {
-    TextLayout layout{};
+    std::shared_ptr<const TextLayout> layout;
     layout::Point origin{};
     std::shared_ptr<const PreparedTextGlyphCoverageList> prepared_glyphs;
+
+    [[nodiscard]] const TextLayout* layout_value() const noexcept {
+        return layout.get();
+    }
 };
 
 struct DrawBoxShadowCommand {
@@ -212,12 +220,15 @@ struct DirtyRegionNode {
 };
 
 class RenderCommandList;
+struct RenderOpcodeOwner {
+    const RenderCommandList* list = nullptr;
+};
 
 struct RenderOpcodeRecord {
     RenderCommandType opcode = RenderCommandType::Save;
     std::uint32_t payload_index = 0;
     layout::Rect bounds{};
-    const RenderCommandList* owner = nullptr;
+    const RenderOpcodeOwner* owner = nullptr;
 
     [[nodiscard]] RenderCommandType type() const noexcept {
         return opcode;
@@ -230,7 +241,10 @@ enum class RenderBatchKind { State, Geometry, Text, Image, Effect };
 
 struct RenderDrawBatch {
     RenderBatchKind kind = RenderBatchKind::State;
+    RenderCommandType first_command_type = RenderCommandType::Save;
     layout::Rect bounds{};
+    std::uint64_t state_key = 0;
+    std::uint64_t resource_key = 0;
     std::uint32_t command_count = 0;
 };
 
@@ -309,6 +323,7 @@ class RenderCommandList final {
     [[nodiscard]] std::vector<RenderDrawBatch> draw_batches() const;
     [[nodiscard]] layout::Rect bounds() const noexcept;
     [[nodiscard]] std::uint64_t fingerprint() const noexcept;
+    [[nodiscard]] std::uint64_t change_signature() const noexcept;
     [[nodiscard]] bool is_equivalent_to(const RenderCommandList& other) const noexcept;
     [[nodiscard]] std::shared_ptr<PreparedRenderCache> prepared_cache() const noexcept;
 
@@ -339,9 +354,12 @@ class RenderCommandList final {
     void append(DrawTextLayoutCommand command);
     void append(DrawBoxShadowCommand command);
     void append(const RenderCommandList& command_list);
+    void append(RenderCommandList&& command_list);
     void append_opcode(RenderCommandType type, std::uint32_t payload_index, layout::Rect bounds,
                        std::size_t payload_hash);
     void rebind_opcode_owners() noexcept;
+    void reset_opcode_owner() noexcept;
+    void invalidate_cached_views() const noexcept;
     [[nodiscard]] std::shared_ptr<const PreparedGeometryFlatten>
     cached_prepared_geometry_flatten(const Geometry& geometry);
     [[nodiscard]] std::shared_ptr<const PreparedGeometryFill>
@@ -351,8 +369,38 @@ class RenderCommandList final {
     [[nodiscard]] std::shared_ptr<const PreparedTextGlyphCoverageList>
     cached_prepared_text_glyph_coverages(const TextLayout& layout);
     [[nodiscard]] PreparedRenderCache& ensure_prepared_cache();
+    [[nodiscard]] std::shared_ptr<const std::string> intern_text(std::string_view text);
+    [[nodiscard]] std::shared_ptr<const TextLayout> share_text_layout(const TextLayout& layout);
+
+    struct CapacitySnapshot {
+        std::size_t opcodes = 0;
+        std::size_t opcode_payload_indices = 0;
+        std::size_t push_clip_payloads = 0;
+        std::size_t push_geometry_clip_payloads = 0;
+        std::size_t push_layer_payloads = 0;
+        std::size_t draw_line_payloads = 0;
+        std::size_t fill_rect_payloads = 0;
+        std::size_t fill_pixel_snapped_rect_payloads = 0;
+        std::size_t stroke_pixel_snapped_rect_payloads = 0;
+        std::size_t stroke_rect_payloads = 0;
+        std::size_t fill_rounded_rect_payloads = 0;
+        std::size_t stroke_rounded_rect_payloads = 0;
+        std::size_t fill_ellipse_payloads = 0;
+        std::size_t stroke_ellipse_payloads = 0;
+        std::size_t fill_geometry_payloads = 0;
+        std::size_t stroke_geometry_payloads = 0;
+        std::size_t draw_image_payloads = 0;
+        std::size_t draw_text_payloads = 0;
+        std::size_t draw_text_layout_payloads = 0;
+        std::size_t draw_box_shadow_payloads = 0;
+    };
+
+    [[nodiscard]] CapacitySnapshot capacity_snapshot() const noexcept;
+    void reserve(CapacitySnapshot capacities);
+    void reserve_for_append(const RenderCommandList& command_list);
 
     std::shared_ptr<PreparedRenderCache> prepared_cache_;
+    std::shared_ptr<RenderOpcodeOwner> opcode_owner_;
     std::vector<RenderOpcodeRecord> opcodes_;
     std::vector<std::uint32_t> opcode_payload_indices_;
     std::vector<PushClipCommand> push_clip_payloads_;
@@ -375,6 +423,11 @@ class RenderCommandList final {
     std::vector<DrawBoxShadowCommand> draw_box_shadow_payloads_;
     layout::Rect bounds_{};
     std::uint64_t fingerprint_ = 0;
+    std::uint64_t change_signature_ = 0;
+    mutable std::vector<std::byte> serialized_opcodes_cache_;
+    mutable std::vector<RenderDrawBatch> draw_batches_cache_;
+    mutable bool serialized_opcodes_dirty_ = true;
+    mutable bool draw_batches_dirty_ = true;
 };
 
 class RenderCommandRecorder final : public RenderContext {
@@ -417,9 +470,14 @@ class RenderCommandRecorder final : public RenderContext {
     }
     [[nodiscard]] RenderCommandList take_command_list() noexcept;
     void append(const RenderCommandList& command_list);
+    void append(RenderCommandList&& command_list);
 
   private:
+    [[nodiscard]] std::shared_ptr<const std::string> intern_text(std::string_view text);
+    void prune_text_pool();
+
     RenderCommandList command_list_;
+    std::unordered_map<std::size_t, std::vector<std::shared_ptr<const std::string>>> text_pool_;
 };
 
 } // namespace winelement::rendering
@@ -476,7 +534,7 @@ const Payload& RenderCommandList::payload_by_index(std::uint32_t payload_index) 
 }
 
 template <typename Payload> const Payload& RenderOpcodeRecord::payload() const {
-    return owner->payload_by_index<Payload>(payload_index);
+    return owner->list->payload_by_index<Payload>(payload_index);
 }
 
 } // namespace winelement::rendering

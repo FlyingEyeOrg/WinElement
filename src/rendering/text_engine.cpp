@@ -20,6 +20,8 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace winelement::rendering {
@@ -391,6 +393,35 @@ struct ResolvedFontFace {
     }
 
     try {
+        struct FontFaceFamilyCacheKey {
+            IDWriteFontFace* face = nullptr;
+            std::string locale;
+
+            [[nodiscard]] bool operator==(const FontFaceFamilyCacheKey& right) const noexcept {
+                return face == right.face && locale == right.locale;
+            }
+        };
+        struct FontFaceFamilyCacheKeyHash {
+            [[nodiscard]] std::size_t
+            operator()(const FontFaceFamilyCacheKey& key) const noexcept {
+                auto seed = std::hash<IDWriteFontFace*>{}(key.face);
+                seed ^= std::hash<std::string>{}(key.locale) + 0x9E3779B9U + (seed << 6U) +
+                        (seed >> 2U);
+                return seed;
+            }
+        };
+
+        static std::mutex cache_mutex;
+        static std::unordered_map<FontFaceFamilyCacheKey, std::string, FontFaceFamilyCacheKeyHash>
+            family_cache;
+        const auto key = FontFaceFamilyCacheKey{.face = face, .locale = std::string(locale)};
+        {
+            const std::scoped_lock lock(cache_mutex);
+            if (const auto cached = family_cache.find(key); cached != family_cache.end()) {
+                return cached->second;
+            }
+        }
+
         Microsoft::WRL::ComPtr<IDWriteFontCollection> font_collection;
         auto result = shared_dwrite_factory().GetSystemFontCollection(&font_collection);
         if (FAILED(result) || font_collection == nullptr) {
@@ -415,7 +446,16 @@ struct ResolvedFontFace {
             return {};
         }
 
-        return localized_string(*family_names.Get(), locale);
+        auto family_name = localized_string(*family_names.Get(), locale);
+        {
+            const std::scoped_lock lock(cache_mutex);
+            constexpr auto max_cached_faces = 512U;
+            if (family_cache.size() >= max_cached_faces) {
+                family_cache.clear();
+            }
+            family_cache.emplace(key, family_name);
+        }
+        return family_name;
     } catch (...) {
         return {};
     }
@@ -724,9 +764,12 @@ class CapturingTextRenderer final : public IDWriteTextRenderer {
 
         const auto glyph_font_family =
             font_family_name_for_face(glyph_run->fontFace, layout_.style.locale);
+        const auto glyph_source_ranges =
+            build_glyph_source_ranges(*description, glyph_run->glyphCount);
         auto x = baseline_origin_x;
         for (UINT32 glyph_index = 0; glyph_index < glyph_run->glyphCount; ++glyph_index) {
-            const auto cluster = source_range_for_glyph(*description, glyph_index);
+            const auto cluster = source_range_for_glyph(*description, glyph_index,
+                                                        glyph_source_ranges);
             const auto offset = glyph_run->glyphOffsets == nullptr
                                     ? DWRITE_GLYPH_OFFSET{}
                                     : glyph_run->glyphOffsets[glyph_index];
@@ -746,7 +789,10 @@ class CapturingTextRenderer final : public IDWriteTextRenderer {
                                         baseline_origin_y + offset.ascenderOffset},
                 .advance = advance,
                 .advance_offset = layout::Point{offset.advanceOffset, offset.ascenderOffset},
-                .is_cluster_start = is_first_glyph_for_cluster(*description, glyph_index),
+                .is_cluster_start =
+                    glyph_index < glyph_source_ranges.size()
+                        ? glyph_source_ranges[glyph_index].is_cluster_start
+                        : glyph_index == 0U,
                 .is_right_to_left = glyph_run->bidiLevel % 2U != 0U});
             x += advance;
         }
@@ -790,6 +836,13 @@ class CapturingTextRenderer final : public IDWriteTextRenderer {
         std::uint32_t index = 0;
     };
 
+    struct GlyphSourceRange {
+        UINT32 first_utf16 = 0U;
+        UINT32 last_utf16 = 0U;
+        bool has_mapping = false;
+        bool is_cluster_start = false;
+    };
+
     [[nodiscard]] static std::vector<ClusterLookup>
     build_cluster_lookup(const std::vector<TextCluster>& clusters) {
         std::vector<ClusterLookup> lookup;
@@ -800,28 +853,60 @@ class CapturingTextRenderer final : public IDWriteTextRenderer {
                                            .byte_end = cluster.byte_offset + cluster.byte_length,
                                            .index = static_cast<std::uint32_t>(index)});
         }
-        std::sort(lookup.begin(), lookup.end(), [](const auto& left, const auto& right) {
-            if (left.byte_offset != right.byte_offset) {
-                return left.byte_offset < right.byte_offset;
-            }
-            return left.byte_end < right.byte_end;
-        });
+        if (!std::is_sorted(lookup.begin(), lookup.end(), [](const auto& left,
+                                                             const auto& right) {
+                if (left.byte_offset != right.byte_offset) {
+                    return left.byte_offset < right.byte_offset;
+                }
+                return left.byte_end < right.byte_end;
+            })) {
+            std::sort(lookup.begin(), lookup.end(), [](const auto& left, const auto& right) {
+                if (left.byte_offset != right.byte_offset) {
+                    return left.byte_offset < right.byte_offset;
+                }
+                return left.byte_end < right.byte_end;
+            });
+        }
         return lookup;
+    }
+
+    [[nodiscard]] static std::vector<GlyphSourceRange>
+    build_glyph_source_ranges(const DWRITE_GLYPH_RUN_DESCRIPTION& description,
+                              UINT32 glyph_count) {
+        std::vector<GlyphSourceRange> ranges(glyph_count);
+        if (description.clusterMap == nullptr) {
+            return ranges;
+        }
+
+        for (UINT32 text_index = 0; text_index < description.stringLength; ++text_index) {
+            const auto glyph_index = description.clusterMap[text_index];
+            if (glyph_index >= glyph_count) {
+                continue;
+            }
+            auto& range = ranges[glyph_index];
+            if (!range.has_mapping) {
+                range.first_utf16 = text_index;
+                range.last_utf16 = text_index + 1U;
+                range.has_mapping = true;
+                range.is_cluster_start = true;
+            } else {
+                range.first_utf16 = std::min(range.first_utf16, text_index);
+                range.last_utf16 = std::max(range.last_utf16, text_index + 1U);
+            }
+        }
+        return ranges;
     }
 
     [[nodiscard]] std::pair<std::size_t, std::size_t>
     source_range_for_glyph(const DWRITE_GLYPH_RUN_DESCRIPTION& description,
-                           UINT32 glyph_index) const noexcept {
+                           UINT32 glyph_index,
+                           const std::vector<GlyphSourceRange>& ranges) const noexcept {
         auto first_utf16 = description.stringLength;
         auto last_utf16 = UINT32{0};
-        for (UINT32 text_index = 0; text_index < description.stringLength; ++text_index) {
-            if (description.clusterMap[text_index] == glyph_index) {
-                first_utf16 = std::min(first_utf16, text_index);
-                last_utf16 = std::max(last_utf16, text_index + 1U);
-            }
-        }
-
-        if (first_utf16 == description.stringLength) {
+        if (glyph_index < ranges.size() && ranges[glyph_index].has_mapping) {
+            first_utf16 = ranges[glyph_index].first_utf16;
+            last_utf16 = ranges[glyph_index].last_utf16;
+        } else {
             first_utf16 = std::min(glyph_index, description.stringLength);
             last_utf16 = first_utf16;
         }
@@ -831,20 +916,6 @@ class CapturingTextRenderer final : public IDWriteTextRenderer {
         const auto end =
             byte_offset_from_utf16(utf16_to_utf8_, description.textPosition + last_utf16);
         return {start, end >= start ? end - start : 0U};
-    }
-
-    [[nodiscard]] static bool
-    is_first_glyph_for_cluster(const DWRITE_GLYPH_RUN_DESCRIPTION& description,
-                               UINT32 glyph_index) noexcept {
-        for (UINT32 text_index = 0; text_index < description.stringLength; ++text_index) {
-            if (description.clusterMap[text_index] == glyph_index) {
-                return true;
-            }
-            if (description.clusterMap[text_index] > glyph_index) {
-                return false;
-            }
-        }
-        return glyph_index == 0U;
     }
 
     TextLayout& layout_;
@@ -933,23 +1004,10 @@ query_line_metrics(IDWriteTextLayout& dwrite_layout) {
     return height;
 }
 
-[[nodiscard]] float line_top_for_text_position(IDWriteTextLayout& dwrite_layout,
-                                               std::size_t utf16_position) {
-    FLOAT x = 0.0F;
-    FLOAT y = 0.0F;
-    DWRITE_HIT_TEST_METRICS hit_metrics{};
-    const auto result = dwrite_layout.HitTestTextPosition(static_cast<UINT32>(utf16_position),
-                                                          FALSE, &x, &y, &hit_metrics);
-    if (FAILED(result)) {
-        throw make_hresult_error("failed to hit test DirectWrite line top", result);
-    }
-    return hit_metrics.top;
-}
-
-void populate_lines(IDWriteTextLayout& dwrite_layout, TextLayout& layout,
+void populate_lines(const std::vector<DWRITE_LINE_METRICS>& line_metrics, TextLayout& layout,
                     const std::vector<std::size_t>& utf16_to_utf8) {
-    const auto line_metrics = query_line_metrics(dwrite_layout);
     auto text_position = std::size_t{0};
+    auto line_top = 0.0F;
     const auto line_count = layout.options.max_lines == 0U
                                 ? line_metrics.size()
                                 : std::min(line_metrics.size(), layout.options.max_lines);
@@ -957,7 +1015,6 @@ void populate_lines(IDWriteTextLayout& dwrite_layout, TextLayout& layout,
         const auto& line = line_metrics[index];
         const auto start = byte_offset_from_utf16(utf16_to_utf8, text_position);
         const auto end = byte_offset_from_utf16(utf16_to_utf8, text_position + line.length);
-        const auto line_top = line_top_for_text_position(dwrite_layout, text_position);
         layout.lines.push_back(
             TextLine{.byte_offset = start,
                      .byte_length = end >= start ? end - start : 0U,
@@ -965,6 +1022,7 @@ void populate_lines(IDWriteTextLayout& dwrite_layout, TextLayout& layout,
                      .baseline = line.baseline,
                      .has_trailing_newline = line.newlineLength > 0U});
         text_position += line.length;
+        line_top += line.height;
     }
     if (line_count < line_metrics.size()) {
         layout.truncated = true;
@@ -978,11 +1036,13 @@ void populate_lines(IDWriteTextLayout& dwrite_layout, TextLayout& layout,
     if (y < layout.lines.front().rect.y) {
         return 0U;
     }
-    for (std::size_t index = 0; index < layout.lines.size(); ++index) {
-        const auto& line = layout.lines[index];
-        if (y >= line.rect.y && y < line.rect.y + line.rect.height) {
-            return static_cast<std::uint32_t>(index);
-        }
+    const auto iterator =
+        std::upper_bound(layout.lines.begin(), layout.lines.end(), y,
+                         [](float value, const TextLine& line) { return value < line.rect.y; });
+    if (iterator != layout.lines.begin()) {
+        const auto index = static_cast<std::size_t>(std::distance(layout.lines.begin(),
+                                                                  std::prev(iterator)));
+        return static_cast<std::uint32_t>(index);
     }
     return static_cast<std::uint32_t>(layout.lines.size() - 1U);
 }
@@ -990,11 +1050,15 @@ void populate_lines(IDWriteTextLayout& dwrite_layout, TextLayout& layout,
 [[nodiscard]] std::optional<std::uint32_t> visible_line_index_for_y(const TextLayout& layout,
                                                                     float y) noexcept {
     constexpr auto epsilon = 0.01F;
-    for (std::size_t index = 0; index < layout.lines.size(); ++index) {
+    if (layout.lines.empty()) {
+        return std::nullopt;
+    }
+    const auto index = line_index_for_y(layout, y);
+    if (index < layout.lines.size()) {
         const auto& line = layout.lines[index];
         if (std::abs(y - line.rect.y) < epsilon ||
             (y > line.rect.y && y < line.rect.y + line.rect.height)) {
-            return static_cast<std::uint32_t>(index);
+            return index;
         }
     }
     return std::nullopt;
@@ -1034,8 +1098,52 @@ void populate_lines(IDWriteTextLayout& dwrite_layout, TextLayout& layout,
     return TextLineRange{.start_line_index = start, .end_line_index = end};
 }
 
+[[nodiscard]] std::uint64_t caret_stop_key(std::size_t byte_offset, std::uint32_t line_index,
+                                           float x, float y) noexcept {
+    const auto quantize = [](float value) noexcept {
+        return static_cast<std::int64_t>(std::round(value * 100.0F));
+    };
+    auto seed = std::uint64_t{1469598103934665603ULL};
+    const auto mix = [&](std::uint64_t value) noexcept {
+        seed ^= value;
+        seed *= 1099511628211ULL;
+    };
+    mix(static_cast<std::uint64_t>(byte_offset));
+    mix(static_cast<std::uint64_t>(line_index));
+    mix(static_cast<std::uint64_t>(quantize(x)));
+    mix(static_cast<std::uint64_t>(quantize(y)));
+    return seed;
+}
+
+void append_caret_stop_from_metrics(TextLayout& layout, std::size_t byte_offset,
+                                    std::uint32_t line_index, float x, float y, float height,
+                                    std::unordered_set<std::uint64_t>* deduper) {
+    const auto key = caret_stop_key(byte_offset, line_index, x, y);
+    if (deduper != nullptr) {
+        if (!deduper->insert(key).second) {
+            return;
+        }
+    } else {
+        const auto is_same_stop = [&](const TextCaretStop& stop) noexcept {
+            return stop.byte_offset == byte_offset && stop.line_index == line_index &&
+                   std::abs(stop.origin.x - x) < 0.01F &&
+                   std::abs(stop.origin.y - y) < 0.01F;
+        };
+        if (std::find_if(layout.caret_stops.begin(), layout.caret_stops.end(), is_same_stop) !=
+            layout.caret_stops.end()) {
+            return;
+        }
+    }
+
+    layout.caret_stops.push_back(TextCaretStop{.byte_offset = byte_offset,
+                                               .line_index = line_index,
+                                               .origin = layout::Point{x, y},
+                                               .height = height});
+}
+
 void append_caret_stop(IDWriteTextLayout& dwrite_layout, TextLayout& layout,
-                       const std::vector<std::size_t>& utf16_to_utf8, std::size_t utf16_position) {
+                       const std::vector<std::size_t>& utf16_to_utf8, std::size_t utf16_position,
+                       std::unordered_set<std::uint64_t>* deduper = nullptr) {
     FLOAT x = 0.0F;
     FLOAT y = 0.0F;
     DWRITE_HIT_TEST_METRICS hit_metrics{};
@@ -1053,19 +1161,7 @@ void append_caret_stop(IDWriteTextLayout& dwrite_layout, TextLayout& layout,
 
     const auto byte_offset = byte_offset_from_utf16(utf16_to_utf8, utf16_position);
     const auto height = std::max(hit_metrics.height, default_line_height(layout.style));
-    const auto is_same_stop = [&](const TextCaretStop& stop) noexcept {
-        return stop.byte_offset == byte_offset && stop.line_index == *line_index &&
-               std::abs(stop.origin.x - x) < 0.01F && std::abs(stop.origin.y - y) < 0.01F;
-    };
-    if (std::find_if(layout.caret_stops.begin(), layout.caret_stops.end(), is_same_stop) !=
-        layout.caret_stops.end()) {
-        return;
-    }
-
-    layout.caret_stops.push_back(TextCaretStop{.byte_offset = byte_offset,
-                                               .line_index = *line_index,
-                                               .origin = layout::Point{x, y},
-                                               .height = height});
+    append_caret_stop_from_metrics(layout, byte_offset, *line_index, x, y, height, deduper);
 }
 
 void populate_clusters(IDWriteTextLayout& dwrite_layout, TextLayout& layout,
@@ -1084,6 +1180,15 @@ void populate_clusters(IDWriteTextLayout& dwrite_layout, TextLayout& layout,
     result = dwrite_layout.GetClusterMetrics(metrics.data(), cluster_count, &cluster_count);
     if (FAILED(result)) {
         throw make_hresult_error("failed to get DirectWrite cluster metrics", result);
+    }
+
+    layout.clusters.reserve(layout.clusters.size() + cluster_count);
+    layout.caret_stops.reserve(layout.caret_stops.size() + cluster_count * 2U);
+    std::unordered_set<std::uint64_t> caret_deduper;
+    caret_deduper.reserve(cluster_count * 2U + layout.caret_stops.size());
+    for (const auto& stop : layout.caret_stops) {
+        caret_deduper.insert(
+            caret_stop_key(stop.byte_offset, stop.line_index, stop.origin.x, stop.origin.y));
     }
 
     auto utf16_position = std::size_t{0};
@@ -1110,7 +1215,9 @@ void populate_clusters(IDWriteTextLayout& dwrite_layout, TextLayout& layout,
             continue;
         }
 
-        append_caret_stop(dwrite_layout, layout, utf16_to_utf8, utf16_position);
+        const auto start_height = std::max(hit_metrics.height, default_line_height(layout.style));
+        append_caret_stop_from_metrics(layout, start, *line_index, x, y, start_height,
+                                       &caret_deduper);
         layout.clusters.push_back(
             TextCluster{.byte_offset = start,
                         .byte_length = end >= start ? end - start : 0U,
@@ -1122,7 +1229,7 @@ void populate_clusters(IDWriteTextLayout& dwrite_layout, TextLayout& layout,
                         .is_newline = metric.isNewline != 0,
                         .is_right_to_left = metric.isRightToLeft != 0});
         utf16_position += metric.length;
-        append_caret_stop(dwrite_layout, layout, utf16_to_utf8, utf16_position);
+        append_caret_stop(dwrite_layout, layout, utf16_to_utf8, utf16_position, &caret_deduper);
     }
 }
 
@@ -1144,30 +1251,11 @@ void populate_clusters(IDWriteTextLayout& dwrite_layout, TextLayout& layout,
     return static_cast<std::uint32_t>(layout.lines.size() - 1U);
 }
 
-[[nodiscard]] bool has_cluster_for_range(const TextLayout& layout, std::size_t byte_offset,
-                                         std::size_t byte_length) noexcept {
-    return std::find_if(layout.clusters.begin(), layout.clusters.end(), [&](const auto& cluster) {
-               return cluster.byte_offset == byte_offset && cluster.byte_length == byte_length;
-           }) != layout.clusters.end();
-}
-
 void append_caret_stop_for_cluster(TextLayout& layout, std::size_t byte_offset,
-                                   std::uint32_t line_index, layout::Point origin, float height) {
-    const auto is_same_stop = [&](const TextCaretStop& stop) noexcept {
-        return stop.byte_offset == byte_offset && stop.line_index == line_index &&
-               std::abs(stop.origin.x - origin.x) < 0.01F &&
-               std::abs(stop.origin.y - origin.y) < 0.01F;
-    };
-    if (std::find_if(layout.caret_stops.begin(), layout.caret_stops.end(), is_same_stop) !=
-        layout.caret_stops.end()) {
-        return;
-    }
-
-    layout.caret_stops.push_back(
-        TextCaretStop{.byte_offset = byte_offset,
-                      .line_index = line_index,
-                      .origin = origin,
-                      .height = std::max(height, default_line_height(layout.style))});
+                                   std::uint32_t line_index, layout::Point origin, float height,
+                                   std::unordered_set<std::uint64_t>* deduper = nullptr) {
+    append_caret_stop_from_metrics(layout, byte_offset, line_index, origin.x, origin.y,
+                                   std::max(height, default_line_height(layout.style)), deduper);
 }
 
 [[nodiscard]] std::uint32_t cluster_index_for_range(const TextLayout& layout,
@@ -1191,13 +1279,35 @@ void append_caret_stop_for_cluster(TextLayout& layout, std::size_t byte_offset,
 }
 
 void synthesize_missing_clusters_from_glyphs(TextLayout& layout) {
+    std::unordered_set<std::uint64_t> cluster_ranges;
+    cluster_ranges.reserve(layout.clusters.size() + layout.glyphs.size());
+    const auto cluster_range_key = [](std::size_t byte_offset, std::size_t byte_length) noexcept {
+        auto seed = std::uint64_t{1469598103934665603ULL};
+        seed ^= static_cast<std::uint64_t>(byte_offset);
+        seed *= 1099511628211ULL;
+        seed ^= static_cast<std::uint64_t>(byte_length);
+        seed *= 1099511628211ULL;
+        return seed;
+    };
+    for (const auto& cluster : layout.clusters) {
+        cluster_ranges.insert(cluster_range_key(cluster.byte_offset, cluster.byte_length));
+    }
+
+    std::unordered_set<std::uint64_t> caret_deduper;
+    caret_deduper.reserve(layout.caret_stops.size() + layout.glyphs.size() * 2U);
+    for (const auto& stop : layout.caret_stops) {
+        caret_deduper.insert(
+            caret_stop_key(stop.byte_offset, stop.line_index, stop.origin.x, stop.origin.y));
+    }
+
     for (const auto& glyph : layout.glyphs) {
         if (glyph.byte_length == 0U || glyph.byte_offset >= layout.text.size()) {
             continue;
         }
         const auto byte_end = std::min(layout.text.size(), glyph.byte_offset + glyph.byte_length);
         const auto byte_length = byte_end - glyph.byte_offset;
-        if (byte_length == 0U || has_cluster_for_range(layout, glyph.byte_offset, byte_length)) {
+        if (byte_length == 0U ||
+            cluster_ranges.contains(cluster_range_key(glyph.byte_offset, byte_length))) {
             continue;
         }
 
@@ -1219,10 +1329,13 @@ void synthesize_missing_clusters_from_glyphs(TextLayout& layout) {
                         .advance = width,
                         .line_index = line_index,
                         .is_right_to_left = glyph.is_right_to_left});
+        cluster_ranges.insert(cluster_range_key(glyph.byte_offset, byte_length));
         append_caret_stop_for_cluster(layout, glyph.byte_offset, line_index,
-                                      layout::Point{leading_x, line_top}, line_height);
+                                      layout::Point{leading_x, line_top}, line_height,
+                                      &caret_deduper);
         append_caret_stop_for_cluster(layout, byte_end, line_index,
-                                      layout::Point{trailing_x, line_top}, line_height);
+                                      layout::Point{trailing_x, line_top}, line_height,
+                                      &caret_deduper);
     }
 
     std::stable_sort(layout.clusters.begin(), layout.clusters.end(),
@@ -1235,8 +1348,22 @@ void synthesize_missing_clusters_from_glyphs(TextLayout& layout) {
                          }
                          return left.byte_length < right.byte_length;
                      });
+    std::unordered_map<std::uint64_t, std::uint32_t> exact_cluster_indices;
+    exact_cluster_indices.reserve(layout.clusters.size());
+    for (std::size_t index = 0U; index < layout.clusters.size(); ++index) {
+        const auto& cluster = layout.clusters[index];
+        exact_cluster_indices.emplace(cluster_range_key(cluster.byte_offset, cluster.byte_length),
+                                      static_cast<std::uint32_t>(index));
+    }
     for (auto& glyph : layout.glyphs) {
-        glyph.cluster_index = cluster_index_for_range(layout, glyph.byte_offset, glyph.byte_length);
+        if (const auto match =
+                exact_cluster_indices.find(cluster_range_key(glyph.byte_offset, glyph.byte_length));
+            match != exact_cluster_indices.end()) {
+            glyph.cluster_index = match->second;
+        } else {
+            glyph.cluster_index =
+                cluster_index_for_range(layout, glyph.byte_offset, glyph.byte_length);
+        }
     }
 }
 
@@ -1325,6 +1452,18 @@ TextLayout TextEngine::layout_text_uncached(std::string_view text, const TextSty
         apply_trimming(factory, *created_layout.Get(), style.trimming);
         return created_layout;
     };
+    const auto set_layout_extent = [&](float width, float height) {
+        const auto width_result = dwrite_layout->SetMaxWidth(width);
+        if (FAILED(width_result)) {
+            throw make_hresult_error("failed to set DirectWrite text layout width",
+                                     width_result);
+        }
+        const auto height_result = dwrite_layout->SetMaxHeight(height);
+        if (FAILED(height_result)) {
+            throw make_hresult_error("failed to set DirectWrite text layout height",
+                                     height_result);
+        }
+    };
 
     dwrite_layout = create_layout(layout_width, max_height);
     if (!has_width_constraint) {
@@ -1339,15 +1478,16 @@ TextLayout TextEngine::layout_text_uncached(std::string_view text, const TextSty
                                               unbounded_metrics.width)));
         if (std::isfinite(tight_width) && tight_width < layout_width) {
             layout_width = tight_width;
-            dwrite_layout = create_layout(layout_width, max_height);
+            set_layout_extent(layout_width, max_height);
         }
     }
-    const auto unbounded_line_metrics = query_line_metrics(*dwrite_layout.Get());
+    auto line_metrics = query_line_metrics(*dwrite_layout.Get());
     const auto line_limited_height =
-        max_height_for_line_limit(unbounded_line_metrics, options.max_lines);
+        max_height_for_line_limit(line_metrics, options.max_lines);
     if (line_limited_height > 0.0F && line_limited_height < max_height) {
         max_height = line_limited_height;
-        dwrite_layout = create_layout(layout_width, max_height);
+        set_layout_extent(layout_width, max_height);
+        line_metrics = query_line_metrics(*dwrite_layout.Get());
         layout.truncated = true;
     }
 
@@ -1362,7 +1502,7 @@ TextLayout TextEngine::layout_text_uncached(std::string_view text, const TextSty
         layout.truncated || text_metrics.height > max_height ||
         (has_width_constraint && (text_metrics.widthIncludingTrailingWhitespace > layout_width ||
                                   text_metrics.width > layout_width));
-    populate_lines(*dwrite_layout.Get(), layout, utf16_to_utf8);
+    populate_lines(line_metrics, layout, utf16_to_utf8);
     layout.visible_line_range = visible_line_range_for_layout(layout);
     if (!layout.lines.empty() && options.max_lines > 0U &&
         layout.lines.size() <= options.max_lines) {

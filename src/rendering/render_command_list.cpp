@@ -100,8 +100,12 @@ class BoundsBuilder final {
 }
 
 [[nodiscard]] layout::Rect text_layout_bounds(const DrawTextLayoutCommand& command) noexcept {
-    return layout::Rect{command.origin.x, command.origin.y, command.layout.size.width,
-                        command.layout.size.height};
+    const auto* layout = command.layout_value();
+    if (layout == nullptr) {
+        return {};
+    }
+    return layout::Rect{command.origin.x, command.origin.y, layout->size.width,
+                        layout->size.height};
 }
 
 [[nodiscard]] RenderBatchKind batch_kind_for(RenderCommandType type) noexcept {
@@ -444,40 +448,73 @@ void add_arc_bounds(BoundsBuilder& bounds, layout::Point start,
         return {};
     }
 
-    std::vector<layout::Point> compacted;
-    compacted.reserve(points.size());
+    auto write_index = std::size_t{0U};
     for (const auto point : points) {
-        if (!compacted.empty() && nearly_same_point(compacted.back(), point)) {
+        if (write_index > 0U && nearly_same_point(points[write_index - 1U], point)) {
             continue;
         }
-        compacted.push_back(point);
+        points[write_index++] = point;
     }
-    if (compacted.size() > 1U && nearly_same_point(compacted.front(), compacted.back())) {
-        compacted.pop_back();
+    points.resize(write_index);
+    if (points.size() > 1U && nearly_same_point(points.front(), points.back())) {
+        points.pop_back();
     }
-    if (compacted.size() < 3U) {
+    if (points.size() < 3U) {
         return {};
     }
 
+    std::vector<std::uint8_t> keep(points.size(), 1U);
+    auto remaining = points.size();
+    const auto previous_kept = [&](std::size_t index) noexcept {
+        auto cursor = index;
+        do {
+            cursor = cursor == 0U ? points.size() - 1U : cursor - 1U;
+        } while (cursor != index && keep[cursor] == 0U);
+        return cursor;
+    };
+    const auto next_kept = [&](std::size_t index) noexcept {
+        auto cursor = index;
+        do {
+            cursor = (cursor + 1U) % points.size();
+        } while (cursor != index && keep[cursor] == 0U);
+        return cursor;
+    };
+
     auto changed = true;
-    while (changed && compacted.size() >= 3U) {
+    while (changed && remaining >= 3U) {
         changed = false;
-        std::vector<layout::Point> simplified;
-        simplified.reserve(compacted.size());
-        for (std::size_t index = 0U; index < compacted.size(); ++index) {
-            const auto previous = compacted[(index + compacted.size() - 1U) % compacted.size()];
-            const auto current = compacted[index];
-            const auto next = compacted[(index + 1U) % compacted.size()];
-            if (is_redundant_collinear_point(previous, current, next)) {
-                changed = true;
+        for (std::size_t index = 0U; index < points.size() && remaining >= 3U; ++index) {
+            if (keep[index] == 0U) {
                 continue;
             }
-            simplified.push_back(current);
+            const auto previous_index = previous_kept(index);
+            const auto next_index = next_kept(index);
+            if (previous_index == index || next_index == index || previous_index == next_index) {
+                continue;
+            }
+            const auto previous = points[previous_index];
+            const auto current = points[index];
+            const auto next = points[next_index];
+            if (is_redundant_collinear_point(previous, current, next)) {
+                keep[index] = 0U;
+                --remaining;
+                changed = true;
+            }
         }
-        compacted = std::move(simplified);
     }
 
-    return compacted.size() >= 3U ? compacted : std::vector<layout::Point>{};
+    if (remaining < 3U) {
+        return {};
+    }
+
+    std::vector<layout::Point> compacted;
+    compacted.reserve(remaining);
+    for (std::size_t index = 0U; index < points.size(); ++index) {
+        if (keep[index] != 0U) {
+            compacted.push_back(points[index]);
+        }
+    }
+    return compacted;
 }
 
 struct PreparedArcParameters {
@@ -593,49 +630,83 @@ resolve_prepared_arc(layout::Point start, const GeometrySegment& segment) noexce
 
 void append_prepared_quadratic(std::vector<layout::Point>& points, layout::Point start,
                                layout::Point control, layout::Point end) {
-    const auto append_recursive = [&](const auto& self, layout::Point current_start,
-                                      layout::Point current_control, layout::Point current_end,
-                                      std::uint32_t depth) -> void {
-        if (depth >= max_curve_flattening_depth ||
-            point_line_distance(current_control, current_start, current_end) <=
+    struct QuadraticWork {
+        layout::Point start{};
+        layout::Point control{};
+        layout::Point end{};
+        std::uint32_t depth = 0U;
+    };
+
+    std::vector<QuadraticWork> stack;
+    stack.reserve(32U);
+    stack.push_back(QuadraticWork{.start = start, .control = control, .end = end});
+    while (!stack.empty()) {
+        const auto work = stack.back();
+        stack.pop_back();
+        if (work.depth >= max_curve_flattening_depth ||
+            point_line_distance(work.control, work.start, work.end) <=
                 geometry_flattening_tolerance) {
-            points.push_back(current_end);
-            return;
+            points.push_back(work.end);
+            continue;
         }
 
-        const auto start_control = point_lerp(current_start, current_control, 0.5F);
-        const auto control_end = point_lerp(current_control, current_end, 0.5F);
+        const auto start_control = point_lerp(work.start, work.control, 0.5F);
+        const auto control_end = point_lerp(work.control, work.end, 0.5F);
         const auto middle = point_lerp(start_control, control_end, 0.5F);
-        self(self, current_start, start_control, middle, depth + 1U);
-        self(self, middle, control_end, current_end, depth + 1U);
-    };
-    append_recursive(append_recursive, start, control, end, 0U);
+        const auto next_depth = work.depth + 1U;
+        stack.push_back(
+            QuadraticWork{.start = middle, .control = control_end, .end = work.end,
+                          .depth = next_depth});
+        stack.push_back(
+            QuadraticWork{.start = work.start, .control = start_control, .end = middle,
+                          .depth = next_depth});
+    }
 }
 
 void append_prepared_cubic(std::vector<layout::Point>& points, layout::Point start,
                            layout::Point control1, layout::Point control2, layout::Point end) {
-    const auto append_recursive = [&](const auto& self, layout::Point current_start,
-                                      layout::Point current_control1,
-                                      layout::Point current_control2, layout::Point current_end,
-                                      std::uint32_t depth) -> void {
+    struct CubicWork {
+        layout::Point start{};
+        layout::Point control1{};
+        layout::Point control2{};
+        layout::Point end{};
+        std::uint32_t depth = 0U;
+    };
+
+    std::vector<CubicWork> stack;
+    stack.reserve(32U);
+    stack.push_back(CubicWork{.start = start, .control1 = control1, .control2 = control2,
+                              .end = end});
+    while (!stack.empty()) {
+        const auto work = stack.back();
+        stack.pop_back();
         const auto flatness =
-            std::max(point_line_distance(current_control1, current_start, current_end),
-                     point_line_distance(current_control2, current_start, current_end));
-        if (depth >= max_curve_flattening_depth || flatness <= geometry_flattening_tolerance) {
-            points.push_back(current_end);
-            return;
+            std::max(point_line_distance(work.control1, work.start, work.end),
+                     point_line_distance(work.control2, work.start, work.end));
+        if (work.depth >= max_curve_flattening_depth ||
+            flatness <= geometry_flattening_tolerance) {
+            points.push_back(work.end);
+            continue;
         }
 
-        const auto start_control = point_lerp(current_start, current_control1, 0.5F);
-        const auto middle_control = point_lerp(current_control1, current_control2, 0.5F);
-        const auto control_end = point_lerp(current_control2, current_end, 0.5F);
+        const auto start_control = point_lerp(work.start, work.control1, 0.5F);
+        const auto middle_control = point_lerp(work.control1, work.control2, 0.5F);
+        const auto control_end = point_lerp(work.control2, work.end, 0.5F);
         const auto left_control = point_lerp(start_control, middle_control, 0.5F);
         const auto right_control = point_lerp(middle_control, control_end, 0.5F);
         const auto middle = point_lerp(left_control, right_control, 0.5F);
-        self(self, current_start, start_control, left_control, middle, depth + 1U);
-        self(self, middle, right_control, control_end, current_end, depth + 1U);
-    };
-    append_recursive(append_recursive, start, control1, control2, end, 0U);
+        const auto next_depth = work.depth + 1U;
+        stack.push_back(CubicWork{.start = middle,
+                                  .control1 = right_control,
+                                  .control2 = control_end,
+                                  .end = work.end,
+                                  .depth = next_depth});
+        stack.push_back(CubicWork{.start = work.start,
+                                  .control1 = start_control,
+                                  .control2 = left_control,
+                                  .end = middle,
+                                  .depth = next_depth});
+    }
 }
 
 void append_prepared_arc(std::vector<layout::Point>& points, layout::Point start,
@@ -655,6 +726,24 @@ void append_prepared_arc(std::vector<layout::Point>& points, layout::Point start
 
 [[nodiscard]] std::vector<layout::Point> flatten_prepared_figure(const GeometryFigure& figure) {
     std::vector<layout::Point> points;
+    auto reserve_points = std::size_t{1U};
+    for (const auto& segment : figure.segments) {
+        switch (segment.type) {
+        case GeometrySegmentType::Line:
+            reserve_points += 1U;
+            break;
+        case GeometrySegmentType::QuadraticBezier:
+            reserve_points += 8U;
+            break;
+        case GeometrySegmentType::CubicBezier:
+            reserve_points += 12U;
+            break;
+        case GeometrySegmentType::Arc:
+            reserve_points += 24U;
+            break;
+        }
+    }
+    points.reserve(reserve_points);
     points.push_back(figure.start);
     auto current = figure.start;
     for (const auto& segment : figure.segments) {
@@ -799,6 +888,12 @@ tessellate_prepared_geometry_fill(const std::vector<std::vector<layout::Point>>&
                                   GeometryFillRule fill_rule) {
     std::vector<FillEdge> edges;
     std::vector<float> y_values;
+    auto estimated_edges = std::size_t{0U};
+    for (const auto& points : contours) {
+        estimated_edges += points.size();
+    }
+    edges.reserve(estimated_edges);
+    y_values.reserve(estimated_edges * 2U);
     for (const auto& points : contours) {
         if (points.size() < 3U) {
             continue;
@@ -825,6 +920,10 @@ tessellate_prepared_geometry_fill(const std::vector<std::vector<layout::Point>>&
 
     for (std::size_t first = 0; first < edges.size(); ++first) {
         for (std::size_t second = first + 1U; second < edges.size(); ++second) {
+            if (edges[first].max_y <= edges[second].min_y + geometry_epsilon ||
+                edges[second].max_y <= edges[first].min_y + geometry_epsilon) {
+                continue;
+            }
             auto y = 0.0F;
             if (edge_intersection_y(edges[first], edges[second], y)) {
                 add_sorted_y(y_values, y);
@@ -840,6 +939,9 @@ tessellate_prepared_geometry_fill(const std::vector<std::vector<layout::Point>>&
                    y_values.end());
 
     std::vector<layout::Point> vertices;
+    vertices.reserve(edges.size() * 6U);
+    std::vector<ActiveFillEdge> active_edges;
+    active_edges.reserve(edges.size());
     for (std::size_t band = 1U; band < y_values.size(); ++band) {
         const auto top = y_values[band - 1U];
         const auto bottom = y_values[band];
@@ -847,7 +949,7 @@ tessellate_prepared_geometry_fill(const std::vector<std::vector<layout::Point>>&
             continue;
         }
         const auto mid_y = (top + bottom) * 0.5F;
-        std::vector<ActiveFillEdge> active_edges;
+        active_edges.clear();
         for (const auto& edge : edges) {
             if (mid_y > edge.min_y + geometry_epsilon && mid_y < edge.max_y - geometry_epsilon) {
                 active_edges.push_back(ActiveFillEdge{.edge = &edge, .x = x_at_y(edge, mid_y)});
@@ -1413,47 +1515,6 @@ void append_geometry_cache_point(std::string& key, layout::Point point) {
     return key;
 }
 
-[[nodiscard]] bool point_equal(layout::Point left, layout::Point right) noexcept {
-    return left.x == right.x && left.y == right.y;
-}
-
-[[nodiscard]] bool segment_equal(const GeometrySegment& left,
-                                 const GeometrySegment& right) noexcept {
-    return left.type == right.type && point_equal(left.point, right.point) &&
-           point_equal(left.control_point1, right.control_point1) &&
-           point_equal(left.control_point2, right.control_point2) &&
-           left.radius.width == right.radius.width && left.radius.height == right.radius.height &&
-           left.rotation_angle == right.rotation_angle && left.arc_size == right.arc_size &&
-           left.sweep_direction == right.sweep_direction;
-}
-
-[[nodiscard]] bool figure_equal(const GeometryFigure& left, const GeometryFigure& right) noexcept {
-    if (!point_equal(left.start, right.start) || left.begin != right.begin ||
-        left.end != right.end || left.segments.size() != right.segments.size()) {
-        return false;
-    }
-
-    for (std::size_t index = 0U; index < left.segments.size(); ++index) {
-        if (!segment_equal(left.segments[index], right.segments[index])) {
-            return false;
-        }
-    }
-    return true;
-}
-
-[[nodiscard]] bool geometry_equal(const Geometry& left, const Geometry& right) noexcept {
-    if (left.fill_rule != right.fill_rule || left.figures.size() != right.figures.size()) {
-        return false;
-    }
-
-    for (std::size_t index = 0U; index < left.figures.size(); ++index) {
-        if (!figure_equal(left.figures[index], right.figures[index])) {
-            return false;
-        }
-    }
-    return true;
-}
-
 void hash_text_style(std::size_t& seed, const TextStyle& style) noexcept {
     hash_combine(seed, std::string_view{style.font_family});
     hash_combine(seed, std::string_view{style.locale});
@@ -1609,7 +1670,7 @@ payload_fingerprint(const StrokePixelSnappedRectCommand& command) noexcept {
 
 [[nodiscard]] std::size_t payload_fingerprint(const DrawTextCommand& command) noexcept {
     auto seed = std::size_t{};
-    hash_combine(seed, std::string_view{command.text});
+    hash_combine(seed, command.text_view());
     hash_rect(seed, command.rect);
     hash_text_style(seed, command.style);
     return seed;
@@ -1617,10 +1678,13 @@ payload_fingerprint(const StrokePixelSnappedRectCommand& command) noexcept {
 
 [[nodiscard]] std::size_t payload_fingerprint(const DrawTextLayoutCommand& command) noexcept {
     auto seed = std::size_t{};
-    hash_combine(seed, std::string_view{command.layout.text});
-    hash_text_style(seed, command.layout.style);
-    hash_combine(seed, command.layout.size.width);
-    hash_combine(seed, command.layout.size.height);
+    const auto* layout = command.layout_value();
+    if (layout != nullptr) {
+        hash_combine(seed, std::string_view{layout->text});
+        hash_text_style(seed, layout->style);
+        hash_combine(seed, layout->size.width);
+        hash_combine(seed, layout->size.height);
+    }
     hash_point(seed, command.origin);
     return seed;
 }
@@ -1633,6 +1697,156 @@ payload_fingerprint(const StrokePixelSnappedRectCommand& command) noexcept {
     hash_combine(seed, command.style.blur_radius);
     hash_combine(seed, command.style.spread);
     return seed;
+}
+
+struct DrawBatchKey {
+    RenderBatchKind kind = RenderBatchKind::State;
+    RenderCommandType first_command_type = RenderCommandType::Save;
+    std::uint64_t state_key = 0U;
+    std::uint64_t resource_key = 0U;
+
+    [[nodiscard]] friend bool operator==(DrawBatchKey, DrawBatchKey) noexcept = default;
+};
+
+[[nodiscard]] std::uint64_t state_key_from_seed(std::size_t seed) noexcept {
+    return static_cast<std::uint64_t>(seed == 0U ? 1U : seed);
+}
+
+[[nodiscard]] DrawBatchKey draw_batch_key_for(const RenderCommandList& command_list,
+                                              const RenderOpcodeRecord& opcode) noexcept {
+    auto state_seed = std::size_t{};
+    auto resource_seed = std::size_t{};
+    hash_combine(state_seed, static_cast<int>(opcode.opcode));
+    switch (opcode.opcode) {
+    case RenderCommandType::DrawLine: {
+        const auto& payload =
+            command_list.payload_by_index<DrawLineCommand>(opcode.payload_index);
+        hash_color(state_seed, payload.color);
+        hash_combine(state_seed, payload.stroke_width);
+        break;
+    }
+    case RenderCommandType::FillRect: {
+        const auto& payload =
+            command_list.payload_by_index<FillRectCommand>(opcode.payload_index);
+        hash_color(state_seed, payload.color);
+        break;
+    }
+    case RenderCommandType::FillPixelSnappedRect: {
+        const auto& payload =
+            command_list.payload_by_index<FillPixelSnappedRectCommand>(opcode.payload_index);
+        hash_color(state_seed, payload.color);
+        break;
+    }
+    case RenderCommandType::StrokePixelSnappedRect: {
+        const auto& payload =
+            command_list.payload_by_index<StrokePixelSnappedRectCommand>(opcode.payload_index);
+        hash_color(state_seed, payload.color);
+        hash_combine(state_seed, payload.stroke_width);
+        break;
+    }
+    case RenderCommandType::StrokeRect: {
+        const auto& payload =
+            command_list.payload_by_index<StrokeRectCommand>(opcode.payload_index);
+        hash_color(state_seed, payload.color);
+        hash_combine(state_seed, payload.stroke_width);
+        break;
+    }
+    case RenderCommandType::FillRoundedRect: {
+        const auto& payload =
+            command_list.payload_by_index<FillRoundedRectCommand>(opcode.payload_index);
+        hash_color(state_seed, payload.color);
+        hash_combine(state_seed, payload.radius.x);
+        hash_combine(state_seed, payload.radius.y);
+        break;
+    }
+    case RenderCommandType::StrokeRoundedRect: {
+        const auto& payload =
+            command_list.payload_by_index<StrokeRoundedRectCommand>(opcode.payload_index);
+        hash_color(state_seed, payload.color);
+        hash_combine(state_seed, payload.radius.x);
+        hash_combine(state_seed, payload.radius.y);
+        hash_combine(state_seed, payload.stroke_width);
+        break;
+    }
+    case RenderCommandType::FillEllipse: {
+        const auto& payload =
+            command_list.payload_by_index<FillEllipseCommand>(opcode.payload_index);
+        hash_color(state_seed, payload.color);
+        break;
+    }
+    case RenderCommandType::StrokeEllipse: {
+        const auto& payload =
+            command_list.payload_by_index<StrokeEllipseCommand>(opcode.payload_index);
+        hash_color(state_seed, payload.color);
+        hash_combine(state_seed, payload.stroke_width);
+        break;
+    }
+    case RenderCommandType::FillGeometry: {
+        const auto& payload =
+            command_list.payload_by_index<FillGeometryCommand>(opcode.payload_index);
+        hash_color(state_seed, payload.color);
+        hash_combine(resource_seed, payload.prepared_fill.get());
+        break;
+    }
+    case RenderCommandType::StrokeGeometry: {
+        const auto& payload =
+            command_list.payload_by_index<StrokeGeometryCommand>(opcode.payload_index);
+        hash_color(state_seed, payload.color);
+        hash_combine(state_seed, payload.style.width);
+        hash_combine(state_seed, static_cast<int>(payload.style.start_cap));
+        hash_combine(state_seed, static_cast<int>(payload.style.end_cap));
+        hash_combine(state_seed, static_cast<int>(payload.style.line_join));
+        hash_combine(state_seed, static_cast<int>(payload.style.dash_style));
+        hash_combine(resource_seed, payload.prepared_stroke.get());
+        break;
+    }
+    case RenderCommandType::DrawImage: {
+        const auto& payload =
+            command_list.payload_by_index<DrawImageCommand>(opcode.payload_index);
+        hash_combine(resource_seed, payload.resource_id.value);
+        hash_combine(state_seed, payload.options.opacity);
+        hash_rect(state_seed, payload.options.source);
+        break;
+    }
+    case RenderCommandType::DrawText: {
+        const auto& payload =
+            command_list.payload_by_index<DrawTextCommand>(opcode.payload_index);
+        hash_text_style(state_seed, payload.style);
+        hash_combine(resource_seed, payload.text_view());
+        break;
+    }
+    case RenderCommandType::DrawTextLayout: {
+        const auto& payload =
+            command_list.payload_by_index<DrawTextLayoutCommand>(opcode.payload_index);
+        if (const auto* layout = payload.layout_value()) {
+            hash_text_style(state_seed, layout->style);
+            hash_combine(resource_seed, std::string_view{layout->text});
+            hash_combine(resource_seed, payload.prepared_glyphs.get());
+        }
+        break;
+    }
+    case RenderCommandType::DrawBoxShadow: {
+        const auto& payload =
+            command_list.payload_by_index<DrawBoxShadowCommand>(opcode.payload_index);
+        hash_color(state_seed, payload.style.color);
+        hash_combine(state_seed, payload.style.blur_radius);
+        hash_combine(state_seed, payload.style.spread);
+        break;
+    }
+    case RenderCommandType::PushLayer: {
+        const auto& payload =
+            command_list.payload_by_index<PushLayerCommand>(opcode.payload_index);
+        hash_combine(state_seed, payload.options.opacity);
+        hash_combine(state_seed, payload.options.clips_to_bounds);
+        break;
+    }
+    default:
+        break;
+    }
+    return DrawBatchKey{.kind = batch_kind_for(opcode.opcode),
+                        .first_command_type = opcode.opcode,
+                        .state_key = state_key_from_seed(state_seed),
+                        .resource_key = static_cast<std::uint64_t>(resource_seed)};
 }
 
 } // namespace
@@ -1809,8 +2023,7 @@ PreparedRenderCache::prepared_geometry_flatten(const Geometry& geometry) {
     if (const auto iterator = prepared_geometry_flatten_cache_.find(seed);
         iterator != prepared_geometry_flatten_cache_.end()) {
         for (const auto& entry : iterator->second) {
-            if (entry.prepared != nullptr && entry.canonical_key == canonical_key &&
-                geometry_equal(entry.geometry, geometry)) {
+            if (entry.prepared != nullptr && entry.canonical_key == canonical_key) {
                 return entry.prepared;
             }
         }
@@ -1830,8 +2043,7 @@ PreparedRenderCache::prepared_geometry_fill(const Geometry& geometry) {
     if (const auto iterator = prepared_geometry_fill_cache_.find(seed);
         iterator != prepared_geometry_fill_cache_.end()) {
         for (const auto& entry : iterator->second) {
-            if (entry.prepared != nullptr && entry.canonical_key == canonical_key &&
-                geometry_equal(entry.geometry, geometry)) {
+            if (entry.prepared != nullptr && entry.canonical_key == canonical_key) {
                 return entry.prepared;
             }
         }
@@ -1852,8 +2064,7 @@ PreparedRenderCache::prepared_geometry_stroke(const Geometry& geometry) {
     if (const auto iterator = prepared_geometry_stroke_cache_.find(seed);
         iterator != prepared_geometry_stroke_cache_.end()) {
         for (const auto& entry : iterator->second) {
-            if (entry.prepared != nullptr && entry.canonical_key == canonical_key &&
-                geometry_equal(entry.geometry, geometry)) {
+            if (entry.prepared != nullptr && entry.canonical_key == canonical_key) {
                 return entry.prepared;
             }
         }
@@ -1873,10 +2084,23 @@ PreparedRenderCache::prepared_text_glyph_coverages(const TextLayout& layout) {
 
 void PreparedRenderCache::merge(const PreparedRenderCache& other) {
     const auto merge_geometry_cache = [](auto& target_cache, const auto& source_cache) {
+        constexpr auto linear_dedup_threshold = 8U;
         for (const auto& [hash, entries] : source_cache) {
             auto& target_entries = target_cache[hash];
             if (target_entries.empty()) {
                 target_entries.insert(target_entries.end(), entries.begin(), entries.end());
+                continue;
+            }
+            if (target_entries.size() + entries.size() <= linear_dedup_threshold) {
+                for (const auto& entry : entries) {
+                    const auto exists = std::any_of(
+                        target_entries.begin(), target_entries.end(), [&](const auto& target) {
+                            return target.canonical_key == entry.canonical_key;
+                        });
+                    if (!exists) {
+                        target_entries.push_back(entry);
+                    }
+                }
                 continue;
             }
 
@@ -1899,6 +2123,27 @@ void PreparedRenderCache::merge(const PreparedRenderCache& other) {
 
     for (const auto& [hash, entries] : other.prepared_text_glyph_cache_) {
         auto& target_entries = prepared_text_glyph_cache_[hash];
+        if (target_entries.empty()) {
+            target_entries.insert(target_entries.end(), entries.begin(), entries.end());
+            continue;
+        }
+        if (target_entries.size() + entries.size() <= 8U) {
+            for (const auto& entry : entries) {
+                if (entry == nullptr) {
+                    continue;
+                }
+                const auto exists =
+                    std::any_of(target_entries.begin(), target_entries.end(),
+                                [&](const auto& target) {
+                                    return target != nullptr &&
+                                           same_prepared_text_key(*target, *entry);
+                                });
+                if (!exists) {
+                    target_entries.push_back(entry);
+                }
+            }
+            continue;
+        }
         auto target_keys =
             std::unordered_set<const PreparedTextGlyphCoverage*, PreparedTextGlyphCoveragePtrHash,
                                PreparedTextGlyphCoveragePtrEqual>{};
@@ -1919,11 +2164,14 @@ void PreparedRenderCache::merge(const PreparedRenderCache& other) {
     }
 }
 
-RenderCommandList::RenderCommandList() : prepared_cache_(std::make_shared<PreparedRenderCache>()) {}
+RenderCommandList::RenderCommandList()
+    : prepared_cache_(std::make_shared<PreparedRenderCache>()),
+      opcode_owner_(std::make_shared<RenderOpcodeOwner>(RenderOpcodeOwner{.list = this})) {}
 
 RenderCommandList::RenderCommandList(std::shared_ptr<PreparedRenderCache> prepared_cache)
     : prepared_cache_(prepared_cache != nullptr ? std::move(prepared_cache)
-                                                : std::make_shared<PreparedRenderCache>()) {}
+                                                : std::make_shared<PreparedRenderCache>()),
+      opcode_owner_(std::make_shared<RenderOpcodeOwner>(RenderOpcodeOwner{.list = this})) {}
 
 RenderCommandList::RenderCommandList(const RenderCommandList& other) {
     *this = other;
@@ -1936,6 +2184,7 @@ RenderCommandList& RenderCommandList::operator=(const RenderCommandList& other) 
 
     prepared_cache_ = other.prepared_cache_ != nullptr ? other.prepared_cache_
                                                        : std::make_shared<PreparedRenderCache>();
+    opcode_owner_ = std::make_shared<RenderOpcodeOwner>(RenderOpcodeOwner{.list = this});
     opcodes_ = other.opcodes_;
     opcode_payload_indices_ = other.opcode_payload_indices_;
     push_clip_payloads_ = other.push_clip_payloads_;
@@ -1958,6 +2207,11 @@ RenderCommandList& RenderCommandList::operator=(const RenderCommandList& other) 
     draw_box_shadow_payloads_ = other.draw_box_shadow_payloads_;
     bounds_ = other.bounds_;
     fingerprint_ = other.fingerprint_;
+    change_signature_ = other.change_signature_;
+    serialized_opcodes_cache_.clear();
+    draw_batches_cache_.clear();
+    serialized_opcodes_dirty_ = true;
+    draw_batches_dirty_ = true;
     rebind_opcode_owners();
     return *this;
 }
@@ -1983,11 +2237,22 @@ RenderCommandList::RenderCommandList(RenderCommandList&& other) noexcept
       draw_text_payloads_(std::move(other.draw_text_payloads_)),
       draw_text_layout_payloads_(std::move(other.draw_text_layout_payloads_)),
       draw_box_shadow_payloads_(std::move(other.draw_box_shadow_payloads_)), bounds_(other.bounds_),
-      fingerprint_(other.fingerprint_) {
+      fingerprint_(other.fingerprint_), change_signature_(other.change_signature_),
+      serialized_opcodes_cache_(std::move(other.serialized_opcodes_cache_)),
+      draw_batches_cache_(std::move(other.draw_batches_cache_)),
+      serialized_opcodes_dirty_(other.serialized_opcodes_dirty_),
+      draw_batches_dirty_(other.draw_batches_dirty_) {
+    opcode_owner_ = std::move(other.opcode_owner_);
     if (prepared_cache_ == nullptr) {
         prepared_cache_ = std::make_shared<PreparedRenderCache>();
     }
-    rebind_opcode_owners();
+    reset_opcode_owner();
+    other.opcode_owner_ =
+        std::make_shared<RenderOpcodeOwner>(RenderOpcodeOwner{.list = &other});
+    other.bounds_ = {};
+    other.fingerprint_ = 0U;
+    other.change_signature_ = 0U;
+    other.invalidate_cached_views();
 }
 
 RenderCommandList& RenderCommandList::operator=(RenderCommandList&& other) noexcept {
@@ -1999,6 +2264,7 @@ RenderCommandList& RenderCommandList::operator=(RenderCommandList&& other) noexc
     if (prepared_cache_ == nullptr) {
         prepared_cache_ = std::make_shared<PreparedRenderCache>();
     }
+    opcode_owner_ = std::move(other.opcode_owner_);
     opcodes_ = std::move(other.opcodes_);
     opcode_payload_indices_ = std::move(other.opcode_payload_indices_);
     push_clip_payloads_ = std::move(other.push_clip_payloads_);
@@ -2021,14 +2287,133 @@ RenderCommandList& RenderCommandList::operator=(RenderCommandList&& other) noexc
     draw_box_shadow_payloads_ = std::move(other.draw_box_shadow_payloads_);
     bounds_ = other.bounds_;
     fingerprint_ = other.fingerprint_;
-    rebind_opcode_owners();
+    change_signature_ = other.change_signature_;
+    serialized_opcodes_cache_ = std::move(other.serialized_opcodes_cache_);
+    draw_batches_cache_ = std::move(other.draw_batches_cache_);
+    serialized_opcodes_dirty_ = other.serialized_opcodes_dirty_;
+    draw_batches_dirty_ = other.draw_batches_dirty_;
+    reset_opcode_owner();
+    other.opcode_owner_ =
+        std::make_shared<RenderOpcodeOwner>(RenderOpcodeOwner{.list = &other});
+    other.bounds_ = {};
+    other.fingerprint_ = 0U;
+    other.change_signature_ = 0U;
+    other.invalidate_cached_views();
     return *this;
 }
 
 void RenderCommandList::rebind_opcode_owners() noexcept {
+    reset_opcode_owner();
     for (auto& opcode : opcodes_) {
-        opcode.owner = this;
+        opcode.owner = opcode_owner_.get();
     }
+}
+
+void RenderCommandList::reset_opcode_owner() noexcept {
+    if (opcode_owner_ == nullptr) {
+        opcode_owner_ = std::make_shared<RenderOpcodeOwner>();
+    }
+    opcode_owner_->list = this;
+}
+
+void RenderCommandList::invalidate_cached_views() const noexcept {
+    serialized_opcodes_dirty_ = true;
+    draw_batches_dirty_ = true;
+}
+
+RenderCommandList::CapacitySnapshot RenderCommandList::capacity_snapshot() const noexcept {
+    return CapacitySnapshot{.opcodes = opcodes_.capacity(),
+                            .opcode_payload_indices = opcode_payload_indices_.capacity(),
+                            .push_clip_payloads = push_clip_payloads_.capacity(),
+                            .push_geometry_clip_payloads =
+                                push_geometry_clip_payloads_.capacity(),
+                            .push_layer_payloads = push_layer_payloads_.capacity(),
+                            .draw_line_payloads = draw_line_payloads_.capacity(),
+                            .fill_rect_payloads = fill_rect_payloads_.capacity(),
+                            .fill_pixel_snapped_rect_payloads =
+                                fill_pixel_snapped_rect_payloads_.capacity(),
+                            .stroke_pixel_snapped_rect_payloads =
+                                stroke_pixel_snapped_rect_payloads_.capacity(),
+                            .stroke_rect_payloads = stroke_rect_payloads_.capacity(),
+                            .fill_rounded_rect_payloads =
+                                fill_rounded_rect_payloads_.capacity(),
+                            .stroke_rounded_rect_payloads =
+                                stroke_rounded_rect_payloads_.capacity(),
+                            .fill_ellipse_payloads = fill_ellipse_payloads_.capacity(),
+                            .stroke_ellipse_payloads = stroke_ellipse_payloads_.capacity(),
+                            .fill_geometry_payloads = fill_geometry_payloads_.capacity(),
+                            .stroke_geometry_payloads = stroke_geometry_payloads_.capacity(),
+                            .draw_image_payloads = draw_image_payloads_.capacity(),
+                            .draw_text_payloads = draw_text_payloads_.capacity(),
+                            .draw_text_layout_payloads =
+                                draw_text_layout_payloads_.capacity(),
+                            .draw_box_shadow_payloads = draw_box_shadow_payloads_.capacity()};
+}
+
+void RenderCommandList::reserve(CapacitySnapshot capacities) {
+    opcodes_.reserve(capacities.opcodes);
+    opcode_payload_indices_.reserve(capacities.opcode_payload_indices);
+    push_clip_payloads_.reserve(capacities.push_clip_payloads);
+    push_geometry_clip_payloads_.reserve(capacities.push_geometry_clip_payloads);
+    push_layer_payloads_.reserve(capacities.push_layer_payloads);
+    draw_line_payloads_.reserve(capacities.draw_line_payloads);
+    fill_rect_payloads_.reserve(capacities.fill_rect_payloads);
+    fill_pixel_snapped_rect_payloads_.reserve(capacities.fill_pixel_snapped_rect_payloads);
+    stroke_pixel_snapped_rect_payloads_.reserve(capacities.stroke_pixel_snapped_rect_payloads);
+    stroke_rect_payloads_.reserve(capacities.stroke_rect_payloads);
+    fill_rounded_rect_payloads_.reserve(capacities.fill_rounded_rect_payloads);
+    stroke_rounded_rect_payloads_.reserve(capacities.stroke_rounded_rect_payloads);
+    fill_ellipse_payloads_.reserve(capacities.fill_ellipse_payloads);
+    stroke_ellipse_payloads_.reserve(capacities.stroke_ellipse_payloads);
+    fill_geometry_payloads_.reserve(capacities.fill_geometry_payloads);
+    stroke_geometry_payloads_.reserve(capacities.stroke_geometry_payloads);
+    draw_image_payloads_.reserve(capacities.draw_image_payloads);
+    draw_text_payloads_.reserve(capacities.draw_text_payloads);
+    draw_text_layout_payloads_.reserve(capacities.draw_text_layout_payloads);
+    draw_box_shadow_payloads_.reserve(capacities.draw_box_shadow_payloads);
+}
+
+void RenderCommandList::reserve_for_append(const RenderCommandList& command_list) {
+    opcodes_.reserve(opcodes_.size() + command_list.opcodes_.size());
+    opcode_payload_indices_.reserve(opcode_payload_indices_.size() +
+                                    command_list.opcode_payload_indices_.size());
+    push_clip_payloads_.reserve(push_clip_payloads_.size() +
+                                command_list.push_clip_payloads_.size());
+    push_geometry_clip_payloads_.reserve(push_geometry_clip_payloads_.size() +
+                                         command_list.push_geometry_clip_payloads_.size());
+    push_layer_payloads_.reserve(push_layer_payloads_.size() +
+                                 command_list.push_layer_payloads_.size());
+    draw_line_payloads_.reserve(draw_line_payloads_.size() +
+                                command_list.draw_line_payloads_.size());
+    fill_rect_payloads_.reserve(fill_rect_payloads_.size() +
+                                command_list.fill_rect_payloads_.size());
+    fill_pixel_snapped_rect_payloads_.reserve(fill_pixel_snapped_rect_payloads_.size() +
+                                              command_list.fill_pixel_snapped_rect_payloads_.size());
+    stroke_pixel_snapped_rect_payloads_.reserve(
+        stroke_pixel_snapped_rect_payloads_.size() +
+        command_list.stroke_pixel_snapped_rect_payloads_.size());
+    stroke_rect_payloads_.reserve(stroke_rect_payloads_.size() +
+                                  command_list.stroke_rect_payloads_.size());
+    fill_rounded_rect_payloads_.reserve(fill_rounded_rect_payloads_.size() +
+                                        command_list.fill_rounded_rect_payloads_.size());
+    stroke_rounded_rect_payloads_.reserve(stroke_rounded_rect_payloads_.size() +
+                                          command_list.stroke_rounded_rect_payloads_.size());
+    fill_ellipse_payloads_.reserve(fill_ellipse_payloads_.size() +
+                                   command_list.fill_ellipse_payloads_.size());
+    stroke_ellipse_payloads_.reserve(stroke_ellipse_payloads_.size() +
+                                     command_list.stroke_ellipse_payloads_.size());
+    fill_geometry_payloads_.reserve(fill_geometry_payloads_.size() +
+                                    command_list.fill_geometry_payloads_.size());
+    stroke_geometry_payloads_.reserve(stroke_geometry_payloads_.size() +
+                                      command_list.stroke_geometry_payloads_.size());
+    draw_image_payloads_.reserve(draw_image_payloads_.size() +
+                                 command_list.draw_image_payloads_.size());
+    draw_text_payloads_.reserve(draw_text_payloads_.size() +
+                                command_list.draw_text_payloads_.size());
+    draw_text_layout_payloads_.reserve(draw_text_layout_payloads_.size() +
+                                       command_list.draw_text_layout_payloads_.size());
+    draw_box_shadow_payloads_.reserve(draw_box_shadow_payloads_.size() +
+                                      command_list.draw_box_shadow_payloads_.size());
 }
 
 std::shared_ptr<const PreparedGeometryFlatten>
@@ -2058,17 +2443,37 @@ PreparedRenderCache& RenderCommandList::ensure_prepared_cache() {
     return *prepared_cache_;
 }
 
+std::shared_ptr<const std::string> RenderCommandList::intern_text(std::string_view text) {
+    return std::make_shared<const std::string>(text);
+}
+
+std::shared_ptr<const TextLayout> RenderCommandList::share_text_layout(const TextLayout& layout) {
+    return std::make_shared<const TextLayout>(layout);
+}
+
 void RenderCommandList::append_opcode(RenderCommandType type, std::uint32_t payload_index,
                                       layout::Rect bounds, std::size_t payload_hash) {
+    reset_opcode_owner();
     bounds_ = layout::union_rects(bounds_, bounds);
     auto seed = static_cast<std::size_t>(fingerprint_);
     hash_combine(seed, static_cast<int>(type));
     hash_rect(seed, bounds);
     hash_combine(seed, payload_hash);
     fingerprint_ = static_cast<std::uint64_t>(seed);
+    auto signature_seed = static_cast<std::size_t>(change_signature_);
+    hash_combine(signature_seed, opcodes_.size());
+    hash_combine(signature_seed, static_cast<int>(type));
+    hash_combine(signature_seed, payload_index);
+    hash_rect(signature_seed, bounds);
+    hash_combine(signature_seed, payload_hash);
+    change_signature_ = static_cast<std::uint64_t>(signature_seed);
     opcodes_.push_back(RenderOpcodeRecord{
-        .opcode = type, .payload_index = payload_index, .bounds = bounds, .owner = this});
+        .opcode = type,
+        .payload_index = payload_index,
+        .bounds = bounds,
+        .owner = opcode_owner_.get()});
     opcode_payload_indices_.push_back(payload_index);
+    invalidate_cached_views();
 }
 
 void RenderCommandList::append(SaveCommand command) {
@@ -2195,8 +2600,9 @@ void RenderCommandList::append(StrokeEllipseCommand command) {
 
 void RenderCommandList::append(FillGeometryCommand command) {
     const auto hash = payload_fingerprint(command);
-    const auto bounds = visual_bounds(command);
     command.prepared_fill = cached_prepared_geometry_fill(command.geometry);
+    const auto bounds =
+        command.prepared_fill != nullptr ? command.prepared_fill->bounds : visual_bounds(command);
     const auto index = static_cast<std::uint32_t>(fill_geometry_payloads_.size());
     fill_geometry_payloads_.push_back(std::move(command));
     append_opcode(RenderCommandType::FillGeometry, index, bounds, hash);
@@ -2204,8 +2610,12 @@ void RenderCommandList::append(FillGeometryCommand command) {
 
 void RenderCommandList::append(StrokeGeometryCommand command) {
     const auto hash = payload_fingerprint(command);
-    const auto bounds = visual_bounds(command);
     command.prepared_stroke = cached_prepared_geometry_stroke(command.geometry);
+    const auto prepared_bounds =
+        command.prepared_stroke != nullptr ? command.prepared_stroke->bounds
+                                           : geometry_bounds(command.geometry);
+    const auto bounds = layout::inflate_rect(prepared_bounds,
+                                             std::max(command.style.width, 0.0F) * 0.5F);
     const auto index = static_cast<std::uint32_t>(stroke_geometry_payloads_.size());
     stroke_geometry_payloads_.push_back(std::move(command));
     append_opcode(RenderCommandType::StrokeGeometry, index, bounds, hash);
@@ -2230,7 +2640,9 @@ void RenderCommandList::append(DrawTextCommand command) {
 void RenderCommandList::append(DrawTextLayoutCommand command) {
     const auto hash = payload_fingerprint(command);
     const auto bounds = visual_bounds(command);
-    command.prepared_glyphs = cached_prepared_text_glyph_coverages(command.layout);
+    if (const auto* layout = command.layout_value()) {
+        command.prepared_glyphs = cached_prepared_text_glyph_coverages(*layout);
+    }
     const auto index = static_cast<std::uint32_t>(draw_text_layout_payloads_.size());
     draw_text_layout_payloads_.push_back(std::move(command));
     append_opcode(RenderCommandType::DrawTextLayout, index, bounds, hash);
@@ -2248,11 +2660,14 @@ void RenderCommandList::append(const RenderCommandList& command_list) {
     if (command_list.empty()) {
         return;
     }
+    reset_opcode_owner();
 
     if (prepared_cache_ != command_list.prepared_cache_ &&
         command_list.prepared_cache_ != nullptr) {
         ensure_prepared_cache().merge(*command_list.prepared_cache_);
     }
+
+    reserve_for_append(command_list);
 
     const auto push_clip_offset = static_cast<std::uint32_t>(push_clip_payloads_.size());
     const auto push_geometry_clip_offset =
@@ -2385,14 +2800,34 @@ void RenderCommandList::append(const RenderCommandList& command_list) {
     hash_combine(seed, command_list.fingerprint_);
     hash_combine(seed, command_list.opcodes_.size());
     fingerprint_ = static_cast<std::uint64_t>(seed);
-    opcodes_.reserve(opcodes_.size() + command_list.opcodes_.size());
+    auto signature_seed = static_cast<std::size_t>(change_signature_);
+    hash_combine(signature_seed, command_list.change_signature_);
+    hash_combine(signature_seed, command_list.opcodes_.size());
+    hash_combine(signature_seed, command_list.bounds_.x);
+    hash_combine(signature_seed, command_list.bounds_.y);
+    hash_combine(signature_seed, command_list.bounds_.width);
+    hash_combine(signature_seed, command_list.bounds_.height);
+    change_signature_ = static_cast<std::uint64_t>(signature_seed);
     for (auto opcode : command_list.opcodes_) {
         opcode.payload_index += offset_for(opcode.opcode);
-        opcode.owner = this;
+        opcode.owner = opcode_owner_.get();
         opcodes_.push_back(opcode);
         opcode_payload_indices_.push_back(opcode.payload_index);
     }
     bounds_ = layout::union_rects(bounds_, command_list.bounds_);
+    invalidate_cached_views();
+}
+
+void RenderCommandList::append(RenderCommandList&& command_list) {
+    if (command_list.empty()) {
+        return;
+    }
+    if (empty() && (prepared_cache_ == command_list.prepared_cache_ ||
+                    command_list.prepared_cache_ == nullptr)) {
+        *this = std::move(command_list);
+        return;
+    }
+    append(static_cast<const RenderCommandList&>(command_list));
 }
 
 bool RenderCommandList::empty() const noexcept {
@@ -2497,6 +2932,10 @@ RenderCommandList::draw_box_shadow_payloads() const noexcept {
 }
 
 std::vector<std::byte> RenderCommandList::serialized_opcodes() const {
+    if (!serialized_opcodes_dirty_) {
+        return serialized_opcodes_cache_;
+    }
+
     auto bytes = std::vector<std::byte>{};
     bytes.reserve(opcodes_.size() * (sizeof(std::uint32_t) * 2U + sizeof(float) * 4U));
     for (const auto& opcode : opcodes_) {
@@ -2507,31 +2946,40 @@ std::vector<std::byte> RenderCommandList::serialized_opcodes() const {
         append_float(bytes, opcode.bounds.width);
         append_float(bytes, opcode.bounds.height);
     }
-    return bytes;
+    serialized_opcodes_cache_ = std::move(bytes);
+    serialized_opcodes_dirty_ = false;
+    return serialized_opcodes_cache_;
 }
 
 std::vector<RenderDrawBatch> RenderCommandList::draw_batches() const {
-    std::array<RenderDrawBatch, 5U> batches{RenderDrawBatch{.kind = RenderBatchKind::State},
-                                            RenderDrawBatch{.kind = RenderBatchKind::Geometry},
-                                            RenderDrawBatch{.kind = RenderBatchKind::Text},
-                                            RenderDrawBatch{.kind = RenderBatchKind::Image},
-                                            RenderDrawBatch{.kind = RenderBatchKind::Effect}};
-
-    for (const auto& opcode : opcodes_) {
-        const auto kind = batch_kind_for(opcode.opcode);
-        auto& batch = batches[static_cast<std::size_t>(kind)];
-        ++batch.command_count;
-        batch.bounds = layout::union_rects(batch.bounds, opcode.bounds);
+    if (!draw_batches_dirty_) {
+        return draw_batches_cache_;
     }
 
     auto result = std::vector<RenderDrawBatch>{};
-    result.reserve(batches.size());
-    for (const auto& batch : batches) {
-        if (batch.command_count > 0U) {
-            result.push_back(batch);
+    result.reserve(opcodes_.size());
+    auto current_key = DrawBatchKey{};
+    auto have_batch = false;
+    for (const auto& opcode : opcodes_) {
+        const auto key = draw_batch_key_for(*this, opcode);
+        if (!have_batch || !(key == current_key)) {
+            result.push_back(RenderDrawBatch{.kind = key.kind,
+                                             .first_command_type = key.first_command_type,
+                                             .bounds = opcode.bounds,
+                                             .state_key = key.state_key,
+                                             .resource_key = key.resource_key,
+                                             .command_count = 1U});
+            current_key = key;
+            have_batch = true;
+            continue;
         }
+        auto& batch = result.back();
+        ++batch.command_count;
+        batch.bounds = layout::union_rects(batch.bounds, opcode.bounds);
     }
-    return result;
+    draw_batches_cache_ = std::move(result);
+    draw_batches_dirty_ = false;
+    return draw_batches_cache_;
 }
 
 layout::Rect RenderCommandList::bounds() const noexcept {
@@ -2542,8 +2990,33 @@ std::uint64_t RenderCommandList::fingerprint() const noexcept {
     return fingerprint_;
 }
 
+std::uint64_t RenderCommandList::change_signature() const noexcept {
+    return change_signature_;
+}
+
 bool RenderCommandList::is_equivalent_to(const RenderCommandList& other) const noexcept {
-    return opcodes_.size() == other.opcodes_.size() && fingerprint() == other.fingerprint();
+    return opcodes_.size() == other.opcodes_.size() && fingerprint() == other.fingerprint() &&
+           change_signature() == other.change_signature() && bounds_ == other.bounds_ &&
+           push_clip_payloads_.size() == other.push_clip_payloads_.size() &&
+           push_geometry_clip_payloads_.size() == other.push_geometry_clip_payloads_.size() &&
+           push_layer_payloads_.size() == other.push_layer_payloads_.size() &&
+           draw_line_payloads_.size() == other.draw_line_payloads_.size() &&
+           fill_rect_payloads_.size() == other.fill_rect_payloads_.size() &&
+           fill_pixel_snapped_rect_payloads_.size() ==
+               other.fill_pixel_snapped_rect_payloads_.size() &&
+           stroke_pixel_snapped_rect_payloads_.size() ==
+               other.stroke_pixel_snapped_rect_payloads_.size() &&
+           stroke_rect_payloads_.size() == other.stroke_rect_payloads_.size() &&
+           fill_rounded_rect_payloads_.size() == other.fill_rounded_rect_payloads_.size() &&
+           stroke_rounded_rect_payloads_.size() == other.stroke_rounded_rect_payloads_.size() &&
+           fill_ellipse_payloads_.size() == other.fill_ellipse_payloads_.size() &&
+           stroke_ellipse_payloads_.size() == other.stroke_ellipse_payloads_.size() &&
+           fill_geometry_payloads_.size() == other.fill_geometry_payloads_.size() &&
+           stroke_geometry_payloads_.size() == other.stroke_geometry_payloads_.size() &&
+           draw_image_payloads_.size() == other.draw_image_payloads_.size() &&
+           draw_text_payloads_.size() == other.draw_text_payloads_.size() &&
+           draw_text_layout_payloads_.size() == other.draw_text_layout_payloads_.size() &&
+           draw_box_shadow_payloads_.size() == other.draw_box_shadow_payloads_.size();
 }
 
 std::shared_ptr<PreparedRenderCache> RenderCommandList::prepared_cache() const noexcept {
@@ -2552,6 +3025,43 @@ std::shared_ptr<PreparedRenderCache> RenderCommandList::prepared_cache() const n
 
 RenderCommandRecorder::RenderCommandRecorder(std::shared_ptr<PreparedRenderCache> prepared_cache)
     : command_list_(std::move(prepared_cache)) {}
+
+std::shared_ptr<const std::string> RenderCommandRecorder::intern_text(std::string_view text) {
+    auto seed = std::size_t{};
+    hash_combine(seed, text);
+    auto& bucket = text_pool_[seed];
+    for (const auto& existing : bucket) {
+        if (existing != nullptr && *existing == text) {
+            return existing;
+        }
+    }
+    auto storage = std::make_shared<const std::string>(text);
+    bucket.push_back(storage);
+    return storage;
+}
+
+void RenderCommandRecorder::prune_text_pool() {
+    constexpr auto max_retained_text_buckets = 512U;
+    if (text_pool_.size() <= max_retained_text_buckets) {
+        return;
+    }
+    for (auto iterator = text_pool_.begin(); iterator != text_pool_.end();) {
+        auto& bucket = iterator->second;
+        bucket.erase(std::remove_if(bucket.begin(), bucket.end(),
+                                    [](const auto& text) {
+                                        return text == nullptr || text.use_count() == 1L;
+                                    }),
+                     bucket.end());
+        if (bucket.empty()) {
+            iterator = text_pool_.erase(iterator);
+        } else {
+            ++iterator;
+        }
+    }
+    if (text_pool_.size() > max_retained_text_buckets * 2U) {
+        text_pool_.clear();
+    }
+}
 
 void RenderCommandRecorder::save() {
     command_list_.append(SaveCommand{});
@@ -2650,11 +3160,12 @@ void RenderCommandRecorder::draw_box_shadow(layout::Rect rect, const ShadowStyle
 
 void RenderCommandRecorder::draw_text(std::string_view text, layout::Rect rect,
                                       const TextStyle& style) {
-    command_list_.append(DrawTextCommand{.text = std::string(text), .rect = rect, .style = style});
+    command_list_.append(DrawTextCommand{.text = intern_text(text), .rect = rect, .style = style});
 }
 
 void RenderCommandRecorder::draw_text_layout(const TextLayout& layout, layout::Point origin) {
-    command_list_.append(DrawTextLayoutCommand{.layout = layout, .origin = origin});
+    command_list_.append(
+        DrawTextLayoutCommand{.layout = command_list_.share_text_layout(layout), .origin = origin});
 }
 
 const RenderCommandList& RenderCommandRecorder::command_list() const noexcept {
@@ -2667,13 +3178,20 @@ const std::vector<RenderOpcodeRecord>& RenderCommandRecorder::commands() const n
 
 RenderCommandList RenderCommandRecorder::take_command_list() noexcept {
     auto prepared_cache = command_list_.prepared_cache();
+    const auto capacities = command_list_.capacity_snapshot();
     auto command_list = std::move(command_list_);
     command_list_ = RenderCommandList{std::move(prepared_cache)};
+    command_list_.reserve(capacities);
+    prune_text_pool();
     return command_list;
 }
 
 void RenderCommandRecorder::append(const RenderCommandList& command_list) {
     command_list_.append(command_list);
+}
+
+void RenderCommandRecorder::append(RenderCommandList&& command_list) {
+    command_list_.append(std::move(command_list));
 }
 
 } // namespace winelement::rendering

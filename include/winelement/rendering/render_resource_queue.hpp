@@ -2,7 +2,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <mutex>
 #include <vector>
 
@@ -47,7 +46,7 @@ class RenderResourceUploadQueue final {
 
   private:
     mutable std::mutex mutex_;
-    std::deque<RenderResourceUpload> uploads_;
+    std::vector<RenderResourceUpload> uploads_;
 };
 
 } // namespace winelement::rendering

@@ -3677,12 +3677,12 @@ void D3D11DisplayListRenderer::prepare_text_resources_for_command_list(
         case rendering::RenderCommandType::DrawText:
             if (const auto* payload =
                     payload_at(commands.draw_text_payloads(), indices, opcode_index)) {
-                if (payload->text.empty() ||
+                if (payload->text_view().empty() ||
                     !rendering::layout::is_visible_rect(payload->rect)) {
                     break;
                 }
                 const auto layout = render_worker_text_engine().layout_text(
-                    payload->text, payload->style,
+                    payload->text_view(), payload->style,
                     rendering::TextLayoutOptions{.max_width = payload->rect.width,
                                                  .max_height = payload->rect.height});
                 prepared_draw_text_layouts_.push_back(
@@ -3696,7 +3696,9 @@ void D3D11DisplayListRenderer::prepare_text_resources_for_command_list(
         case rendering::RenderCommandType::DrawTextLayout:
             if (const auto* payload =
                     payload_at(commands.draw_text_layout_payloads(), indices, opcode_index)) {
-                prepare_text_layout_resources(payload->layout, payload->prepared_glyphs.get());
+                if (const auto* layout = payload->layout_value()) {
+                    prepare_text_layout_resources(*layout, payload->prepared_glyphs.get());
+                }
             }
             break;
         default:
@@ -3901,7 +3903,7 @@ void D3D11DisplayListRenderer::render_command(const rendering::RenderCommandList
                 draw_text_layout(*prepared_layout,
                                  rendering::layout::Point{payload->rect.x, payload->rect.y});
             } else {
-                draw_text(payload->text, payload->rect, payload->style);
+                draw_text(payload->text_view(), payload->rect, payload->style);
             }
         }
         break;
@@ -5834,7 +5836,9 @@ void D3D11DisplayListRenderer::draw_text_layout(const rendering::TextLayout& lay
 }
 
 void D3D11DisplayListRenderer::draw_text_layout(const rendering::DrawTextLayoutCommand& command) {
-    draw_text_layout(command.layout, command.origin, command.prepared_glyphs.get());
+    if (const auto* layout = command.layout_value()) {
+        draw_text_layout(*layout, command.origin, command.prepared_glyphs.get());
+    }
 }
 
 void D3D11DisplayListRenderer::draw_text_layout(

@@ -128,12 +128,14 @@ void append_command(RenderCommandRecorder& recorder, const RenderCommandList& so
     }
     case RenderCommandType::DrawText: {
         const auto& payload = source.payload<DrawTextCommand>(opcode_index);
-        recorder.draw_text(payload.text, payload.rect, payload.style);
+        recorder.draw_text(payload.text_view(), payload.rect, payload.style);
         break;
     }
     case RenderCommandType::DrawTextLayout: {
         const auto& payload = source.payload<DrawTextLayoutCommand>(opcode_index);
-        recorder.draw_text_layout(payload.layout, payload.origin);
+        if (const auto* layout = payload.layout_value()) {
+            recorder.draw_text_layout(*layout, payload.origin);
+        }
         break;
     }
     case RenderCommandType::DrawBoxShadow: {
@@ -231,14 +233,6 @@ void collect_reusable_nodes(
     }
 }
 
-[[nodiscard]] std::size_t count_render_nodes(const RenderNode& node) noexcept {
-    auto count = std::size_t{1U};
-    for (const auto& child : node.children) {
-        count += count_render_nodes(child);
-    }
-    return count;
-}
-
 [[nodiscard]] bool reusable_node_matches(const RenderNode& candidate,
                                          const RenderNode& previous) noexcept {
     return candidate.kind == previous.kind && candidate.fingerprint == previous.fingerprint &&
@@ -249,12 +243,13 @@ void collect_reusable_nodes(
 
 void reuse_matching_nodes(
     RenderNode& node,
-    const std::unordered_map<std::uint64_t, std::vector<const RenderNode*>>& previous_nodes) {
+    std::unordered_map<std::uint64_t, std::vector<const RenderNode*>>& previous_nodes) {
     if (const auto iterator = previous_nodes.find(node.fingerprint);
         iterator != previous_nodes.end()) {
-        for (const auto* previous_node : iterator->second) {
+        for (auto*& previous_node : iterator->second) {
             if (previous_node != nullptr && reusable_node_matches(node, *previous_node)) {
                 node = *previous_node;
+                previous_node = nullptr;
                 return;
             }
         }
@@ -387,7 +382,8 @@ void RenderScene::update_from_commands(RenderCommandList command_list, std::stri
     }
     auto previous_nodes = std::unordered_map<std::uint64_t, std::vector<const RenderNode*>>{};
     if (root_ != nullptr) {
-        previous_nodes.reserve(count_render_nodes(*root_));
+        previous_nodes.reserve(std::max<std::size_t>(root_->children.size() * 2U + 1U,
+                                                     command_count_ / 4U + 1U));
         collect_reusable_nodes(*root_, previous_nodes);
     }
     auto next_root = render_node_from_commands(std::move(command_list), std::move(debug_name));

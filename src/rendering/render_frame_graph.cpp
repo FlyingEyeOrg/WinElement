@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <deque>
+#include <functional>
+#include <unordered_map>
 #include <vector>
 
 namespace winelement::rendering {
@@ -155,8 +158,8 @@ void append_child_graph(RenderFrameGraph& graph, const RenderFrameGraph& child_g
     graph.command_count += child_graph.command_count;
     graph.estimated_draw_call_count += child_graph.estimated_draw_call_count;
     graph.bounds = layout::union_rects(graph.bounds, child_graph.bounds);
+    graph.passes.reserve(graph.passes.size() + child_graph.passes.size());
     graph.passes.insert(graph.passes.end(), child_graph.passes.begin(), child_graph.passes.end());
-    finalize_pass_dependencies(graph);
 }
 
 struct CachedNodeFrameGraph {
@@ -166,8 +169,31 @@ struct CachedNodeFrameGraph {
     RenderFrameGraph graph{};
 };
 
-[[nodiscard]] std::vector<CachedNodeFrameGraph>& node_graph_cache() {
-    thread_local auto cache = std::vector<CachedNodeFrameGraph>{};
+struct NodeGraphCache {
+    std::unordered_map<std::size_t, CachedNodeFrameGraph> entries;
+    std::deque<std::size_t> order;
+};
+
+void hash_combine(std::size_t& seed, std::size_t value) noexcept {
+    seed ^= value + 0x9E3779B9U + (seed << 6U) + (seed >> 2U);
+}
+
+void hash_rect(std::size_t& seed, layout::Rect rect) noexcept {
+    hash_combine(seed, std::hash<float>{}(rect.x));
+    hash_combine(seed, std::hash<float>{}(rect.y));
+    hash_combine(seed, std::hash<float>{}(rect.width));
+    hash_combine(seed, std::hash<float>{}(rect.height));
+}
+
+[[nodiscard]] std::size_t node_graph_cache_key(const RenderNode& node) noexcept {
+    auto seed = static_cast<std::size_t>(node.fingerprint);
+    hash_combine(seed, static_cast<std::size_t>(node.kind));
+    hash_rect(seed, node.bounds);
+    return seed;
+}
+
+[[nodiscard]] NodeGraphCache& node_graph_cache() {
+    thread_local auto cache = NodeGraphCache{};
     return cache;
 }
 
@@ -183,28 +209,31 @@ void remember_node_graph(const RenderNode& node, RenderFrameGraph graph) {
     }
 
     auto& cache = node_graph_cache();
-    for (auto& entry : cache) {
-        if (cache_entry_matches(entry, node)) {
-            entry.graph = std::move(graph);
-            return;
-        }
+    const auto key = node_graph_cache_key(node);
+    if (const auto entry = cache.entries.find(key); entry != cache.entries.end() &&
+                                               cache_entry_matches(entry->second, node)) {
+        entry->second.graph = std::move(graph);
+        return;
     }
 
     constexpr auto max_cached_node_graphs = 256U;
-    if (cache.size() >= max_cached_node_graphs) {
-        cache.erase(cache.begin());
+    if (cache.entries.size() >= max_cached_node_graphs && !cache.order.empty()) {
+        cache.entries.erase(cache.order.front());
+        cache.order.pop_front();
     }
-    cache.push_back(CachedNodeFrameGraph{.fingerprint = node.fingerprint,
-                                         .kind = node.kind,
-                                         .bounds = node.bounds,
-                                         .graph = std::move(graph)});
+    cache.entries[key] = CachedNodeFrameGraph{.fingerprint = node.fingerprint,
+                                              .kind = node.kind,
+                                              .bounds = node.bounds,
+                                              .graph = std::move(graph)};
+    cache.order.push_back(key);
 }
 
 [[nodiscard]] RenderFrameGraph build_render_frame_graph_for_node(const RenderNode& node) {
-    for (const auto& entry : node_graph_cache()) {
-        if (cache_entry_matches(entry, node)) {
-            return entry.graph;
-        }
+    auto& cache = node_graph_cache();
+    const auto key = node_graph_cache_key(node);
+    if (const auto entry = cache.entries.find(key);
+        entry != cache.entries.end() && cache_entry_matches(entry->second, node)) {
+        return entry->second.graph;
     }
 
     RenderFrameGraph graph;

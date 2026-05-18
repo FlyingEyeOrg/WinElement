@@ -12,11 +12,7 @@ void RenderResourceUploadQueue::push(RenderResourceUpload upload) {
 std::vector<RenderResourceUpload> RenderResourceUploadQueue::drain() {
     const std::scoped_lock lock(mutex_);
     std::vector<RenderResourceUpload> uploads;
-    uploads.reserve(uploads_.size());
-    while (!uploads_.empty()) {
-        uploads.push_back(std::move(uploads_.front()));
-        uploads_.pop_front();
-    }
+    uploads.swap(uploads_);
     return uploads;
 }
 
