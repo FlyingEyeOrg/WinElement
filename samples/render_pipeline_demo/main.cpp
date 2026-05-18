@@ -51,6 +51,33 @@ constexpr std::string_view message_icon_outline_svg =
 constexpr std::string_view message_icon_flap_svg =
     "M904 224 656.512 506.88a192 192 0 0 1-289.024 0L120 224zm-698.944 0 210.56 "
     "240.704a128 128 0 0 0 192.704 0L818.944 224z";
+constexpr std::array<std::string_view, 1> info_filled_svg = {
+    "M512 64a448 448 0 1 1 0 896.064A448 448 0 0 1 512 64m67.2 275.072c33.28 0 60.288-23.104 "
+    "60.288-57.344s-27.072-57.344-60.288-57.344c-33.28 0-60.16 23.104-60.16 57.344s26.88 "
+    "57.344 60.16 57.344M590.912 699.2c0-6.848 2.368-24.64 1.024-34.752l-52.608 60.544c-10.88 "
+    "11.456-24.512 19.392-30.912 17.28a12.99 12.99 0 0 1-8.256-14.72l87.68-276.992c7.168-35.136"
+    "-12.544-67.2-54.336-71.296-44.096 0-108.992 44.736-148.48 101.504 0 6.784-1.28 23.68.064 "
+    "33.792l52.544-60.608c10.88-11.328 23.552-19.328 29.952-17.152a12.8 12.8 0 0 1 7.808 "
+    "16.128L388.48 728.576c-10.048 32.256 8.96 63.872 55.04 71.04 67.84 0 107.904-43.648 "
+    "147.456-100.416z"};
+constexpr std::array<std::string_view, 1> success_filled_svg = {
+    "M512 64a448 448 0 1 1 0 896 448 448 0 0 1 0-896m-55.808 536.384-99.52-99.584a38.4 38.4 0 "
+    "1 0-54.336 54.336l126.72 126.72a38.27 38.27 0 0 0 54.336 0l262.4-262.464a38.4 38.4 0 1 "
+    "0-54.272-54.336z"};
+constexpr std::array<std::string_view, 1> warning_filled_svg = {
+    "M512 64a448 448 0 1 1 0 896 448 448 0 0 1 0-896m0 192a58.43 58.43 0 0 0-58.24 "
+    "63.744l23.36 256.384a35.072 35.072 0 0 0 69.76 0l23.296-256.384A58.43 58.43 0 0 0 512 "
+    "256m0 512a51.2 51.2 0 1 0 0-102.4 51.2 51.2 0 0 0 0 102.4"};
+constexpr std::array<std::string_view, 1> circle_close_filled_svg = {
+    "M512 64a448 448 0 1 1 0 896 448 448 0 0 1 0-896m0 393.664L407.936 353.6a38.4 38.4 0 1 "
+    "0-54.336 54.336L457.664 512 353.6 616.064a38.4 38.4 0 1 0 54.336 54.336L512 566.336 "
+    "616.064 670.4a38.4 38.4 0 1 0 54.336-54.336L566.336 512 670.4 407.936a38.4 38.4 0 1 "
+    "0-54.336-54.336z"};
+constexpr std::array<std::string_view, 1> close_svg = {
+    "M764.288 214.592 512 466.88 259.712 214.592a31.936 31.936 0 0 0-45.12 45.12L466.752 512 "
+    "214.528 764.224a31.936 31.936 0 1 0 45.12 45.184L512 557.184l252.288 252.288a31.936 "
+    "31.936 0 0 0 45.12-45.12L557.12 512.064l252.288-252.352a31.936 31.936 0 1 "
+    "0-45.12-45.184z"};
 
 class ScopedComApartment final {
   public:
@@ -203,6 +230,53 @@ struct DemoArtifacts {
 
 [[nodiscard]] rendering::Geometry make_message_icon_flap_geometry(float scale, core::Point offset) {
     return transform_geometry(rendering::parse_svg_path(message_icon_flap_svg), scale, offset);
+}
+
+struct MessageDemoPalette {
+    rendering::Color accent{};
+    rendering::Color background{};
+    rendering::Color border{};
+    rendering::Color text{};
+};
+
+struct MessageDemoIconSpec {
+    std::string_view title;
+    std::string_view icon_name;
+    std::span<const std::string_view> paths;
+    MessageDemoPalette palette;
+    bool draw_close_button = true;
+};
+
+void draw_svg_icon(rendering::RenderCommandRecorder& recorder,
+                   std::span<const std::string_view> paths, core::Point offset, float size,
+                   rendering::Color color) {
+    const auto scale = size / 1024.0F;
+    for (const auto path : paths) {
+        recorder.fill_geometry(transform_geometry(rendering::parse_svg_path(path), scale, offset), color);
+    }
+}
+
+void draw_message_demo_tile(rendering::RenderCommandRecorder& recorder, layout::Rect rect,
+                            const MessageDemoIconSpec& spec) {
+    recorder.fill_rounded_rect(rect, core::CornerRadius::uniform(18.0F), spec.palette.background);
+    recorder.stroke_rounded_rect(rect, core::CornerRadius::uniform(18.0F), spec.palette.border, 1.0F);
+    draw_svg_icon(recorder, spec.paths, {rect.x + 16.0F, rect.y + 18.0F}, 24.0F, spec.palette.accent);
+    recorder.draw_text(std::string(spec.title), {rect.x + 52.0F, rect.y + 14.0F, rect.width - 116.0F, 24.0F},
+                       rendering::TextStyle{.font_family = "Segoe UI Semibold",
+                                            .locale = "en-us",
+                                            .font_size = 16.0F,
+                                            .color = spec.palette.text});
+    recorder.draw_text(std::string(spec.icon_name), {rect.x + 52.0F, rect.y + 40.0F, rect.width - 116.0F, 22.0F},
+                       rendering::TextStyle{.font_family = "Segoe UI",
+                                            .locale = "en-us",
+                                            .font_size = 13.0F,
+                                            .color = spec.palette.text});
+    if (spec.draw_close_button) {
+        recorder.fill_rounded_rect({rect.x + rect.width - 38.0F, rect.y + 14.0F, 22.0F, 22.0F},
+                                   core::CornerRadius::uniform(11.0F), rendering::Color::rgba(255, 255, 255, 176));
+        draw_svg_icon(recorder, close_svg, {rect.x + rect.width - 34.0F, rect.y + 18.0F}, 14.0F,
+                      rendering::Color::rgba(144, 147, 153));
+    }
 }
 
 void draw_panel(rendering::RenderCommandRecorder& recorder, layout::Rect rect,
@@ -608,8 +682,8 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
 
     const auto geometry_panel = layout::Rect{page_margin, primitives_panel.y + primitives_panel.height + panel_gap,
                                              panel_width, 760.0F};
-    draw_panel(recorder, geometry_panel, "Geometry Stress: WinMochi Message Icon",
-               "SVG path geometry lifted from the WinMochi Message component icon because this shape is a frequent rendering regression hotspot");
+    draw_panel(recorder, geometry_panel, "Geometry Stress: WinMochi Message Icons",
+               "large envelope geometry on the left, and the full Message notification icon set and close glyph on the right");
     const auto feature_geometry = make_feature_geometry(geometry_panel.x + 56.0F, geometry_panel.y + 128.0F);
     rendering::GeometryStrokeStyle geometry_style;
     geometry_style.width = 5.0F;
@@ -667,32 +741,64 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
                                                             .dash_style = rendering::StrokeDashStyle::Solid});
     recorder.fill_geometry(message_flap_large, rendering::Color::rgba(97, 156, 236, 170));
 
-    recorder.draw_text("Scaled repetition for stress", {geometry_panel.x + 492.0F, geometry_panel.y + 374.0F,
-                                                         240.0F, 24.0F},
+    recorder.draw_text("Message component status icon set", {geometry_panel.x + 492.0F, geometry_panel.y + 374.0F,
+                                                              320.0F, 24.0F},
                        rendering::TextStyle{.font_family = "Segoe UI Semibold",
                                             .locale = "en-us",
                                             .font_size = 18.0F,
                                             .color = rendering::Color::rgba(68, 80, 101)});
-    const auto message_outline_small = make_message_icon_outline_geometry(0.115F,
-                                                                          {geometry_panel.x + 506.0F, geometry_panel.y + 428.0F});
-    const auto message_flap_small = make_message_icon_flap_geometry(0.115F,
-                                                                    {geometry_panel.x + 506.0F, geometry_panel.y + 428.0F});
-    const auto message_outline_medium = make_message_icon_outline_geometry(0.18F,
-                                                                           {geometry_panel.x + 652.0F, geometry_panel.y + 416.0F});
-    const auto message_flap_medium = make_message_icon_flap_geometry(0.18F,
-                                                                     {geometry_panel.x + 652.0F, geometry_panel.y + 416.0F});
-    recorder.fill_geometry(message_outline_small, rendering::Color::rgba(250, 252, 255));
-    recorder.fill_geometry(message_flap_small, rendering::Color::rgba(255, 190, 92, 176));
-    recorder.stroke_geometry(message_outline_small, rendering::Color::rgba(179, 104, 16),
-                             rendering::GeometryStrokeStyle{.width = 2.5F,
-                                                            .line_join = rendering::StrokeLineJoin::Round,
-                                                            .dash_style = rendering::StrokeDashStyle::Dash});
-    recorder.fill_geometry(message_outline_medium, rendering::Color::rgba(250, 252, 255));
-    recorder.fill_geometry(message_flap_medium, rendering::Color::rgba(234, 122, 112, 188));
-    recorder.stroke_geometry(message_outline_medium, rendering::Color::rgba(161, 51, 43),
-                             rendering::GeometryStrokeStyle{.width = 3.2F,
-                                                            .line_join = rendering::StrokeLineJoin::Round,
-                                                            .dash_style = rendering::StrokeDashStyle::Dot});
+    recorder.draw_text("WinMochi MessageType states: Primary, Success, Warning, Info, Error, plus Close.",
+                       {geometry_panel.x + 492.0F, geometry_panel.y + 402.0F, 560.0F, 22.0F},
+                       rendering::TextStyle{.font_family = "Segoe UI",
+                                            .locale = "en-us",
+                                            .font_size = 14.0F,
+                                            .color = rendering::Color::rgba(111, 122, 140)});
+    const std::array<MessageDemoIconSpec, 6> message_icon_specs = {{
+        {.title = "Primary", .icon_name = "InfoFilled + Close", .paths = info_filled_svg,
+         .palette = {.accent = rendering::Color::rgba(64, 158, 255),
+                     .background = rendering::Color::rgba(236, 245, 255),
+                     .border = rendering::Color::rgba(179, 216, 255),
+                     .text = rendering::Color::rgba(64, 158, 255)}},
+        {.title = "Success", .icon_name = "SuccessFilled + Close", .paths = success_filled_svg,
+         .palette = {.accent = rendering::Color::rgba(103, 194, 58),
+                     .background = rendering::Color::rgba(240, 249, 235),
+                     .border = rendering::Color::rgba(225, 243, 216),
+                     .text = rendering::Color::rgba(82, 155, 46)}},
+        {.title = "Warning", .icon_name = "WarningFilled + Close", .paths = warning_filled_svg,
+         .palette = {.accent = rendering::Color::rgba(230, 162, 60),
+                     .background = rendering::Color::rgba(253, 246, 236),
+                     .border = rendering::Color::rgba(250, 236, 216),
+                     .text = rendering::Color::rgba(179, 119, 27)}},
+        {.title = "Info", .icon_name = "InfoFilled + Close", .paths = info_filled_svg,
+         .palette = {.accent = rendering::Color::rgba(144, 147, 153),
+                     .background = rendering::Color::rgba(244, 244, 245),
+                     .border = rendering::Color::rgba(233, 233, 235),
+                     .text = rendering::Color::rgba(96, 98, 102)}},
+        {.title = "Error", .icon_name = "CircleCloseFilled + Close", .paths = circle_close_filled_svg,
+         .palette = {.accent = rendering::Color::rgba(245, 108, 108),
+                     .background = rendering::Color::rgba(254, 240, 240),
+                     .border = rendering::Color::rgba(253, 226, 226),
+                     .text = rendering::Color::rgba(196, 86, 86)}},
+        {.title = "Close", .icon_name = "Close glyph", .paths = close_svg,
+         .palette = {.accent = rendering::Color::rgba(144, 147, 153),
+                     .background = rendering::Color::rgba(247, 248, 250),
+                     .border = rendering::Color::rgba(228, 231, 237),
+                     .text = rendering::Color::rgba(96, 98, 102)},
+         .draw_close_button = false},
+    }};
+    constexpr float message_tile_width = 300.0F;
+    constexpr float message_tile_height = 84.0F;
+    constexpr float message_tile_gap_x = 18.0F;
+    constexpr float message_tile_gap_y = 14.0F;
+    for (std::size_t index = 0; index < message_icon_specs.size(); ++index) {
+        const auto column = static_cast<float>(index % 2U);
+        const auto row = static_cast<float>(index / 2U);
+        const auto tile = layout::Rect{geometry_panel.x + 506.0F + column * (message_tile_width + message_tile_gap_x),
+                                       geometry_panel.y + 432.0F + row * (message_tile_height + message_tile_gap_y),
+                                       message_tile_width,
+                                       message_tile_height};
+        draw_message_demo_tile(recorder, tile, message_icon_specs[index]);
+    }
 
     const auto text_panel = layout::Rect{page_margin, geometry_panel.y + geometry_panel.height + panel_gap,
                                          panel_width, 740.0F};
