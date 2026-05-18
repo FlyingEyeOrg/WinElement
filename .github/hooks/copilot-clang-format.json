@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "type": "command",
+        "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/copilot-format-cpp.ps1",
+        "windows": "pwsh -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\copilot-format-cpp.ps1",
+        "timeout": 30
+      }
+    ]
+  }
+}

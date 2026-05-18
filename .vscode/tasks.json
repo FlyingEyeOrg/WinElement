@@ -1,0 +1,45 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "cmake: configure vs2022-x64",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--preset=vs2022-x64"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "cmake: debug winelement sample",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset=vs2022-x64-debug", "--target", "winelement_winelement"],
+      "group": "build",
+      "problemMatcher": ["$msCompile"]
+    },
+    {
+      "label": "cmake: debug controls gallery",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset=vs2022-x64-debug", "--target", "winelement_controls_gallery"],
+      "group": "build",
+      "problemMatcher": ["$msCompile"]
+    },
+    {
+      "label": "cmake: build winelement sample",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset=vs2022-x64-release", "--target", "winelement_winelement"],
+      "group": "build",
+      "problemMatcher": ["$msCompile"]
+    },
+    {
+      "label": "cmake: build controls gallery",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "--preset=vs2022-x64-release", "--target", "winelement_controls_gallery"],
+      "group": "build",
+      "problemMatcher": ["$msCompile"]
+    }
+  ]
+}

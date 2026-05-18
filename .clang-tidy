@@ -1,0 +1,9 @@
+Checks: >
+  modernize-*,
+  readability-*,
+  performance-*,
+  bugprone-*,
+  cppcoreguidelines-*
+WarningsAsErrors: ''
+HeaderFilterRegex: 'include/dcompframe/.*'
+FormatStyle: file

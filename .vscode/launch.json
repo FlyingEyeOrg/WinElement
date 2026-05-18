@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "WinElement: Debug sample skeleton",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/vs2022-x64/samples/winelement/Debug/winelement_winelement.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "cmake: debug winelement sample",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "WinElement: Debug controls gallery",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/vs2022-x64/samples/controls_gallery/Debug/winelement_controls_gallery.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "cmake: debug controls gallery",
+      "console": "integratedTerminal"
+    }
+  ]
+}

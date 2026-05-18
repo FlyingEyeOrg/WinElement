@@ -1,0 +1,23 @@
+name: WinElement CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  windows-x64-debug:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lukka/get-cmake@latest
+      - uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgJsonGlob: vcpkg.json
+      - name: Configure
+        run: cmake --preset=vs2022-x64 -DWINELEMENT_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build --preset=vs2022-x64-debug -- /m
+      - name: Test
+        run: ctest --preset=vs2022-x64-debug-tests

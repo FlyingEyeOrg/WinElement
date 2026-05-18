@@ -1,0 +1,11 @@
+{
+  "cmake.useCMakePresets": "always",
+  "cmake.configureOnOpen": true,
+  "cmake.defaultConfigurePreset": "vs2022-x64",
+  "cmake.defaultBuildPreset": "vs2022-x64-debug",
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+  "copilotClangFormat.executablePath": "clang-format",
+  "copilotClangFormat.style": "file",
+  "copilotClangFormat.fallbackStyle": "LLVM",
+  "copilotClangFormat.formatOnSave": true
+}
