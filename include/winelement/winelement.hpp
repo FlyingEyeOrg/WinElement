@@ -1,6 +1,7 @@
 #pragma once
 
 #include <winelement/animation.hpp>
+#include <winelement/controls.hpp>
 #include <winelement/core.hpp>
 #include <winelement/elements.hpp>
 #include <winelement/layout.hpp>

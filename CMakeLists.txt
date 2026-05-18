@@ -26,12 +26,14 @@ add_subdirectory(src/rendering)
 add_subdirectory(src/animation)
 add_subdirectory(src/style)
 add_subdirectory(src/elements)
+add_subdirectory(src/controls)
 add_subdirectory(src/platform)
 
 if(WINELEMENT_BUILD_SAMPLES)
     find_package(fmt CONFIG REQUIRED)
     add_subdirectory(samples/render_pipeline_demo)
     add_subdirectory(samples/render_pipeline_perf)
+    add_subdirectory(samples/controls_showcase)
 endif()
 
 if(WINELEMENT_BUILD_TESTS)
@@ -52,5 +54,6 @@ target_link_libraries(winelement
         WinElement::animation
         WinElement::style
         WinElement::elements
+        WinElement::controls
         WinElement::platform
 )

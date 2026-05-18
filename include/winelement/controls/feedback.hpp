@@ -1,0 +1,303 @@
+#pragma once
+
+#include <winelement/controls/button.hpp>
+#include <winelement/controls/control.hpp>
+#include <winelement/controls/control_animation.hpp>
+#include <winelement/controls/input.hpp>
+#include <winelement/controls/stack_panel.hpp>
+#include <winelement/controls/text.hpp>
+#include <winelement/elements/svg_icon.hpp>
+#include <winelement/elements/ui_element.hpp>
+#include <winelement/rendering/render_types.hpp>
+
+#include <functional>
+#include <optional>
+#include <string>
+#include <string_view>
+
+namespace winelement::controls {
+
+enum class MessageType { Primary, Success, Warning, Info, Error };
+
+struct MessageOptions {
+    std::string text;
+    MessageType type = MessageType::Info;
+    bool show_close = false;
+    float width = 360.0F;
+    float top = 20.0F;
+    std::function<void()> on_close;
+};
+
+class Message final : public Control {
+  public:
+    using CloseHandler = std::function<void()>;
+
+    Message();
+
+    Message& set_text(std::string_view text);
+    Message& set_type(MessageType type);
+    Message& set_show_close(bool show_close);
+    Message& set_on_close(CloseHandler handler);
+    [[nodiscard]] const std::string& text() const noexcept;
+    [[nodiscard]] MessageType type() const noexcept;
+    [[nodiscard]] bool show_close() const noexcept;
+
+    static Message& show(elements::UIElement& host, MessageOptions options);
+
+  protected:
+    [[nodiscard]] bool on_animation_frame(animation::AnimationTimePoint now) override;
+    void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override;
+    void on_paint_overlay(rendering::RenderContext& context,
+                          layout::Rect absolute_frame) const override;
+
+  private:
+    void apply_visual_state();
+    void restart_open_animation() noexcept;
+    void apply_open_animation() noexcept;
+    void close();
+
+    elements::UIElement* surface_ = nullptr;
+    elements::SvgIcon* status_icon_ = nullptr;
+    Text* text_label_ = nullptr;
+    Button* close_button_ = nullptr;
+    CloseHandler close_handler_;
+    std::string text_;
+    MessageType type_ = MessageType::Info;
+    bool show_close_ = false;
+    AnimatedFloat open_progress_{0.86F};
+};
+
+enum class MessageBoxKind { Alert, Confirm, Prompt };
+enum class MessageBoxAction { Confirm, Cancel, Close };
+
+using MessageBoxContentBuilder = std::function<void(StackPanel&)>;
+using MessageBoxInputValidator = std::function<std::optional<std::string>(std::string_view)>;
+
+struct MessageBoxOptions {
+    std::string title = "Message";
+    std::string message;
+    MessageBoxKind kind = MessageBoxKind::Alert;
+    MessageType type = MessageType::Info;
+    std::string confirm_button_text = "OK";
+    std::string cancel_button_text = "Cancel";
+    std::string input_placeholder;
+    std::string input_text;
+    bool show_close = true;
+    bool show_cancel_button = true;
+    bool confirm_loading = false;
+    bool center = false;
+    bool distinguish_cancel_and_close = false;
+    bool draggable = true;
+    float width = 420.0F;
+    MessageBoxContentBuilder content_builder;
+    std::string input_error_message = "Invalid input";
+    MessageBoxInputValidator input_validator;
+    std::function<void(MessageBoxAction, std::string)> on_action;
+};
+
+class MessageBox final : public Control {
+  public:
+    using ActionHandler = std::function<void(MessageBoxAction, std::string)>;
+
+    MessageBox();
+
+    MessageBox& set_title(std::string_view title);
+    MessageBox& set_message(std::string_view message);
+    MessageBox& set_kind(MessageBoxKind kind);
+    MessageBox& set_type(MessageType type);
+    MessageBox& set_confirm_button_text(std::string_view text);
+    MessageBox& set_cancel_button_text(std::string_view text);
+    MessageBox& set_input_placeholder(std::string_view text);
+    MessageBox& set_input_text(std::string_view text);
+    MessageBox& set_show_close(bool show_close);
+    MessageBox& set_show_cancel_button(bool show_cancel_button);
+    MessageBox& set_confirm_loading(bool loading);
+    MessageBox& set_center(bool center) noexcept;
+    MessageBox& set_distinguish_cancel_and_close(bool distinguish) noexcept;
+    MessageBox& set_content_builder(MessageBoxContentBuilder builder);
+    MessageBox& set_input_error_message(std::string_view text);
+    MessageBox& set_input_validator(MessageBoxInputValidator validator);
+    MessageBox& set_draggable(bool draggable) noexcept;
+    MessageBox& set_on_action(ActionHandler handler);
+    [[nodiscard]] const std::string& title() const noexcept;
+    [[nodiscard]] const std::string& message() const noexcept;
+    [[nodiscard]] MessageBoxKind kind() const noexcept;
+    [[nodiscard]] MessageType type() const noexcept;
+    [[nodiscard]] bool show_cancel_button() const noexcept;
+    [[nodiscard]] bool center() const noexcept;
+    [[nodiscard]] bool distinguish_cancel_and_close() const noexcept;
+    [[nodiscard]] bool draggable() const noexcept;
+    [[nodiscard]] std::string input_text() const;
+
+    static MessageBox& show(elements::UIElement& host, MessageBoxOptions options);
+
+  protected:
+    [[nodiscard]] bool on_animation_frame(animation::AnimationTimePoint now) override;
+    void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override;
+    void on_paint_overlay(rendering::RenderContext& context,
+                          layout::Rect absolute_frame) const override;
+    void on_pointer_event(elements::PointerEvent& event) override;
+    [[nodiscard]] elements::PointerCursor
+    cursor_for_local_point(layout::Point local_position) const noexcept override;
+
+  private:
+    void apply_visual_state();
+    void restart_open_animation() noexcept;
+    void apply_open_animation() noexcept;
+    void close_with_action(MessageBoxAction action);
+    void clear_prompt_error();
+    void show_prompt_error(std::string_view message);
+    void sync_prompt_error_label();
+
+    elements::UIElement* surface_ = nullptr;
+    StackPanel* header_panel_ = nullptr;
+    elements::SvgIcon* title_status_icon_ = nullptr;
+    elements::SvgIcon* status_icon_ = nullptr;
+    StackPanel* content_panel_ = nullptr;
+    StackPanel* custom_content_panel_ = nullptr;
+    StackPanel* footer_panel_ = nullptr;
+    Text* title_label_ = nullptr;
+    Text* message_label_ = nullptr;
+    Text* input_error_label_ = nullptr;
+    Input* input_ = nullptr;
+    Button* close_button_ = nullptr;
+    Button* confirm_button_ = nullptr;
+    Button* cancel_button_ = nullptr;
+    ActionHandler action_handler_;
+    std::string title_;
+    std::string message_;
+    MessageBoxKind kind_ = MessageBoxKind::Alert;
+    MessageType type_ = MessageType::Info;
+    bool show_close_ = true;
+    bool show_cancel_button_ = true;
+    bool confirm_loading_ = false;
+    bool center_ = false;
+    bool distinguish_cancel_and_close_ = false;
+    bool draggable_ = true;
+    bool input_error_visible_ = false;
+    std::string input_error_message_ = "Invalid input";
+    MessageBoxContentBuilder content_builder_;
+    MessageBoxInputValidator input_validator_;
+    bool dragging_ = false;
+    layout::Point drag_start_pointer_{};
+    layout::Point drag_current_delta_{};
+    layout::Rect drag_start_bounds_{};
+    AnimatedFloat open_progress_{0.82F};
+};
+
+struct LoadingOptions {
+    std::string text = "Loading";
+    rendering::Color background = rendering::Color::rgba(255, 255, 255, 204);
+    rendering::Color spinner_color = rendering::Color::rgba(64, 158, 255);
+    bool fullscreen = true;
+    bool show_close = false;
+};
+
+class Loading final : public Control {
+  public:
+    class Spinner;
+
+    Loading();
+
+    Loading& set_text(std::string_view text);
+    Loading& set_active(bool active);
+    Loading& set_background(rendering::Color color) noexcept;
+    Loading& set_spinner_color(rendering::Color color) noexcept;
+    Loading& set_show_close(bool show_close);
+    [[nodiscard]] const std::string& text() const noexcept;
+    [[nodiscard]] bool active() const noexcept;
+    [[nodiscard]] rendering::Color spinner_color() const noexcept;
+    [[nodiscard]] bool show_close() const noexcept;
+
+    static Loading& show(elements::UIElement& host, LoadingOptions options = {});
+
+  protected:
+    [[nodiscard]] bool on_animation_frame(animation::AnimationTimePoint now) override;
+    void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override;
+
+  private:
+    void restart_open_animation() noexcept;
+    void apply_open_animation() noexcept;
+
+    elements::UIElement* surface_ = nullptr;
+    Spinner* spinner_ = nullptr;
+    Text* text_label_ = nullptr;
+    std::string text_;
+    rendering::Color spinner_color_ = rendering::Color::rgba(64, 158, 255);
+    float rotation_degrees_ = 0.0F;
+    bool active_ = true;
+    bool show_close_ = false;
+    AnimatedFloat open_progress_{0.86F};
+};
+
+enum class DialogAction { Confirm, Cancel, Close };
+
+struct DialogOptions {
+    std::string title = "Dialog";
+    std::string body;
+    std::string confirm_button_text = "Confirm";
+    std::string cancel_button_text = "Cancel";
+    bool show_close = true;
+    bool show_cancel_button = true;
+    bool modal = true;
+    bool fullscreen = false;
+    bool draggable = true;
+    float width = 520.0F;
+    float height = 0.0F;
+    std::function<void(DialogAction)> on_action;
+};
+
+class Dialog final : public Control {
+  public:
+    using ActionHandler = std::function<void(DialogAction)>;
+
+    Dialog();
+
+    Dialog& set_title(std::string_view title);
+    Dialog& set_body(std::string_view body);
+    Dialog& set_confirm_button_text(std::string_view text);
+    Dialog& set_cancel_button_text(std::string_view text);
+    Dialog& set_show_close(bool show_close);
+    Dialog& set_show_cancel_button(bool show_cancel_button);
+    Dialog& set_draggable(bool draggable) noexcept;
+    Dialog& set_on_action(ActionHandler handler);
+    [[nodiscard]] const std::string& title() const noexcept;
+    [[nodiscard]] const std::string& body() const noexcept;
+    [[nodiscard]] bool show_close() const noexcept;
+    [[nodiscard]] bool show_cancel_button() const noexcept;
+    [[nodiscard]] bool draggable() const noexcept;
+
+    static Dialog& show(elements::UIElement& host, DialogOptions options);
+
+  protected:
+    [[nodiscard]] bool on_animation_frame(animation::AnimationTimePoint now) override;
+    void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override;
+    void on_pointer_event(elements::PointerEvent& event) override;
+    [[nodiscard]] elements::PointerCursor
+    cursor_for_local_point(layout::Point local_position) const noexcept override;
+
+  private:
+    void restart_open_animation() noexcept;
+    void apply_open_animation() noexcept;
+    void close_with_action(DialogAction action);
+
+    elements::UIElement* surface_ = nullptr;
+    Text* title_label_ = nullptr;
+    Text* body_label_ = nullptr;
+    Button* close_button_ = nullptr;
+    Button* confirm_button_ = nullptr;
+    Button* cancel_button_ = nullptr;
+    ActionHandler action_handler_;
+    std::string title_;
+    std::string body_;
+    bool show_close_ = true;
+    bool show_cancel_button_ = true;
+    bool draggable_ = true;
+    bool dragging_ = false;
+    layout::Point drag_start_pointer_{};
+    layout::Point drag_current_delta_{};
+    layout::Rect drag_start_bounds_{};
+    AnimatedFloat open_progress_{0.82F};
+};
+
+} // namespace winelement::controls
