@@ -5,6 +5,7 @@ add_executable(winelement_controls_showcase
 target_link_libraries(winelement_controls_showcase
     PRIVATE
         WinElement::controls
+        WinElement::platform
         WinElement::rendering
 )
 

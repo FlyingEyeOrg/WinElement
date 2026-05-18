@@ -20,6 +20,7 @@ add_executable(winelement_controls_tests
 
 add_executable(winelement_platform_tests
     platform/deferred_context_tests.cpp
+    platform/window_tests.cpp
 )
 
 add_executable(winelement_visual_regression_tests
@@ -59,6 +60,7 @@ target_link_libraries(winelement_controls_tests
 
 target_link_libraries(winelement_platform_tests
     PRIVATE
+        WinElement::controls
         WinElement::platform
         WinElement::rendering
         GTest::gtest_main

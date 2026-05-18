@@ -2,6 +2,7 @@
 #include <winelement/controls.hpp>
 #include <winelement/elements.hpp>
 #include <winelement/layout.hpp>
+#include <winelement/platform.hpp>
 #include <winelement/rendering.hpp>
 #include <winelement/style.hpp>
 
@@ -409,8 +410,10 @@ void add_animation_summary(controls::StackPanel& root) {
     auto root = std::make_unique<controls::StackPanel>();
     root->set_gap(18.0F);
     root->set_background(rendering::Color::rgba(245, 247, 250));
+    root->set_overflow(layout::Overflow::Hidden);
+    root->set_scroll_wheel_enabled(true);
     root->configure_layout([](layout::LayoutElement& item) {
-        item.set_size(layout::Length::points(canvas_width), layout::Length::points(canvas_height))
+        item.set_size(layout::Length::percent(100.0F), layout::Length::percent(100.0F))
             .set_padding(layout::Edge::All, layout::Length::points(24.0F));
     });
 
@@ -447,7 +450,7 @@ void add_animation_summary(controls::StackPanel& root) {
 
 } // namespace
 
-int main() {
+int run_headless_showcase() {
     auto engine = layout::LayoutEngine{};
     auto root = build_showcase_tree();
     root->bind_layout_tree(engine);
@@ -481,4 +484,22 @@ int main() {
               << '\n';
     std::cout << "  dirty empty: " << (dirty.empty() ? "yes" : "no") << '\n';
     return command_count > 0U ? 0 : 1;
+}
+
+int run_window_showcase() {
+    platform::Application application;
+    platform::Window window(platform::WindowOptions{
+        .title = L"WinElement Controls Showcase", .width = 1320, .height = 920});
+    window.set_content(build_showcase_tree());
+    window.show();
+    return application.run();
+}
+
+int main(int argc, char** argv) {
+    for (auto index = 1; index < argc; ++index) {
+        if (std::string_view{argv[index]} == "--headless") {
+            return run_headless_showcase();
+        }
+    }
+    return run_window_showcase();
 }

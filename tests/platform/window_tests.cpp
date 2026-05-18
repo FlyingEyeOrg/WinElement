@@ -1,0 +1,326 @@
+#include <winelement/controls.hpp>
+#include <winelement/platform.hpp>
+
+#include <gtest/gtest.h>
+
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <future>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <utility>
+#include <vector>
+
+namespace {
+
+using namespace winelement;
+
+class ThreadRecordingElement final : public elements::UIElement {
+  public:
+    ThreadRecordingElement(std::atomic_bool& painted, std::thread::id& paint_thread_id,
+                           std::mutex& mutex) noexcept
+        : painted_(painted), paint_thread_id_(paint_thread_id), mutex_(mutex) {}
+
+  protected:
+    void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override {
+        elements::UIElement::on_paint(context, absolute_frame);
+        {
+            const std::scoped_lock lock(mutex_);
+            paint_thread_id_ = std::this_thread::get_id();
+        }
+        painted_.store(true, std::memory_order_release);
+    }
+
+  private:
+    std::atomic_bool& painted_;
+    std::thread::id& paint_thread_id_;
+    std::mutex& mutex_;
+};
+
+TEST(WindowTests, CreatesMultipleIndependentWindows) {
+    platform::Window first(
+        platform::WindowOptions{.title = L"WinElement Test A", .width = 320, .height = 240});
+    platform::Window second(
+        platform::WindowOptions{.title = L"WinElement Test B", .width = 480, .height = 320});
+
+    EXPECT_TRUE(first.is_open());
+    EXPECT_TRUE(second.is_open());
+    EXPECT_NE(&first.layout_engine(), &second.layout_engine());
+
+    first.close();
+    EXPECT_FALSE(first.is_open());
+    EXPECT_TRUE(second.is_open());
+
+    second.close();
+    EXPECT_FALSE(second.is_open());
+}
+
+TEST(WindowTests, KeepsContentIsolatedPerWindow) {
+    platform::Window first(
+        platform::WindowOptions{.title = L"WinElement Content A", .width = 320, .height = 240});
+    platform::Window second(
+        platform::WindowOptions{.title = L"WinElement Content B", .width = 320, .height = 240});
+
+    auto first_content = std::make_unique<controls::Panel>();
+    auto* first_content_ptr = first_content.get();
+    auto second_content = std::make_unique<controls::Panel>();
+    auto* second_content_ptr = second_content.get();
+
+    first.set_content(std::move(first_content));
+    second.set_content(std::move(second_content));
+
+    EXPECT_EQ(first.content(), first_content_ptr);
+    EXPECT_EQ(second.content(), second_content_ptr);
+    EXPECT_NE(first.content(), second.content());
+
+    first.set_content(nullptr);
+    EXPECT_EQ(first.content(), nullptr);
+    EXPECT_EQ(second.content(), second_content_ptr);
+
+    first.close();
+    second.close();
+}
+
+TEST(WindowTests, BindsDetachedContentTreeWithoutExplicitEngine) {
+    platform::Window window(platform::WindowOptions{
+        .title = L"WinElement Detached Content", .width = 320, .height = 240});
+
+    auto root = std::make_unique<controls::Panel>();
+    auto* root_ptr = root.get();
+    auto child = std::make_unique<controls::Button>();
+    auto* child_ptr = child.get();
+    root->append_child(std::move(child));
+
+    window.set_content(std::move(root));
+
+    ASSERT_EQ(window.content(), root_ptr);
+    ASSERT_EQ(window.content()->child_count(), 1U);
+    EXPECT_EQ(&window.content()->child_at(0), child_ptr);
+
+    window.close();
+}
+
+TEST(WindowTests, MessageLoopReturnsWhenNoWindowsAreLive) {
+    {
+        platform::Window first(platform::WindowOptions{.title = L"WinElement Loop A"});
+        platform::Window second(platform::WindowOptions{.title = L"WinElement Loop B"});
+        first.close();
+        second.close();
+    }
+
+    EXPECT_EQ(platform::Window::run_message_loop(), 0);
+}
+
+TEST(WindowTests, ApplicationRunReturnsAfterAsyncQuitFromAnotherThread) {
+    platform::Application application;
+    platform::Window window(platform::WindowOptions{.title = L"WinElement Async Quit"});
+    auto dispatcher = application.dispatcher();
+
+    std::thread worker([dispatcher] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        dispatcher.request_quit(7);
+    });
+
+    EXPECT_EQ(application.run(), 7);
+    worker.join();
+    EXPECT_FALSE(window.is_open());
+}
+
+TEST(WindowTests, DispatcherPostRunsCallbackOnOwningUiThread) {
+    platform::Application application;
+    platform::Window window(platform::WindowOptions{.title = L"WinElement Dispatcher Post"});
+    auto dispatcher = application.dispatcher();
+    std::atomic_bool callback_ran = false;
+
+    std::thread worker([dispatcher, &callback_ran] {
+        dispatcher.post([dispatcher, &callback_ran] {
+            callback_ran.store(dispatcher.is_current_thread(), std::memory_order_release);
+            dispatcher.request_quit(3);
+        });
+    });
+
+    EXPECT_EQ(application.run(), 3);
+    worker.join();
+    EXPECT_TRUE(callback_ran.load(std::memory_order_acquire));
+    EXPECT_FALSE(window.is_open());
+}
+
+TEST(WindowTests, UiFramePipelineRunsLayoutAndRecordOnDedicatedThread) {
+    platform::Application application;
+    platform::Window window(platform::WindowOptions{.title = L"WinElement UI Pipeline"});
+    auto dispatcher = application.dispatcher();
+    const auto window_thread_id = std::this_thread::get_id();
+
+    std::mutex thread_id_mutex;
+    std::thread::id layout_thread_id;
+    std::thread::id paint_thread_id;
+    std::atomic_bool layout_measured = false;
+    std::atomic_bool paint_recorded = false;
+
+    auto root = std::make_unique<controls::Panel>();
+    auto recorder =
+        std::make_unique<ThreadRecordingElement>(paint_recorded, paint_thread_id, thread_id_mutex);
+    recorder->set_measure_callback([&](const layout::MeasureInput&) {
+        {
+            const std::scoped_lock lock(thread_id_mutex);
+            layout_thread_id = std::this_thread::get_id();
+        }
+        layout_measured.store(true, std::memory_order_release);
+        return layout::Size{120.0F, 80.0F};
+    });
+    root->append_child(std::move(recorder));
+    window.set_content(std::move(root));
+    window.show();
+
+    std::thread quitter([dispatcher, &layout_measured, &paint_recorded] {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (layout_measured.load(std::memory_order_acquire) &&
+                paint_recorded.load(std::memory_order_acquire)) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        dispatcher.request_quit(layout_measured.load(std::memory_order_acquire) &&
+                                        paint_recorded.load(std::memory_order_acquire)
+                                    ? 0
+                                    : 9);
+    });
+
+    EXPECT_EQ(application.run(), 0);
+    quitter.join();
+
+    const std::scoped_lock lock(thread_id_mutex);
+    EXPECT_NE(layout_thread_id, std::thread::id{});
+    EXPECT_NE(paint_thread_id, std::thread::id{});
+    EXPECT_NE(layout_thread_id, window_thread_id);
+    EXPECT_NE(paint_thread_id, window_thread_id);
+    EXPECT_EQ(layout_thread_id, paint_thread_id);
+    EXPECT_FALSE(window.is_open());
+}
+
+TEST(WindowTests, ApplicationRequestQuitBroadcastsAcrossUiThreads) {
+    std::promise<platform::Dispatcher> worker_dispatcher_promise;
+    auto worker_dispatcher_future = worker_dispatcher_promise.get_future();
+    std::atomic_int worker_exit_code = -1;
+    std::atomic_bool worker_window_open_after_run = true;
+
+    std::thread ui_thread([&] {
+        platform::Application worker_application;
+        platform::Window worker_window(
+            platform::WindowOptions{.title = L"WinElement Worker UI Thread"});
+        worker_dispatcher_promise.set_value(worker_application.dispatcher());
+
+        worker_exit_code.store(worker_application.run(), std::memory_order_release);
+        worker_window_open_after_run.store(worker_window.is_open(), std::memory_order_release);
+    });
+
+    auto worker_dispatcher = worker_dispatcher_future.get();
+    platform::Application application;
+    platform::Window window(platform::WindowOptions{.title = L"WinElement Main UI Thread"});
+
+    std::thread quitter([&application, worker_dispatcher] {
+        worker_dispatcher.post([] {});
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+        application.request_quit(11);
+    });
+
+    EXPECT_EQ(application.run(), 11);
+    quitter.join();
+    ui_thread.join();
+
+    EXPECT_FALSE(window.is_open());
+    EXPECT_FALSE(worker_window_open_after_run.load(std::memory_order_acquire));
+    EXPECT_EQ(worker_exit_code.load(std::memory_order_acquire), 11);
+}
+
+class RecordingTextServiceClient final : public platform::TextServiceClient {
+  public:
+    void update_composition(platform::TextCompositionState state) override {
+        composition = std::move(state);
+    }
+
+    void commit_text(std::string_view text) override {
+        committed = std::string(text);
+    }
+
+    void cancel_composition() noexcept override {
+        cancelled = true;
+    }
+
+    platform::TextCompositionState composition;
+    std::string committed;
+    bool cancelled = false;
+};
+
+TEST(WindowTests, PlatformFoundationPlansSharedRenderThreadsAndTextServices) {
+    platform::RenderThreadPoolPlanner pool(2U);
+    const auto first = pool.lease(10U);
+    const auto second = pool.lease(11U);
+    const auto third = pool.lease(12U);
+
+    EXPECT_EQ(first.thread_index, 0U);
+    EXPECT_EQ(second.thread_index, 1U);
+    EXPECT_EQ(third.thread_index, 0U);
+    EXPECT_EQ(pool.active_window_count(), 3U);
+    pool.release(11U);
+    EXPECT_EQ(pool.active_window_count(), 2U);
+
+    platform::VSyncFrameClock clock;
+    EXPECT_EQ(clock.next_frame().frame_id, 1U);
+    clock.set_visible(false);
+    EXPECT_EQ(clock.next_frame().frame_id, 1U);
+
+    RecordingTextServiceClient client;
+    platform::TextServiceAdapter adapter;
+    adapter.attach(client);
+    adapter.update_composition(platform::TextCompositionState{.text = "ime", .active = true});
+    adapter.commit_text("text");
+    adapter.cancel_composition();
+
+    EXPECT_TRUE(adapter.attached());
+    EXPECT_EQ(client.composition.text, "ime");
+    EXPECT_EQ(client.committed, "text");
+    EXPECT_TRUE(client.cancelled);
+}
+
+TEST(WindowTests, RenderThreadPoolServiceRunsJobsAndParallelWork) {
+    platform::RenderThreadPoolService pool(3U);
+    std::atomic_int job_count = 0;
+    std::atomic_int pool_thread_hits = 0;
+
+    auto futures = std::vector<std::future<void>>{};
+    futures.reserve(24U);
+    for (auto index = 0; index < 24; ++index) {
+        futures.push_back(pool.submit([&pool, &job_count, &pool_thread_hits]() {
+            job_count.fetch_add(1, std::memory_order_acq_rel);
+            if (pool.running_on_pool_thread()) {
+                pool_thread_hits.fetch_add(1, std::memory_order_acq_rel);
+            }
+        }));
+    }
+
+    for (auto& future : futures) {
+        future.get();
+    }
+
+    std::atomic<std::uint64_t> sum = 0U;
+    pool.parallel_for(64U, 4U, [&sum](std::size_t first, std::size_t last) {
+        for (auto value = first; value < last; ++value) {
+            sum.fetch_add(static_cast<std::uint64_t>(value + 1U), std::memory_order_acq_rel);
+        }
+    });
+    pool.wait_idle();
+
+    EXPECT_EQ(pool.worker_count(), 3U);
+    EXPECT_EQ(job_count.load(std::memory_order_acquire), 24);
+    EXPECT_GT(pool_thread_hits.load(std::memory_order_acquire), 0);
+    EXPECT_EQ(sum.load(std::memory_order_acquire), 2080U);
+    EXPECT_EQ(pool.queued_job_count(), 0U);
+}
+
+} // namespace
