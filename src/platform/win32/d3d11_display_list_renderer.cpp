@@ -2321,7 +2321,7 @@ void D3D11DisplayListRenderer::render(ID3D11DeviceContext& context, ID3D11Render
                                       const rendering::DirtyRegion& dirty_region, float dpi,
                                       std::uint32_t target_pixel_width,
                                       std::uint32_t target_pixel_height,
-                                      const DxRenderResourceCache& resource_cache,
+                                      const D3D11RenderResourceCache& resource_cache,
                                       const rendering::RenderFrameGraph* frame_graph) {
     if (deferred_context_ == nullptr) {
         throw std::runtime_error("display-list deferred context is not available");
@@ -2342,7 +2342,7 @@ void D3D11DisplayListRenderer::render_to_context(
     ID3D11DeviceContext& context, ID3D11RenderTargetView& target, core::Color clear_color,
     const rendering::RenderScene* scene, const rendering::DirtyRegion& dirty_region, float dpi,
     std::uint32_t target_pixel_width, std::uint32_t target_pixel_height,
-    const DxRenderResourceCache& resource_cache,
+    const D3D11RenderResourceCache& resource_cache,
     const rendering::RenderFrameGraph* frame_graph) {
     active_frame_graph_ = frame_graph;
     apply_frame_graph_plan(frame_graph);
@@ -2705,7 +2705,7 @@ void D3D11DisplayListRenderer::clear_dirty_region(
 
 void D3D11DisplayListRenderer::render_node(const rendering::RenderNode& node,
                                            std::span<const D3D11RenderDirtyClip> dirty_clips,
-                                           const DxRenderResourceCache& resource_cache,
+                                           const D3D11RenderResourceCache& resource_cache,
                                            bool force_commands) {
     if (!force_commands && !dirty_clips_intersect_node(dirty_clips, node)) {
         return;
@@ -2846,7 +2846,7 @@ void D3D11DisplayListRenderer::render_node(const rendering::RenderNode& node,
 
 void D3D11DisplayListRenderer::render_command_list(
     const rendering::RenderCommandList& commands, std::span<const D3D11RenderDirtyClip> dirty_clips,
-    const DxRenderResourceCache& resource_cache, bool force_commands) {
+    const D3D11RenderResourceCache& resource_cache, bool force_commands) {
     const auto& opcodes = commands.opcodes();
     if (opcodes.empty() || dirty_clips.empty()) {
         return;
@@ -2933,7 +2933,7 @@ template <typename Payload>
 
 void D3D11DisplayListRenderer::render_command(const rendering::RenderCommandList& commands,
                                               std::size_t opcode_index,
-                                              const DxRenderResourceCache& resource_cache) {
+                                              const D3D11RenderResourceCache& resource_cache) {
     const auto& opcodes = commands.opcodes();
     if (opcode_index >= opcodes.size()) {
         return;
@@ -5200,7 +5200,7 @@ void D3D11DisplayListRenderer::draw_box_shadow(core::Rect rect,
 
 void D3D11DisplayListRenderer::draw_image(rendering::RenderResourceId resource_id,
                                           const rendering::RenderImageOptions& options,
-                                          const DxRenderResourceCache& resource_cache) {
+                                          const D3D11RenderResourceCache& resource_cache) {
     const auto* texture = resource_cache.texture(resource_id);
     if (texture == nullptr || texture->view == nullptr ||
         !rendering::layout::is_visible_rect(options.destination)) {

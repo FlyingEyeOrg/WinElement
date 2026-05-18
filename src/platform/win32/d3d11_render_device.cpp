@@ -1,4 +1,4 @@
-#include "dx_render_device.hpp"
+#include "d3d11_render_device.hpp"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -33,7 +33,7 @@ namespace {
 
 } // namespace
 
-class DxRenderDevice::Impl final {
+class D3D11RenderDevice::Impl final {
   public:
     Impl() {
         create_devices();
@@ -95,23 +95,23 @@ class DxRenderDevice::Impl final {
     D3D_FEATURE_LEVEL feature_level_ = D3D_FEATURE_LEVEL_9_1;
 };
 
-DxRenderDevice::DxRenderDevice() : impl_(std::make_unique<Impl>()) {}
+D3D11RenderDevice::D3D11RenderDevice() : impl_(std::make_unique<Impl>()) {}
 
-DxRenderDevice::~DxRenderDevice() = default;
+D3D11RenderDevice::~D3D11RenderDevice() = default;
 
-DxRenderDevice::DxRenderDevice(DxRenderDevice&&) noexcept = default;
+D3D11RenderDevice::D3D11RenderDevice(D3D11RenderDevice&&) noexcept = default;
 
-DxRenderDevice& DxRenderDevice::operator=(DxRenderDevice&&) noexcept = default;
+D3D11RenderDevice& D3D11RenderDevice::operator=(D3D11RenderDevice&&) noexcept = default;
 
-ID3D11Device& DxRenderDevice::d3d_device() const noexcept {
+ID3D11Device& D3D11RenderDevice::d3d_device() const noexcept {
     return impl_->d3d_device();
 }
 
-ID3D11DeviceContext& DxRenderDevice::d3d_context() const noexcept {
+ID3D11DeviceContext& D3D11RenderDevice::d3d_context() const noexcept {
     return impl_->d3d_context();
 }
 
-void DxRenderDevice::recreate() {
+void D3D11RenderDevice::recreate() {
     impl_->recreate();
 }
 

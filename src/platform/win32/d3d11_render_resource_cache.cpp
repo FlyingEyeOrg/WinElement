@@ -1,4 +1,4 @@
-#include "dx_render_resource_cache.hpp"
+#include "d3d11_render_resource_cache.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -28,7 +28,7 @@ namespace {
     return format == rendering::RenderResourceFormat::Alpha8 ? 1U : 4U;
 }
 
-[[nodiscard]] DxRenderResourceCache::TextureResource
+[[nodiscard]] D3D11RenderResourceCache::TextureResource
 create_texture(ID3D11Device& device, const rendering::RenderResourceUpload& upload) {
     const auto pixel_width = bytes_per_pixel(upload.format);
     if (!is_valid_upload_payload(upload, pixel_width)) {
@@ -49,7 +49,7 @@ create_texture(ID3D11Device& device, const rendering::RenderResourceUpload& uplo
     initial_data.pSysMem = upload.payload.data();
     initial_data.SysMemPitch = upload.stride;
 
-    DxRenderResourceCache::TextureResource resource;
+    D3D11RenderResourceCache::TextureResource resource;
     resource.width = upload.width;
     resource.height = upload.height;
     resource.format = upload.format;
@@ -71,11 +71,11 @@ create_texture(ID3D11Device& device, const rendering::RenderResourceUpload& uplo
 
 } // namespace
 
-DxRenderResourceCache::~DxRenderResourceCache() {
+D3D11RenderResourceCache::~D3D11RenderResourceCache() {
     assert_no_live_resources();
 }
 
-void DxRenderResourceCache::upload(ID3D11Device& device,
+void D3D11RenderResourceCache::upload(ID3D11Device& device,
                                    const rendering::RenderResourceUpload& upload) {
     if (upload.id.value == 0U) {
         return;
@@ -118,20 +118,20 @@ void DxRenderResourceCache::upload(ID3D11Device& device,
     }
 }
 
-void DxRenderResourceCache::discard(rendering::RenderResourceId id) noexcept {
+void D3D11RenderResourceCache::discard(rendering::RenderResourceId id) noexcept {
     image_textures_.erase(id.value);
     glyph_atlases_.erase(id.value);
     reference_counts_.erase(id.value);
 }
 
-void DxRenderResourceCache::clear() noexcept {
+void D3D11RenderResourceCache::clear() noexcept {
     image_textures_.clear();
     glyph_atlases_.clear();
     reference_counts_.clear();
 }
 
-const DxRenderResourceCache::TextureResource*
-DxRenderResourceCache::texture(rendering::RenderResourceId id) const noexcept {
+const D3D11RenderResourceCache::TextureResource*
+D3D11RenderResourceCache::texture(rendering::RenderResourceId id) const noexcept {
     if (const auto iterator = image_textures_.find(id.value); iterator != image_textures_.end()) {
         return &iterator->second;
     }
@@ -141,36 +141,36 @@ DxRenderResourceCache::texture(rendering::RenderResourceId id) const noexcept {
     return nullptr;
 }
 
-std::size_t DxRenderResourceCache::image_texture_count() const noexcept {
+std::size_t D3D11RenderResourceCache::image_texture_count() const noexcept {
     return image_textures_.size();
 }
 
-std::size_t DxRenderResourceCache::glyph_atlas_count() const noexcept {
+std::size_t D3D11RenderResourceCache::glyph_atlas_count() const noexcept {
     return glyph_atlases_.size();
 }
 
-std::size_t DxRenderResourceCache::effect_count() const noexcept {
+std::size_t D3D11RenderResourceCache::effect_count() const noexcept {
     return 0U;
 }
 
-std::size_t DxRenderResourceCache::live_resource_count() const noexcept {
+std::size_t D3D11RenderResourceCache::live_resource_count() const noexcept {
     return image_texture_count() + glyph_atlas_count();
 }
 
 std::uint32_t
-DxRenderResourceCache::reference_count(rendering::RenderResourceId id) const noexcept {
+D3D11RenderResourceCache::reference_count(rendering::RenderResourceId id) const noexcept {
     const auto iterator = reference_counts_.find(id.value);
     return iterator == reference_counts_.end() ? 0U : iterator->second;
 }
 
-void DxRenderResourceCache::retain(rendering::RenderResourceId id, std::uint32_t count) noexcept {
+void D3D11RenderResourceCache::retain(rendering::RenderResourceId id, std::uint32_t count) noexcept {
     if (id.value == 0U || count == 0U || reference_count(id) == 0U) {
         return;
     }
     reference_counts_[id.value] += count;
 }
 
-void DxRenderResourceCache::release(rendering::RenderResourceId id, std::uint32_t count) noexcept {
+void D3D11RenderResourceCache::release(rendering::RenderResourceId id, std::uint32_t count) noexcept {
     if (id.value == 0U || count == 0U) {
         return;
     }
@@ -185,10 +185,10 @@ void DxRenderResourceCache::release(rendering::RenderResourceId id, std::uint32_
     iterator->second -= count;
 }
 
-void DxRenderResourceCache::assert_no_live_resources() const noexcept {
+void D3D11RenderResourceCache::assert_no_live_resources() const noexcept {
 #ifndef NDEBUG
     assert(live_resource_count() == 0U &&
-           "DxRenderResourceCache still owns GPU resources; call clear() before teardown");
+           "D3D11RenderResourceCache still owns GPU resources; call clear() before teardown");
 #endif
 }
 

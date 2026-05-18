@@ -1,6 +1,6 @@
 #include "d3d11_display_list_renderer.hpp"
-#include "dx_render_device.hpp"
-#include "dx_render_resource_cache.hpp"
+#include "d3d11_render_device.hpp"
+#include "d3d11_render_resource_cache.hpp"
 
 #include <winelement/rendering.hpp>
 
@@ -57,7 +57,7 @@ struct RenderTargetBundle {
     return bundle;
 }
 
-[[nodiscard]] std::array<std::uint8_t, 4> read_pixel(win32::DxRenderDevice& device,
+[[nodiscard]] std::array<std::uint8_t, 4> read_pixel(win32::D3D11RenderDevice& device,
                                                      ID3D11Texture2D& texture,
                                                      std::uint32_t x, std::uint32_t y) {
     D3D11_TEXTURE2D_DESC source_desc{};
@@ -96,7 +96,7 @@ struct RenderTargetBundle {
     return pixel;
 }
 
-[[nodiscard]] std::vector<std::uint8_t> read_region(win32::DxRenderDevice& device,
+[[nodiscard]] std::vector<std::uint8_t> read_region(win32::D3D11RenderDevice& device,
                                                     ID3D11Texture2D& texture, std::uint32_t x,
                                                     std::uint32_t y, std::uint32_t width,
                                                     std::uint32_t height) {
@@ -142,9 +142,9 @@ struct RenderTargetBundle {
 }
 
 [[nodiscard]] std::vector<std::uint8_t> render_incremental_text_region(bool include_seed_text) {
-    win32::DxRenderDevice device;
+    win32::D3D11RenderDevice device;
     auto target = create_render_target(device.d3d_device(), 320U, 128U);
-    win32::DxRenderResourceCache resource_cache;
+    win32::D3D11RenderResourceCache resource_cache;
     win32::D3D11DisplayListRenderer renderer(device.d3d_device());
 
     const auto text_style = rendering::TextStyle{.font_family = "Segoe UI",
@@ -173,9 +173,9 @@ struct RenderTargetBundle {
 }
 
 TEST(DeferredContextTests, RendererExecutesDeferredClearOnImmediateContext) {
-    win32::DxRenderDevice device;
+    win32::D3D11RenderDevice device;
     auto target = create_render_target(device.d3d_device(), 64U, 64U);
-    win32::DxRenderResourceCache resource_cache;
+    win32::D3D11RenderResourceCache resource_cache;
     win32::D3D11DisplayListRenderer renderer(device.d3d_device());
 
     rendering::DirtyRegion dirty_region;
@@ -192,9 +192,9 @@ TEST(DeferredContextTests, RendererExecutesDeferredClearOnImmediateContext) {
 }
 
 TEST(DeferredContextTests, RendererExecutesDeferredGeometryCommands) {
-    win32::DxRenderDevice device;
+    win32::D3D11RenderDevice device;
     auto target = create_render_target(device.d3d_device(), 64U, 64U);
-    win32::DxRenderResourceCache resource_cache;
+    win32::D3D11RenderResourceCache resource_cache;
     win32::D3D11DisplayListRenderer renderer(device.d3d_device());
 
     rendering::RenderCommandRecorder recorder;

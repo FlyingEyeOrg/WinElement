@@ -7,15 +7,15 @@ struct ID3D11DeviceContext;
 
 namespace winelement::platform::win32 {
 
-class DxRenderDevice final {
+class D3D11RenderDevice final {
   public:
-    DxRenderDevice();
-    ~DxRenderDevice();
+    D3D11RenderDevice();
+    ~D3D11RenderDevice();
 
-    DxRenderDevice(const DxRenderDevice&) = delete;
-    DxRenderDevice& operator=(const DxRenderDevice&) = delete;
-    DxRenderDevice(DxRenderDevice&&) noexcept;
-    DxRenderDevice& operator=(DxRenderDevice&&) noexcept;
+    D3D11RenderDevice(const D3D11RenderDevice&) = delete;
+    D3D11RenderDevice& operator=(const D3D11RenderDevice&) = delete;
+    D3D11RenderDevice(D3D11RenderDevice&&) noexcept;
+    D3D11RenderDevice& operator=(D3D11RenderDevice&&) noexcept;
 
     [[nodiscard]] ID3D11Device& d3d_device() const noexcept;
     [[nodiscard]] ID3D11DeviceContext& d3d_context() const noexcept;

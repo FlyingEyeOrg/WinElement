@@ -2,7 +2,7 @@
 
 #include <winelement/core/core_types.hpp>
 
-#include "dx_render_resource_cache.hpp"
+#include "d3d11_render_resource_cache.hpp"
 
 #include <array>
 #include <cstddef>
@@ -76,7 +76,7 @@ class D3D11DisplayListRenderer final {
                 core::Color clear_color, const rendering::RenderScene* scene,
                 const rendering::DirtyRegion& dirty_region, float dpi,
                 std::uint32_t target_pixel_width, std::uint32_t target_pixel_height,
-                const DxRenderResourceCache& resource_cache,
+                const D3D11RenderResourceCache& resource_cache,
                 const rendering::RenderFrameGraph* frame_graph = nullptr);
 
   private:
@@ -208,7 +208,7 @@ class D3D11DisplayListRenderer final {
                            const rendering::DirtyRegion& dirty_region, float dpi,
                            std::uint32_t target_pixel_width,
                            std::uint32_t target_pixel_height,
-                           const DxRenderResourceCache& resource_cache,
+                           const D3D11RenderResourceCache& resource_cache,
                            const rendering::RenderFrameGraph* frame_graph);
 
     void create_pipeline(ID3D11Device& device);
@@ -223,14 +223,14 @@ class D3D11DisplayListRenderer final {
     void end_frame();
     void render_node(const rendering::RenderNode& node,
                      std::span<const D3D11RenderDirtyClip> dirty_clips,
-                     const DxRenderResourceCache& resource_cache, bool force_commands = false);
+                     const D3D11RenderResourceCache& resource_cache, bool force_commands = false);
     void render_command_list(const rendering::RenderCommandList& commands,
                              std::span<const D3D11RenderDirtyClip> dirty_clips,
-                             const DxRenderResourceCache& resource_cache, bool force_commands);
+                             const D3D11RenderResourceCache& resource_cache, bool force_commands);
     void clear_dirty_region(core::Color clear_color,
                             std::span<const D3D11RenderDirtyClip> dirty_clips);
     void render_command(const rendering::RenderCommandList& commands, std::size_t opcode_index,
-                        const DxRenderResourceCache& resource_cache);
+                        const D3D11RenderResourceCache& resource_cache);
     void push_clip(core::Rect rect);
     void push_device_clip(core::Rect rect);
     void pop_clip();
@@ -269,7 +269,7 @@ class D3D11DisplayListRenderer final {
                          const rendering::GeometryStrokeStyle& style, bool closed);
     void draw_image(rendering::RenderResourceId resource_id,
                     const rendering::RenderImageOptions& options,
-                    const DxRenderResourceCache& resource_cache);
+                    const D3D11RenderResourceCache& resource_cache);
     void submit_vertices(std::span<const Vertex> vertices, ID3D11ShaderResourceView* texture,
                          TextureSamplingMode texture_mode = TextureSamplingMode::None);
     void flush_batch();

@@ -2,8 +2,8 @@
 #include <winelement/rendering/svg_path_parser.hpp>
 
 #include "d3d11_display_list_renderer.hpp"
-#include "dx_render_device.hpp"
-#include "dx_render_resource_cache.hpp"
+#include "d3d11_render_device.hpp"
+#include "d3d11_render_resource_cache.hpp"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -1195,7 +1195,7 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
     return demo;
 }
 
-[[nodiscard]] RenderTargetBundle create_render_target(win32::DxRenderDevice& device,
+[[nodiscard]] RenderTargetBundle create_render_target(win32::D3D11RenderDevice& device,
                                                       std::uint32_t width,
                                                       std::uint32_t height) {
     RenderTargetBundle bundle;
@@ -1225,7 +1225,7 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
 }
 
 [[nodiscard]] std::vector<std::byte>
-read_back_texture(win32::DxRenderDevice& device, ID3D11Texture2D& texture, std::uint32_t width,
+read_back_texture(win32::D3D11RenderDevice& device, ID3D11Texture2D& texture, std::uint32_t width,
                   std::uint32_t height, std::uint32_t& stride) {
     D3D11_TEXTURE2D_DESC description{};
     texture.GetDesc(&description);
@@ -1377,8 +1377,8 @@ void print_demo_summary(const DemoArtifacts& demo) {
 [[nodiscard]] std::vector<std::byte> render_demo_frame(DemoArtifacts& demo, std::uint32_t& stride) {
     demo = build_demo();
 
-    win32::DxRenderDevice device;
-    win32::DxRenderResourceCache resource_cache;
+    win32::D3D11RenderDevice device;
+    win32::D3D11RenderResourceCache resource_cache;
     resource_cache.upload(device.d3d_device(), demo.image_upload);
     resource_cache.upload(device.d3d_device(), demo.circle_image_upload);
 

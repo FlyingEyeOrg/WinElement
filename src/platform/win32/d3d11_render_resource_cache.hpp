@@ -20,7 +20,7 @@
 
 namespace winelement::platform::win32 {
 
-class DxRenderResourceCache final {
+class D3D11RenderResourceCache final {
   public:
     struct TextureResource {
         Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
@@ -31,7 +31,7 @@ class DxRenderResourceCache final {
             rendering::RenderResourceFormat::Bgra8Premultiplied;
     };
 
-    ~DxRenderResourceCache();
+    ~D3D11RenderResourceCache();
 
     void upload(ID3D11Device& device, const rendering::RenderResourceUpload& upload);
     void discard(rendering::RenderResourceId id) noexcept;
