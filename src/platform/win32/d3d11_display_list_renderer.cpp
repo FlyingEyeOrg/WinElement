@@ -598,8 +598,39 @@ void collect_visible_opcode_indices(const rendering::RenderCommandList& commands
         bool force_all = false;
     };
 
-    auto layer_stack = std::vector<LayerCullState>{};
+    constexpr auto max_layer_stack_depth = 16U;
+    std::array<LayerCullState, max_layer_stack_depth> layer_stack{};
+    std::vector<LayerCullState> overflow_layer_stack;
+    overflow_layer_stack.reserve(4U);
+    auto layer_stack_size = std::size_t{0U};
     auto skipped_layer_depth = 0U;
+    const auto current_layer_state = [&]() -> const LayerCullState* {
+        if (layer_stack_size == 0U) {
+            return nullptr;
+        }
+        if (layer_stack_size <= layer_stack.size()) {
+            return &layer_stack[layer_stack_size - 1U];
+        }
+        return &overflow_layer_stack[layer_stack_size - layer_stack.size() - 1U];
+    };
+    const auto push_layer_state = [&](LayerCullState state) {
+        if (layer_stack_size < layer_stack.size()) {
+            layer_stack[layer_stack_size++] = state;
+        } else {
+            overflow_layer_stack.push_back(state);
+            ++layer_stack_size;
+        }
+    };
+    const auto pop_layer_state = [&]() {
+        if (layer_stack_size == 0U) {
+            return;
+        }
+        if (layer_stack_size > layer_stack.size()) {
+            overflow_layer_stack.pop_back();
+        }
+        --layer_stack_size;
+    };
+
     for (std::size_t index = 0; index < opcodes.size(); ++index) {
         const auto& opcode = opcodes[index];
         if (skipped_layer_depth > 0U) {
@@ -612,18 +643,18 @@ void collect_visible_opcode_indices(const rendering::RenderCommandList& commands
             continue;
         }
 
-        const auto current_force_all = !layer_stack.empty() && layer_stack.back().force_all;
-        const auto current_dirty_rect =
-            layer_stack.empty() ? dirty_rect : layer_stack.back().dirty_rect;
+        const auto* current_layer = current_layer_state();
+        const auto current_force_all = current_layer != nullptr && current_layer->force_all;
+        const auto current_dirty_rect = current_layer == nullptr ? dirty_rect
+                                                                 : current_layer->dirty_rect;
 
         if (current_force_all) {
             append_opcode_index(output, index);
             if (opcode.opcode == rendering::RenderCommandType::PushLayer) {
-                layer_stack.push_back(
-                    LayerCullState{.dirty_rect = current_dirty_rect, .force_all = true});
-            } else if (opcode.opcode == rendering::RenderCommandType::PopLayer &&
-                       !layer_stack.empty()) {
-                layer_stack.pop_back();
+                push_layer_state(LayerCullState{.dirty_rect = current_dirty_rect,
+                                                .force_all = true});
+            } else if (opcode.opcode == rendering::RenderCommandType::PopLayer) {
+                pop_layer_state();
             }
             continue;
         }
@@ -654,16 +685,14 @@ void collect_visible_opcode_indices(const rendering::RenderCommandList& commands
             }
 
             append_opcode_index(output, index);
-            layer_stack.push_back(
-                LayerCullState{.dirty_rect = layer_dirty_rect, .force_all = force_layer_commands});
+            push_layer_state(LayerCullState{.dirty_rect = layer_dirty_rect,
+                                            .force_all = force_layer_commands});
             continue;
         }
 
         if (opcode.opcode == rendering::RenderCommandType::PopLayer) {
             append_opcode_index(output, index);
-            if (!layer_stack.empty()) {
-                layer_stack.pop_back();
-            }
+            pop_layer_state();
             continue;
         }
 
@@ -764,6 +793,10 @@ prepare_render_plan(const rendering::RenderCommandList& commands,
         for (auto& tile : plan.tiles) {
             tile.uses_shared_command_indices = true;
         }
+    } else if (plan.tiles.size() == 1U) {
+        collect_visible_opcode_indices(commands, plan.tiles.front().cull_clip,
+                                       plan.shared_command_indices);
+        plan.tiles.front().uses_shared_command_indices = true;
     } else if (pool != nullptr && plan.tiles.size() >= 4U) {
         pool->parallel_for(
             plan.tiles.size(), 1U, [&plan, &commands](std::size_t first, std::size_t last) {
@@ -2050,17 +2083,29 @@ struct D3D11DisplayListRenderer::RenderPlanCacheState {
             auto& tile = plan.tiles[index];
             tile.device_clip = tile_rects[index].device_clip;
             tile.cull_clip = tile_rects[index].cull_clip;
-            if (force_all_commands) {
+            dirty_bounds = rendering::layout::union_rects(dirty_bounds, tile.cull_clip);
+        }
+
+        if (force_all_commands) {
+            for (auto& tile : plan.tiles) {
                 tile.uses_shared_command_indices = true;
-            } else {
+            }
+            add_visible_command_count(plan.visible_command_count,
+                                      plan.shared_command_indices.size() * plan.tiles.size());
+        } else if (plan.tiles.size() == 1U) {
+            plan.shared_command_indices =
+                visibility_indices_for(commands, plan.tiles.front().cull_clip, false,
+                                       frame_sequence);
+            plan.tiles.front().uses_shared_command_indices = true;
+            add_visible_command_count(plan.visible_command_count,
+                                      plan.shared_command_indices.size());
+        } else {
+            for (auto& tile : plan.tiles) {
                 tile.command_indices =
                     visibility_indices_for(commands, tile.cull_clip, false, frame_sequence);
+                add_visible_command_count(plan.visible_command_count,
+                                          tile.command_indices.size());
             }
-            dirty_bounds = rendering::layout::union_rects(dirty_bounds, tile.cull_clip);
-            add_visible_command_count(plan.visible_command_count,
-                                      tile.uses_shared_command_indices
-                                          ? plan.shared_command_indices.size()
-                                          : tile.command_indices.size());
         }
 
         if (frame_graph != nullptr && !frame_graph->empty() &&
@@ -3086,6 +3131,23 @@ void D3D11DisplayListRenderer::render_command_list(
     if (plan == nullptr || plan->visible_command_count == 0U) {
         return;
     }
+
+    if (plan->tiles.size() == 1U) {
+        const auto& tile = plan->tiles.front();
+        const auto& command_indices = tile.uses_shared_command_indices ? plan->shared_command_indices
+                                                                       : tile.command_indices;
+        if (command_indices.empty()) {
+            return;
+        }
+
+        push_device_clip(tile.device_clip);
+        for (const auto opcode_index : command_indices) {
+            render_command(commands, opcode_index, resource_cache);
+        }
+        pop_clip();
+        return;
+    }
+
     auto visible_vertex_budget = std::size_t{0U};
     for (const auto& pass : plan->passes) {
         visible_vertex_budget +=
