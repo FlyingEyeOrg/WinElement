@@ -350,6 +350,36 @@ visual_bounds_for_node(const rendering::RenderNode& node) noexcept {
     return false;
 }
 
+[[nodiscard]] bool rect_contains_rect(rendering::layout::Rect outer,
+                                      rendering::layout::Rect inner) noexcept {
+    return outer.x <= inner.x && outer.y <= inner.y &&
+           outer.x + outer.width >= inner.x + inner.width &&
+           outer.y + outer.height >= inner.y + inner.height;
+}
+
+[[nodiscard]] const D3D11RenderDirtyClip*
+covering_dirty_clip(std::span<const D3D11RenderDirtyClip> dirty_clips,
+                    rendering::layout::Rect bounds) noexcept {
+    if (!rendering::layout::is_visible_rect(bounds)) {
+        return nullptr;
+    }
+
+    const auto* best = static_cast<const D3D11RenderDirtyClip*>(nullptr);
+    auto best_area = std::numeric_limits<float>::max();
+    for (const auto& dirty_clip : dirty_clips) {
+        if (!rect_contains_rect(dirty_clip.cull_clip, bounds)) {
+            continue;
+        }
+
+        const auto area = dirty_clip.cull_clip.width * dirty_clip.cull_clip.height;
+        if (best == nullptr || area < best_area) {
+            best = &dirty_clip;
+            best_area = area;
+        }
+    }
+    return best;
+}
+
 [[nodiscard]] std::optional<rendering::Transform2D>
 inverse_transform(rendering::Transform2D transform) noexcept {
     const auto determinant = transform.m11 * transform.m22 - transform.m12 * transform.m21;
@@ -2801,11 +2831,20 @@ void D3D11DisplayListRenderer::render_node(const rendering::RenderNode& node,
     }
 
     auto single_mapped_dirty_clip = std::array<D3D11RenderDirtyClip, 1U>{};
+    auto single_command_dirty_clip = std::array<D3D11RenderDirtyClip, 1U>{};
     auto stack_mapped_dirty_clips = std::array<D3D11RenderDirtyClip, 32U>{};
     auto mapped_dirty_clips = std::vector<D3D11RenderDirtyClip>{};
     auto active_dirty_clips = dirty_clips;
     auto force_descendant_commands = force_commands;
-    if (!force_commands && node.kind == rendering::RenderNodeKind::Layer) {
+    if (!force_commands) {
+        if (const auto* covered_clip =
+                covering_dirty_clip(dirty_clips, visual_bounds_for_node(node));
+            covered_clip != nullptr) {
+            single_mapped_dirty_clip[0] = *covered_clip;
+            active_dirty_clips = std::span<const D3D11RenderDirtyClip>{
+                single_mapped_dirty_clip.data(), single_mapped_dirty_clip.size()};
+            force_descendant_commands = true;
+        } else if (node.kind == rendering::RenderNodeKind::Layer) {
         if (rendering::is_identity_transform(node.transform)) {
             if (!node.clips_to_bounds) {
                 active_dirty_clips = dirty_clips;
@@ -2891,39 +2930,40 @@ void D3D11DisplayListRenderer::render_node(const rendering::RenderNode& node,
         } else {
             force_descendant_commands = true;
         }
-    } else if (!force_commands && node.kind == rendering::RenderNodeKind::Clip) {
-        if (dirty_clips.size() == 1U) {
-            const auto cull_clip =
-                rendering::layout::intersect_rects(dirty_clips.front().cull_clip, node.bounds);
-            if (!rendering::layout::is_visible_rect(cull_clip)) {
-                return;
-            }
-            single_mapped_dirty_clip[0] = D3D11RenderDirtyClip{
-                .device_clip = dirty_clips.front().device_clip, .cull_clip = cull_clip};
-            active_dirty_clips = std::span<const D3D11RenderDirtyClip>{
-                single_mapped_dirty_clip.data(), single_mapped_dirty_clip.size()};
-        } else if (dirty_clips.size() <= stack_mapped_dirty_clips.size()) {
-            auto mapped_count = std::size_t{0U};
-            for (const auto dirty_clip : dirty_clips) {
-                const auto cull_clip =
-                    rendering::layout::intersect_rects(dirty_clip.cull_clip, node.bounds);
-                if (!rendering::layout::is_visible_rect(cull_clip)) {
-                    continue;
-                }
-                stack_mapped_dirty_clips[mapped_count++] = D3D11RenderDirtyClip{
-                    .device_clip = dirty_clip.device_clip, .cull_clip = cull_clip};
-            }
-            if (mapped_count == 0U) {
-                return;
-            }
-            active_dirty_clips = std::span<const D3D11RenderDirtyClip>{
-                stack_mapped_dirty_clips.data(), mapped_count};
         } else {
-            mapped_dirty_clips = dirty_clips_for_clip_rect(dirty_clips, node.bounds);
-            if (mapped_dirty_clips.empty()) {
-                return;
+            if (dirty_clips.size() == 1U) {
+                const auto cull_clip =
+                    rendering::layout::intersect_rects(dirty_clips.front().cull_clip, node.bounds);
+                if (!rendering::layout::is_visible_rect(cull_clip)) {
+                    return;
+                }
+                single_mapped_dirty_clip[0] = D3D11RenderDirtyClip{
+                    .device_clip = dirty_clips.front().device_clip, .cull_clip = cull_clip};
+                active_dirty_clips = std::span<const D3D11RenderDirtyClip>{
+                    single_mapped_dirty_clip.data(), single_mapped_dirty_clip.size()};
+            } else if (dirty_clips.size() <= stack_mapped_dirty_clips.size()) {
+                auto mapped_count = std::size_t{0U};
+                for (const auto dirty_clip : dirty_clips) {
+                    const auto cull_clip =
+                        rendering::layout::intersect_rects(dirty_clip.cull_clip, node.bounds);
+                    if (!rendering::layout::is_visible_rect(cull_clip)) {
+                        continue;
+                    }
+                    stack_mapped_dirty_clips[mapped_count++] = D3D11RenderDirtyClip{
+                        .device_clip = dirty_clip.device_clip, .cull_clip = cull_clip};
+                }
+                if (mapped_count == 0U) {
+                    return;
+                }
+                active_dirty_clips = std::span<const D3D11RenderDirtyClip>{
+                    stack_mapped_dirty_clips.data(), mapped_count};
+            } else {
+                mapped_dirty_clips = dirty_clips_for_clip_rect(dirty_clips, node.bounds);
+                if (mapped_dirty_clips.empty()) {
+                    return;
+                }
+                active_dirty_clips = mapped_dirty_clips;
             }
-            active_dirty_clips = mapped_dirty_clips;
         }
     }
 
@@ -2942,11 +2982,24 @@ void D3D11DisplayListRenderer::render_node(const rendering::RenderNode& node,
         break;
     }
 
+    auto command_dirty_clips = active_dirty_clips;
+    auto force_command_list = force_descendant_commands;
+    if (!force_command_list && !node.commands.empty()) {
+        if (const auto* covered_clip =
+                covering_dirty_clip(active_dirty_clips, node.commands.bounds());
+            covered_clip != nullptr) {
+            single_command_dirty_clip[0] = *covered_clip;
+            command_dirty_clips = std::span<const D3D11RenderDirtyClip>{
+                single_command_dirty_clip.data(), single_command_dirty_clip.size()};
+            force_command_list = true;
+        }
+    }
+
     if (!node.commands.empty() &&
-        (force_descendant_commands ||
-         dirty_clips_intersect_rect(active_dirty_clips, node.commands.bounds()))) {
-        render_command_list(node.commands, active_dirty_clips, resource_cache,
-                            force_descendant_commands);
+        (force_command_list ||
+         dirty_clips_intersect_rect(command_dirty_clips, node.commands.bounds()))) {
+        render_command_list(node.commands, command_dirty_clips, resource_cache,
+                            force_command_list);
     }
     for (const auto& child : node.children) {
         render_node(child, active_dirty_clips, resource_cache, force_descendant_commands);
@@ -2970,6 +3023,22 @@ void D3D11DisplayListRenderer::render_command_list(
     const D3D11RenderResourceCache& resource_cache, bool force_commands) {
     const auto& opcodes = commands.opcodes();
     if (opcodes.empty() || dirty_clips.empty()) {
+        return;
+    }
+
+    if (force_commands && dirty_clips.size() == 1U) {
+        const auto visible_vertex_budget =
+            std::min<std::size_t>(static_cast<std::size_t>(opcodes.size()) * 24U, max_vertices);
+        if (visible_vertex_budget > 0U) {
+            batch_vertices_.reserve(visible_vertex_budget);
+            primitive_vertices_.reserve(visible_vertex_budget);
+        }
+
+        push_device_clip(dirty_clips.front().device_clip);
+        for (std::size_t opcode_index = 0U; opcode_index < opcodes.size(); ++opcode_index) {
+            render_command(commands, opcode_index, resource_cache);
+        }
+        pop_clip();
         return;
     }
 
@@ -3473,17 +3542,6 @@ void D3D11DisplayListRenderer::draw_ellipse(core::Rect rect, core::Color color) 
         return rendering::layout::Point{center.x + unit.x * point_radius_x,
                                         center.y + unit.y * point_radius_y};
     };
-
-
-void D3D11DisplayListRenderer::append_batch_vertices(std::span<const Vertex> vertices) {
-    if (vertices.empty()) {
-        return;
-    }
-
-    const auto offset = batch_vertices_.size();
-    batch_vertices_.resize(offset + vertices.size());
-    std::memcpy(batch_vertices_.data() + offset, vertices.data(), vertices.size_bytes());
-}
     for (auto index = 0U; index < segments; ++index) {
         const auto unit = unit_points[index];
         const auto next_unit = unit_points[(index + 1U) % unit_points.size()];
@@ -3496,6 +3554,16 @@ void D3D11DisplayListRenderer::append_batch_vertices(std::span<const Vertex> ver
                     transparent);
     }
     submit_vertices(vertices, nullptr);
+}
+
+void D3D11DisplayListRenderer::append_batch_vertices(std::span<const Vertex> vertices) {
+    if (vertices.empty()) {
+        return;
+    }
+
+    const auto offset = batch_vertices_.size();
+    batch_vertices_.resize(offset + vertices.size());
+    std::memcpy(batch_vertices_.data() + offset, vertices.data(), vertices.size_bytes());
 }
 
 void D3D11DisplayListRenderer::draw_stroke_ellipse(core::Rect rect, core::Color color,
