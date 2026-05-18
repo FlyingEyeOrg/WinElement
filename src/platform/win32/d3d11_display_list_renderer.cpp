@@ -2131,6 +2131,24 @@ struct D3D11DisplayListRenderer::RenderPlanCacheState {
         return cached.passes;
     }
 
+    void prune_unused(std::uint64_t frame_sequence, std::uint64_t max_idle_frames) {
+        const auto prune_entries =
+            [frame_sequence, max_idle_frames](auto& entries) {
+                entries.erase(std::remove_if(entries.begin(), entries.end(),
+                                             [frame_sequence, max_idle_frames](const auto& cached) {
+                                                 return frame_sequence > cached.last_used_frame &&
+                                                        frame_sequence - cached.last_used_frame >
+                                                            max_idle_frames;
+                                             }),
+                              entries.end());
+            };
+
+        prune_entries(frame_graphs);
+        prune_entries(visibility_tiles);
+        prune_entries(pass_metrics);
+        prune_entries(render_plans);
+    }
+
     static constexpr auto max_frame_graphs = 64U;
     static constexpr auto max_visibility_tiles = 128U;
     static constexpr auto max_pass_metrics = 64U;
@@ -2149,6 +2167,45 @@ D3D11DisplayListRenderer::D3D11DisplayListRenderer(ID3D11Device& device)
 }
 
 D3D11DisplayListRenderer::~D3D11DisplayListRenderer() = default;
+
+void D3D11DisplayListRenderer::prune_frame_caches_if_needed() {
+    if (frame_sequence_ < next_cache_prune_frame_) {
+        return;
+    }
+
+    next_cache_prune_frame_ = frame_sequence_ + 32U;
+
+    constexpr auto transformed_geometry_max_idle_frames = 180U;
+    transformed_geometry_fill_cache_.erase(
+        std::remove_if(transformed_geometry_fill_cache_.begin(),
+                       transformed_geometry_fill_cache_.end(),
+                       [this](const TransformedGeometryFill& cached) {
+                           return frame_sequence_ > cached.last_used_frame &&
+                                  frame_sequence_ - cached.last_used_frame >
+                                      transformed_geometry_max_idle_frames;
+                       }),
+        transformed_geometry_fill_cache_.end());
+
+    constexpr auto text_glyph_run_max_idle_frames = 180U;
+    text_glyph_run_cache_.erase(
+        std::remove_if(text_glyph_run_cache_.begin(), text_glyph_run_cache_.end(),
+                       [this](const CachedTextGlyphRun& cached) {
+                           const auto atlas_generation_changed =
+                               cached.generation != glyph_atlas_generation_ &&
+                               frame_sequence_ > cached.last_used_frame;
+                           const auto expired_by_idle_time =
+                               frame_sequence_ > cached.last_used_frame &&
+                               frame_sequence_ - cached.last_used_frame >
+                                   text_glyph_run_max_idle_frames;
+                           return atlas_generation_changed || expired_by_idle_time;
+                       }),
+        text_glyph_run_cache_.end());
+
+    constexpr auto render_plan_cache_max_idle_frames = 180U;
+    if (render_plan_cache_ != nullptr) {
+        render_plan_cache_->prune_unused(frame_sequence_, render_plan_cache_max_idle_frames);
+    }
+}
 
 std::size_t
 D3D11DisplayListRenderer::GlyphAtlasKeyHash::operator()(const GlyphAtlasKey& key) const noexcept {
@@ -2328,6 +2385,7 @@ void D3D11DisplayListRenderer::render(ID3D11DeviceContext& context, ID3D11Render
     }
 
     ++frame_sequence_;
+    prune_frame_caches_if_needed();
     render_to_context(*deferred_context_.Get(), target, clear_color, scene, dirty_region, dpi,
                       target_pixel_width, target_pixel_height, resource_cache, frame_graph);
 
@@ -2609,25 +2667,22 @@ void D3D11DisplayListRenderer::begin_frame(ID3D11DeviceContext& context,
     ID3D11Buffer* constant_buffer = constant_buffer_.Get();
     context.VSSetConstantBuffers(0, 1, &constant_buffer);
     context.PSSetConstantBuffers(0, 1, &constant_buffer);
-    context.OMSetBlendState(blend_state_.Get(), nullptr, 0xFFFFFFFFU);
-    context.OMSetDepthStencilState(stencil_disabled_state_.Get(), 0U);
+    bound_blend_state_ = nullptr;
+    bound_depth_stencil_state_ = nullptr;
+    bound_stencil_reference_ = 0U;
+    bound_shader_resource_ = nullptr;
+    bind_blend_state(blend_state_.Get());
+    bind_depth_stencil_state(stencil_disabled_state_.Get(), 0U);
 
     state_stack_.clear();
     state_stack_.push_back(
         DrawState{.clip = D3D11_RECT{0, 0, static_cast<LONG>(target_pixel_width_),
                                      static_cast<LONG>(target_pixel_height_)},
                   .kind = StateKind::Base});
-    constexpr auto transformed_geometry_max_idle_frames = 180U;
-    transformed_geometry_fill_cache_.erase(
-        std::remove_if(transformed_geometry_fill_cache_.begin(),
-                       transformed_geometry_fill_cache_.end(),
-                       [this](const TransformedGeometryFill& cached) {
-                           return frame_sequence_ > cached.last_used_frame &&
-                                  frame_sequence_ - cached.last_used_frame >
-                                      transformed_geometry_max_idle_frames;
-                       }),
-        transformed_geometry_fill_cache_.end());
     batch_vertices_.clear();
+    if (batch_vertices_.capacity() < max_vertices) {
+        batch_vertices_.reserve(max_vertices);
+    }
     batch_active_ = false;
     constant_buffer_state_valid_ = false;
     apply_current_scissor();
@@ -2635,10 +2690,9 @@ void D3D11DisplayListRenderer::begin_frame(ID3D11DeviceContext& context,
 
 void D3D11DisplayListRenderer::end_frame() {
     flush_batch();
-    ID3D11ShaderResourceView* null_view = nullptr;
     if (context_ != nullptr) {
-        context_->PSSetShaderResources(0, 1, &null_view);
-        context_->OMSetDepthStencilState(stencil_disabled_state_.Get(), 0U);
+        bind_shader_resource(nullptr);
+        bind_depth_stencil_state(stencil_disabled_state_.Get(), 0U);
     }
     state_stack_.clear();
     active_frame_graph_ = nullptr;
@@ -2696,11 +2750,42 @@ void D3D11DisplayListRenderer::clear_dirty_region(
     }
 
     flush_batch();
-    context_->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFFU);
-    context_->OMSetDepthStencilState(stencil_disabled_state_.Get(), 0U);
+    bind_blend_state(nullptr);
+    bind_depth_stencil_state(stencil_disabled_state_.Get(), 0U);
     draw_vertices_now(vertices, nullptr, TextureSamplingMode::None);
-    context_->OMSetBlendState(blend_state_.Get(), nullptr, 0xFFFFFFFFU);
-    context_->OMSetDepthStencilState(stencil_disabled_state_.Get(), 0U);
+    bind_blend_state(blend_state_.Get());
+    bind_depth_stencil_state(stencil_disabled_state_.Get(), 0U);
+}
+
+void D3D11DisplayListRenderer::bind_blend_state(ID3D11BlendState* blend_state) noexcept {
+    if (context_ == nullptr || bound_blend_state_ == blend_state) {
+        return;
+    }
+    context_->OMSetBlendState(blend_state, nullptr, 0xFFFFFFFFU);
+    bound_blend_state_ = blend_state;
+}
+
+void D3D11DisplayListRenderer::bind_depth_stencil_state(
+    ID3D11DepthStencilState* depth_stencil_state, std::uint8_t stencil_reference) noexcept {
+    if (context_ == nullptr) {
+        return;
+    }
+    if (bound_depth_stencil_state_ == depth_stencil_state &&
+        bound_stencil_reference_ == stencil_reference) {
+        return;
+    }
+    context_->OMSetDepthStencilState(depth_stencil_state, stencil_reference);
+    bound_depth_stencil_state_ = depth_stencil_state;
+    bound_stencil_reference_ = stencil_reference;
+}
+
+void D3D11DisplayListRenderer::bind_shader_resource(
+    ID3D11ShaderResourceView* texture_view) noexcept {
+    if (context_ == nullptr || bound_shader_resource_ == texture_view) {
+        return;
+    }
+    context_->PSSetShaderResources(0, 1, &texture_view);
+    bound_shader_resource_ = texture_view;
 }
 
 void D3D11DisplayListRenderer::render_node(const rendering::RenderNode& node,
@@ -2721,7 +2806,43 @@ void D3D11DisplayListRenderer::render_node(const rendering::RenderNode& node,
     auto active_dirty_clips = dirty_clips;
     auto force_descendant_commands = force_commands;
     if (!force_commands && node.kind == rendering::RenderNodeKind::Layer) {
-        if (dirty_clips.size() == 1U) {
+        if (rendering::is_identity_transform(node.transform)) {
+            if (!node.clips_to_bounds) {
+                active_dirty_clips = dirty_clips;
+            } else if (dirty_clips.size() == 1U) {
+                const auto cull_clip =
+                    rendering::layout::intersect_rects(dirty_clips.front().cull_clip, node.bounds);
+                if (!rendering::layout::is_visible_rect(cull_clip)) {
+                    return;
+                }
+                single_mapped_dirty_clip[0] = D3D11RenderDirtyClip{
+                    .device_clip = dirty_clips.front().device_clip, .cull_clip = cull_clip};
+                active_dirty_clips = std::span<const D3D11RenderDirtyClip>{
+                    single_mapped_dirty_clip.data(), single_mapped_dirty_clip.size()};
+            } else if (dirty_clips.size() <= stack_mapped_dirty_clips.size()) {
+                auto mapped_count = std::size_t{0U};
+                for (const auto dirty_clip : dirty_clips) {
+                    const auto cull_clip =
+                        rendering::layout::intersect_rects(dirty_clip.cull_clip, node.bounds);
+                    if (!rendering::layout::is_visible_rect(cull_clip)) {
+                        continue;
+                    }
+                    stack_mapped_dirty_clips[mapped_count++] = D3D11RenderDirtyClip{
+                        .device_clip = dirty_clip.device_clip, .cull_clip = cull_clip};
+                }
+                if (mapped_count == 0U) {
+                    return;
+                }
+                active_dirty_clips = std::span<const D3D11RenderDirtyClip>{
+                    stack_mapped_dirty_clips.data(), mapped_count};
+            } else {
+                mapped_dirty_clips = dirty_clips_for_clip_rect(dirty_clips, node.bounds);
+                if (mapped_dirty_clips.empty()) {
+                    return;
+                }
+                active_dirty_clips = mapped_dirty_clips;
+            }
+        } else if (dirty_clips.size() == 1U) {
             const auto inverse = inverse_transform(node.transform);
             if (!inverse.has_value()) {
                 force_descendant_commands = true;
@@ -3353,6 +3474,16 @@ void D3D11DisplayListRenderer::draw_ellipse(core::Rect rect, core::Color color) 
                                         center.y + unit.y * point_radius_y};
     };
 
+
+void D3D11DisplayListRenderer::append_batch_vertices(std::span<const Vertex> vertices) {
+    if (vertices.empty()) {
+        return;
+    }
+
+    const auto offset = batch_vertices_.size();
+    batch_vertices_.resize(offset + vertices.size());
+    std::memcpy(batch_vertices_.data() + offset, vertices.data(), vertices.size_bytes());
+}
     for (auto index = 0U; index < segments; ++index) {
         const auto unit = unit_points[index];
         const auto next_unit = unit_points[(index + 1U) % unit_points.size()];
@@ -4506,16 +4637,17 @@ void D3D11DisplayListRenderer::render_stencil_clip(
         return;
     }
 
-    context_->OMSetBlendState(stencil_mask_blend_state_.Get(), nullptr, 0xFFFFFFFFU);
-    context_->OMSetDepthStencilState(op == StencilUpdateOp::Increment
-                                         ? stencil_increment_state_.Get()
-                                         : stencil_decrement_state_.Get(),
-                                     reference);
+    bind_blend_state(stencil_mask_blend_state_.Get());
+    bind_depth_stencil_state(op == StencilUpdateOp::Increment
+                                 ? stencil_increment_state_.Get()
+                                 : stencil_decrement_state_.Get(),
+                             reference);
     draw_vertices_now(vertices, nullptr, TextureSamplingMode::None);
-    context_->OMSetBlendState(blend_state_.Get(), nullptr, 0xFFFFFFFFU);
+    bind_blend_state(blend_state_.Get());
     const auto draw_depth = state_stack_.empty() ? 0U : state_stack_.back().stencil_depth;
-    context_->OMSetDepthStencilState(
-        draw_depth > 0U ? stencil_test_state_.Get() : stencil_disabled_state_.Get(), draw_depth);
+    bind_depth_stencil_state(draw_depth > 0U ? stencil_test_state_.Get()
+                                             : stencil_disabled_state_.Get(),
+                             draw_depth);
 }
 
 D3D11DisplayListRenderer::GlyphBitmap D3D11DisplayListRenderer::rasterize_glyph_coverage(
@@ -5279,9 +5411,7 @@ void D3D11DisplayListRenderer::submit_vertices(std::span<const Vertex> vertices,
             flush_batch();
             continue;
         }
-        batch_vertices_.insert(batch_vertices_.end(),
-                               vertices.begin() + static_cast<std::ptrdiff_t>(first),
-                               vertices.begin() + static_cast<std::ptrdiff_t>(first + count));
+        append_batch_vertices(vertices.subspan(first, count));
         first += count;
         if (batch_vertices_.size() >= max_vertices) {
             flush_batch();
@@ -5297,8 +5427,8 @@ void D3D11DisplayListRenderer::flush_batch() {
     }
 
     const auto& pipeline = cached_pipeline_for(batch_texture_mode_, batch_stencil_depth_);
-    context_->OMSetBlendState(pipeline.blend_state, nullptr, 0xFFFFFFFFU);
-    context_->OMSetDepthStencilState(pipeline.depth_stencil_state, batch_stencil_depth_);
+    bind_blend_state(pipeline.blend_state);
+    bind_depth_stencil_state(pipeline.depth_stencil_state, batch_stencil_depth_);
     draw_vertices_now(batch_vertices_, batch_texture_, batch_texture_mode_);
     batch_vertices_.clear();
     batch_texture_ = nullptr;
@@ -5357,8 +5487,7 @@ void D3D11DisplayListRenderer::draw_vertices_now(std::span<const Vertex> vertice
         }
     }
 
-    ID3D11ShaderResourceView* texture_view = texture;
-    context_->PSSetShaderResources(0, 1, &texture_view);
+    bind_shader_resource(texture);
 
     for (std::size_t first = 0; first < vertices.size(); first += max_vertices) {
         const auto count = std::min<std::size_t>(max_vertices, vertices.size() - first);

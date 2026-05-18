@@ -237,6 +237,10 @@ class D3D11DisplayListRenderer final {
     void push_layer(const rendering::RenderLayerOptions& options);
     void pop_layer();
     void apply_current_scissor();
+    void bind_blend_state(ID3D11BlendState* blend_state) noexcept;
+    void bind_depth_stencil_state(ID3D11DepthStencilState* depth_stencil_state,
+                                  std::uint8_t stencil_reference) noexcept;
+    void bind_shader_resource(ID3D11ShaderResourceView* texture_view) noexcept;
     void draw_solid_rect(core::Rect rect, core::Color color);
     void draw_stroke_rect(core::Rect rect, core::Color color, float stroke_width);
     void draw_line(core::Point start, core::Point end, core::Color color, float stroke_width);
@@ -270,6 +274,7 @@ class D3D11DisplayListRenderer final {
     void draw_image(rendering::RenderResourceId resource_id,
                     const rendering::RenderImageOptions& options,
                     const D3D11RenderResourceCache& resource_cache);
+    void append_batch_vertices(std::span<const Vertex> vertices);
     void submit_vertices(std::span<const Vertex> vertices, ID3D11ShaderResourceView* texture,
                          TextureSamplingMode texture_mode = TextureSamplingMode::None);
     void flush_batch();
@@ -310,6 +315,7 @@ class D3D11DisplayListRenderer final {
                                 std::uint32_t height) noexcept;
     void clear_glyph_atlas_dirty() noexcept;
     void reset_glyph_atlas();
+    void prune_frame_caches_if_needed();
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
     Microsoft::WRL::ComPtr<ID3D11VertexShader> vertex_shader_;
@@ -348,7 +354,12 @@ class D3D11DisplayListRenderer final {
     TextureSamplingMode batch_texture_mode_ = TextureSamplingMode::None;
     std::uint8_t batch_stencil_depth_ = 0U;
     bool batch_active_ = false;
+    ID3D11BlendState* bound_blend_state_ = nullptr;
+    ID3D11DepthStencilState* bound_depth_stencil_state_ = nullptr;
+    std::uint8_t bound_stencil_reference_ = 0U;
+    ID3D11ShaderResourceView* bound_shader_resource_ = nullptr;
     std::uint64_t frame_sequence_ = 0U;
+    std::uint64_t next_cache_prune_frame_ = 32U;
     PrimitivePointCache primitive_point_cache_;
     std::vector<Vertex> primitive_vertices_;
     std::vector<TransformedGeometryFill> transformed_geometry_fill_cache_;
