@@ -51,6 +51,8 @@ constexpr std::string_view message_icon_outline_svg =
 constexpr std::string_view message_icon_flap_svg =
     "M904 224 656.512 506.88a192 192 0 0 1-289.024 0L120 224zm-698.944 0 210.56 "
     "240.704a128 128 0 0 0 192.704 0L818.944 224z";
+constexpr std::array<std::string_view, 2> message_svg = {message_icon_outline_svg,
+                                                         message_icon_flap_svg};
 constexpr std::array<std::string_view, 1> info_filled_svg = {
     "M512 64a448 448 0 1 1 0 896.064A448 448 0 0 1 512 64m67.2 275.072c33.28 0 60.288-23.104 "
     "60.288-57.344s-27.072-57.344-60.288-57.344c-33.28 0-60.16 23.104-60.16 57.344s26.88 "
@@ -240,12 +242,84 @@ struct MessageDemoPalette {
 };
 
 struct MessageDemoIconSpec {
-    std::string_view title;
-    std::string_view icon_name;
+    std::string_view label;
     std::span<const std::string_view> paths;
     MessageDemoPalette palette;
-    bool draw_close_button = true;
 };
+
+struct BoundsAccumulator {
+    float left = std::numeric_limits<float>::max();
+    float top = std::numeric_limits<float>::max();
+    float right = std::numeric_limits<float>::lowest();
+    float bottom = std::numeric_limits<float>::lowest();
+
+    void add(layout::Point point) noexcept {
+        left = std::min(left, point.x);
+        top = std::min(top, point.y);
+        right = std::max(right, point.x);
+        bottom = std::max(bottom, point.y);
+    }
+
+    [[nodiscard]] layout::Rect rect() const noexcept {
+        if (left > right || top > bottom) {
+            return {0.0F, 0.0F, 0.0F, 0.0F};
+        }
+        return {left, top, right - left, bottom - top};
+    }
+};
+
+[[nodiscard]] layout::Rect approximate_geometry_bounds(const rendering::Geometry& geometry) {
+    BoundsAccumulator bounds;
+    for (const auto& figure : geometry.figures) {
+        auto current = figure.start;
+        bounds.add(current);
+        for (const auto& segment : figure.segments) {
+            bounds.add(segment.point);
+            bounds.add(segment.control_point1);
+            bounds.add(segment.control_point2);
+            if (segment.type == rendering::GeometrySegmentType::Arc) {
+                bounds.add({current.x - segment.radius.width, current.y - segment.radius.height});
+                bounds.add({current.x + segment.radius.width, current.y + segment.radius.height});
+                bounds.add({segment.point.x - segment.radius.width,
+                            segment.point.y - segment.radius.height});
+                bounds.add({segment.point.x + segment.radius.width,
+                            segment.point.y + segment.radius.height});
+            }
+            current = segment.point;
+        }
+    }
+    return bounds.rect();
+}
+
+[[nodiscard]] layout::Rect union_rect(layout::Rect left, layout::Rect right) noexcept {
+    if (left.width <= 0.0F || left.height <= 0.0F) {
+        return right;
+    }
+    if (right.width <= 0.0F || right.height <= 0.0F) {
+        return left;
+    }
+    const auto union_left = std::min(left.x, right.x);
+    const auto union_top = std::min(left.y, right.y);
+    const auto union_right = std::max(left.x + left.width, right.x + right.width);
+    const auto union_bottom = std::max(left.y + left.height, right.y + right.height);
+    return {union_left, union_top, union_right - union_left, union_bottom - union_top};
+}
+
+[[nodiscard]] rendering::Geometry fit_geometry_to_rect(const rendering::Geometry& geometry,
+                                                       layout::Rect source_bounds,
+                                                       layout::Rect target_rect) {
+    if (source_bounds.width <= 0.0F || source_bounds.height <= 0.0F ||
+        target_rect.width <= 0.0F || target_rect.height <= 0.0F) {
+        return geometry;
+    }
+    const auto scale =
+        std::min(target_rect.width / source_bounds.width, target_rect.height / source_bounds.height);
+    const auto offset_x = target_rect.x + (target_rect.width - source_bounds.width * scale) * 0.5F -
+                          source_bounds.x * scale;
+    const auto offset_y = target_rect.y + (target_rect.height - source_bounds.height * scale) * 0.5F -
+                          source_bounds.y * scale;
+    return transform_geometry(geometry, scale, {offset_x, offset_y});
+}
 
 void draw_svg_icon(rendering::RenderCommandRecorder& recorder,
                    std::span<const std::string_view> paths, core::Point offset, float size,
@@ -256,26 +330,54 @@ void draw_svg_icon(rendering::RenderCommandRecorder& recorder,
     }
 }
 
-void draw_message_demo_tile(rendering::RenderCommandRecorder& recorder, layout::Rect rect,
-                            const MessageDemoIconSpec& spec) {
-    recorder.fill_rounded_rect(rect, core::CornerRadius::uniform(18.0F), spec.palette.background);
-    recorder.stroke_rounded_rect(rect, core::CornerRadius::uniform(18.0F), spec.palette.border, 1.0F);
-    draw_svg_icon(recorder, spec.paths, {rect.x + 16.0F, rect.y + 18.0F}, 24.0F, spec.palette.accent);
-    recorder.draw_text(std::string(spec.title), {rect.x + 52.0F, rect.y + 14.0F, rect.width - 116.0F, 24.0F},
+void draw_svg_icon_in_box(rendering::RenderCommandRecorder& recorder,
+                          std::span<const std::string_view> paths, layout::Rect rect,
+                          rendering::Color color, float content_scale = 1.0F) {
+    const auto inset_x = (rect.width * (1.0F - content_scale)) * 0.5F;
+    const auto inset_y = (rect.height * (1.0F - content_scale)) * 0.5F;
+    const auto target_rect = layout::Rect{rect.x + inset_x, rect.y + inset_y,
+                                          rect.width - inset_x * 2.0F, rect.height - inset_y * 2.0F};
+    std::vector<rendering::Geometry> geometries;
+    geometries.reserve(paths.size());
+    auto combined_bounds = layout::Rect{0.0F, 0.0F, 0.0F, 0.0F};
+    for (const auto path : paths) {
+        auto geometry = rendering::parse_svg_path(path);
+        combined_bounds = union_rect(combined_bounds, approximate_geometry_bounds(geometry));
+        geometries.push_back(std::move(geometry));
+    }
+    for (const auto& geometry : geometries) {
+        recorder.fill_geometry(fit_geometry_to_rect(geometry, combined_bounds, target_rect), color);
+    }
+}
+
+void draw_svg_probe_tile(rendering::RenderCommandRecorder& recorder, layout::Rect rect,
+                         const MessageDemoIconSpec& spec) {
+    recorder.fill_rounded_rect(rect, core::CornerRadius::uniform(14.0F), spec.palette.background);
+    recorder.stroke_rounded_rect(rect, core::CornerRadius::uniform(14.0F), spec.palette.border, 1.0F);
+    recorder.draw_text(std::string(spec.label), {rect.x + 16.0F, rect.y + 12.0F, rect.width - 32.0F, 20.0F},
                        rendering::TextStyle{.font_family = "Segoe UI Semibold",
                                             .locale = "en-us",
-                                            .font_size = 16.0F,
+                                            .font_size = 15.0F,
                                             .color = spec.palette.text});
-    recorder.draw_text(std::string(spec.icon_name), {rect.x + 52.0F, rect.y + 40.0F, rect.width - 116.0F, 22.0F},
-                       rendering::TextStyle{.font_family = "Segoe UI",
-                                            .locale = "en-us",
-                                            .font_size = 13.0F,
-                                            .color = spec.palette.text});
-    if (spec.draw_close_button) {
-        recorder.fill_rounded_rect({rect.x + rect.width - 38.0F, rect.y + 14.0F, 22.0F, 22.0F},
-                                   core::CornerRadius::uniform(11.0F), rendering::Color::rgba(255, 255, 255, 176));
-        draw_svg_icon(recorder, close_svg, {rect.x + rect.width - 34.0F, rect.y + 18.0F}, 14.0F,
-                      rendering::Color::rgba(144, 147, 153));
+    constexpr std::array<float, 4> probe_sizes = {16.0F, 20.0F, 24.0F, 32.0F};
+    constexpr float cell_size = 40.0F;
+    constexpr float cell_gap = 12.0F;
+    for (std::size_t index = 0; index < probe_sizes.size(); ++index) {
+        const auto cell_x = rect.x + 16.0F + static_cast<float>(index) * (cell_size + cell_gap);
+        const auto cell_rect = layout::Rect{cell_x, rect.y + 42.0F, cell_size, cell_size};
+        recorder.fill_rounded_rect(cell_rect, core::CornerRadius::uniform(10.0F),
+                                   rendering::Color::rgba(255, 255, 255, 232));
+        recorder.stroke_rounded_rect(cell_rect, core::CornerRadius::uniform(10.0F),
+                                     rendering::Color::rgba(223, 228, 236), 1.0F);
+        draw_svg_icon_in_box(recorder, spec.paths, cell_rect, spec.palette.accent,
+                             probe_sizes[index] <= 20.0F ? 0.875F : 0.92F);
+        recorder.draw_text(std::to_string(static_cast<int>(probe_sizes[index])) + "px",
+                           {cell_x, rect.y + 84.0F, cell_size, 16.0F},
+                           rendering::TextStyle{.font_family = "Segoe UI",
+                                                .locale = "en-us",
+                                                .font_size = 11.0F,
+                                                .color = rendering::Color::rgba(118, 128, 145),
+                                                .alignment = rendering::TextAlignment::Center});
     }
 }
 
@@ -683,7 +785,7 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
     const auto geometry_panel = layout::Rect{page_margin, primitives_panel.y + primitives_panel.height + panel_gap,
                                              panel_width, 760.0F};
     draw_panel(recorder, geometry_panel, "Geometry Stress: WinMochi Message Icons",
-               "large envelope geometry on the left, and the full Message notification icon set and close glyph on the right");
+               "large envelope geometry on the left, plus a pure SVG probe board on the right for small-icon fidelity and edge quality checks");
     const auto feature_geometry = make_feature_geometry(geometry_panel.x + 56.0F, geometry_panel.y + 128.0F);
     rendering::GeometryStrokeStyle geometry_style;
     geometry_style.width = 5.0F;
@@ -721,6 +823,10 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
                                                       .source = {0.0F, 0.0F, 160.0F, 160.0F},
                                                       .opacity = 0.94F});
     recorder.pop_geometry_clip();
+    recorder.stroke_ellipse({geometry_panel.x + 316.0F, geometry_panel.y + 128.0F, 140.0F, 140.0F},
+                            rendering::Color::rgba(255, 255, 255, 220), 2.0F);
+    recorder.stroke_ellipse({geometry_panel.x + 316.5F, geometry_panel.y + 128.5F, 139.0F, 139.0F},
+                            rendering::Color::rgba(191, 204, 224, 150), 1.0F);
 
     recorder.draw_text("Message icon outline + flap", {geometry_panel.x + 56.0F, geometry_panel.y + 374.0F,
                                                         280.0F, 24.0F},
@@ -741,55 +847,54 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
                                                             .dash_style = rendering::StrokeDashStyle::Solid});
     recorder.fill_geometry(message_flap_large, rendering::Color::rgba(97, 156, 236, 170));
 
-    recorder.draw_text("Message component status icon set", {geometry_panel.x + 492.0F, geometry_panel.y + 374.0F,
-                                                              320.0F, 24.0F},
+    recorder.draw_text("Message SVG probe board", {geometry_panel.x + 492.0F, geometry_panel.y + 374.0F,
+                                                    320.0F, 24.0F},
                        rendering::TextStyle{.font_family = "Segoe UI Semibold",
                                             .locale = "en-us",
                                             .font_size = 18.0F,
                                             .color = rendering::Color::rgba(68, 80, 101)});
-    recorder.draw_text("WinMochi MessageType states: Primary, Success, Warning, Info, Error, plus Close.",
+    recorder.draw_text("pure SVG rendering only: icon geometry, fit and small-size detail probes at 16/20/24/32 px.",
                        {geometry_panel.x + 492.0F, geometry_panel.y + 402.0F, 560.0F, 22.0F},
                        rendering::TextStyle{.font_family = "Segoe UI",
                                             .locale = "en-us",
                                             .font_size = 14.0F,
                                             .color = rendering::Color::rgba(111, 122, 140)});
     const std::array<MessageDemoIconSpec, 6> message_icon_specs = {{
-        {.title = "Primary", .icon_name = "InfoFilled + Close", .paths = info_filled_svg,
+        {.label = "InfoFilled", .paths = info_filled_svg,
          .palette = {.accent = rendering::Color::rgba(64, 158, 255),
                      .background = rendering::Color::rgba(236, 245, 255),
                      .border = rendering::Color::rgba(179, 216, 255),
-                     .text = rendering::Color::rgba(64, 158, 255)}},
-        {.title = "Success", .icon_name = "SuccessFilled + Close", .paths = success_filled_svg,
+                     .text = rendering::Color::rgba(64, 158, 255)}} ,
+        {.label = "SuccessFilled", .paths = success_filled_svg,
          .palette = {.accent = rendering::Color::rgba(103, 194, 58),
                      .background = rendering::Color::rgba(240, 249, 235),
                      .border = rendering::Color::rgba(225, 243, 216),
                      .text = rendering::Color::rgba(82, 155, 46)}},
-        {.title = "Warning", .icon_name = "WarningFilled + Close", .paths = warning_filled_svg,
+        {.label = "WarningFilled", .paths = warning_filled_svg,
          .palette = {.accent = rendering::Color::rgba(230, 162, 60),
                      .background = rendering::Color::rgba(253, 246, 236),
                      .border = rendering::Color::rgba(250, 236, 216),
                      .text = rendering::Color::rgba(179, 119, 27)}},
-        {.title = "Info", .icon_name = "InfoFilled + Close", .paths = info_filled_svg,
-         .palette = {.accent = rendering::Color::rgba(144, 147, 153),
-                     .background = rendering::Color::rgba(244, 244, 245),
-                     .border = rendering::Color::rgba(233, 233, 235),
-                     .text = rendering::Color::rgba(96, 98, 102)}},
-        {.title = "Error", .icon_name = "CircleCloseFilled + Close", .paths = circle_close_filled_svg,
+        {.label = "CircleCloseFilled", .paths = circle_close_filled_svg,
          .palette = {.accent = rendering::Color::rgba(245, 108, 108),
                      .background = rendering::Color::rgba(254, 240, 240),
                      .border = rendering::Color::rgba(253, 226, 226),
                      .text = rendering::Color::rgba(196, 86, 86)}},
-        {.title = "Close", .icon_name = "Close glyph", .paths = close_svg,
+        {.label = "Close glyph", .paths = close_svg,
          .palette = {.accent = rendering::Color::rgba(144, 147, 153),
                      .background = rendering::Color::rgba(247, 248, 250),
                      .border = rendering::Color::rgba(228, 231, 237),
-                     .text = rendering::Color::rgba(96, 98, 102)},
-         .draw_close_button = false},
+                     .text = rendering::Color::rgba(96, 98, 102)}},
+        {.label = "Message envelope", .paths = message_svg,
+         .palette = {.accent = rendering::Color::rgba(121, 134, 203),
+                     .background = rendering::Color::rgba(243, 245, 255),
+                     .border = rendering::Color::rgba(223, 227, 252),
+                     .text = rendering::Color::rgba(77, 89, 156)}},
     }};
     constexpr float message_tile_width = 300.0F;
-    constexpr float message_tile_height = 84.0F;
+    constexpr float message_tile_height = 100.0F;
     constexpr float message_tile_gap_x = 18.0F;
-    constexpr float message_tile_gap_y = 14.0F;
+    constexpr float message_tile_gap_y = 12.0F;
     for (std::size_t index = 0; index < message_icon_specs.size(); ++index) {
         const auto column = static_cast<float>(index % 2U);
         const auto row = static_cast<float>(index / 2U);
@@ -797,7 +902,7 @@ void fill_selection_rects(rendering::RenderCommandRecorder& recorder,
                                        geometry_panel.y + 432.0F + row * (message_tile_height + message_tile_gap_y),
                                        message_tile_width,
                                        message_tile_height};
-        draw_message_demo_tile(recorder, tile, message_icon_specs[index]);
+        draw_svg_probe_tile(recorder, tile, message_icon_specs[index]);
     }
 
     const auto text_panel = layout::Rect{page_margin, geometry_panel.y + geometry_panel.height + panel_gap,
