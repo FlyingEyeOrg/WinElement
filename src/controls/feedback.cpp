@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -172,8 +173,8 @@ void apply_entry_animation(elements::UIElement& element, float progress, float y
                                                        estimated_chars_per_line),
                                              1.0F, 8.0F);
     const auto body_height = std::max(22.0F, line_count * 22.0F);
-    const auto height = dialog_padding * 2.0F + dialog_header_height + 16.0F + body_height +
-                        16.0F + 32.0F;
+    const auto height =
+        dialog_padding * 2.0F + dialog_header_height + 16.0F + body_height + 16.0F + 32.0F;
     return std::min(std::max(std::ceil(height), 128.0F), std::max(viewport.height - 48.0F, 128.0F));
 }
 
@@ -252,6 +253,17 @@ template <typename ControlType>
         }
     }
     return nullptr;
+}
+
+template <typename ControlType>
+[[nodiscard]] std::size_t top_layer_count_of(elements::UIElement& host) {
+    auto count = std::size_t{};
+    for (auto index = std::size_t{}; index < host.top_layer_count(); ++index) {
+        if (dynamic_cast<ControlType*>(&host.top_layer_at(index)) != nullptr) {
+            ++count;
+        }
+    }
+    return count;
 }
 
 void configure_footer_button(Button& button, std::string_view text, ButtonType type,
@@ -448,24 +460,17 @@ Message& Message::show(elements::UIElement& host, MessageOptions options) {
     const auto width =
         std::min(std::max(options.width, 240.0F), std::max(viewport.width - 32.0F, 240.0F));
     const auto size = layout::Size{width, 40.0F};
+    const auto stack_index = static_cast<float>(top_layer_count_of<Message>(host));
     const auto bounds = layout::Rect{viewport.x + std::max((viewport.width - width) * 0.5F, 0.0F),
-                                     viewport.y + std::max(options.top, 0.0F), width, size.height};
-    if (auto* existing = find_top_layer<Message>(host)) {
-        existing->set_text(options.text)
-            .set_type(options.type)
-            .set_show_close(options.show_close)
-            .set_on_close(std::move(options.on_close));
-        set_fixed_size(*existing, size);
-        host.set_top_layer_bounds(*existing, bounds).bring_top_layer_to_front(*existing);
-        existing->restart_open_animation();
-        return *existing;
-    }
+                                     viewport.y + std::max(options.top, 0.0F) + stack_index * 56.0F,
+                                     width, size.height};
 
     auto message = std::make_unique<Message>();
     message->set_text(options.text)
         .set_type(options.type)
         .set_show_close(options.show_close)
         .set_on_close(std::move(options.on_close));
+    message->set_duration(options.duration_ms);
     set_fixed_size(*message, size);
     auto& message_ref = *message;
     auto top_layer_options = elements::TopLayerOptions{};
@@ -493,7 +498,11 @@ bool Message::on_animation_frame(animation::AnimationTimePoint now) {
     if (active) {
         apply_open_animation();
     }
-    return active;
+    if (duration_ms_ > 0 && now - opened_at_ >= std::chrono::milliseconds{duration_ms_}) {
+        close();
+        return false;
+    }
+    return active || duration_ms_ > 0;
 }
 
 void Message::apply_visual_state() {
@@ -514,6 +523,7 @@ void Message::apply_visual_state() {
 }
 
 void Message::restart_open_animation() noexcept {
+    opened_at_ = animation::AnimationClockType::now();
     open_progress_.set(0.86F);
     apply_open_animation();
     open_progress_.animate_to(1.0F, animation::AnimationDuration{0.18F});
@@ -521,6 +531,10 @@ void Message::restart_open_animation() noexcept {
 
 void Message::apply_open_animation() noexcept {
     apply_entry_animation(*this, open_progress_.value(), -16.0F);
+}
+
+void Message::set_duration(int duration_ms) noexcept {
+    duration_ms_ = std::max(duration_ms, 0);
 }
 
 void Message::close() {
@@ -570,9 +584,7 @@ MessageBox::MessageBox() : Control() {
 
     auto& body = append_new_child<StackPanel>();
     body.configure_layout([](layout::LayoutElement& item) {
-        item.set_width(layout::Length::percent(100.0F))
-            .set_flex_grow(0.0F)
-            .set_flex_shrink(1.0F);
+        item.set_width(layout::Length::percent(100.0F)).set_flex_grow(1.0F).set_flex_shrink(1.0F);
     });
 
     auto& content = body.append_new_child<StackPanel>();
@@ -892,10 +904,11 @@ MessageBox& MessageBox::show(elements::UIElement& host, MessageBoxOptions option
     auto& box_ref = *box;
     auto top_layer_options = elements::TopLayerOptions{};
     top_layer_options.bounds = centered_bounds(viewport, size);
-    top_layer_options.light_dismiss = true;
-    top_layer_options.close_on_escape = true;
-    top_layer_options.modal = true;
-    top_layer_options.backdrop_color = rendering::Color::rgba(0, 0, 0, 80);
+    top_layer_options.light_dismiss = options.close_on_click_modal;
+    top_layer_options.close_on_escape = options.close_on_press_escape;
+    top_layer_options.modal = options.modal;
+    top_layer_options.backdrop_color =
+        options.modal ? rendering::Color::rgba(0, 0, 0, 80) : transparent;
     host.push_top_layer(std::move(box), std::move(top_layer_options));
     return box_ref;
 }
@@ -1147,7 +1160,7 @@ Loading::Loading() : Control() {
     spinner_ = &spinner;
 
     auto& label = append_new_child<Text>();
-    label.set_font_size(14.0F).set_color(rendering::Color::rgba(96, 98, 102));
+    label.set_font_size(14.0F).set_color(spinner_color_);
     label.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F)).set_flex_shrink(0.0F);
     });
@@ -1213,6 +1226,9 @@ Loading& Loading::set_spinner_color(rendering::Color color) noexcept {
     if (spinner_ != nullptr) {
         spinner_->set_spinner_color(color);
     }
+    if (text_label_ != nullptr) {
+        text_label_->set_color(color);
+    }
     return *this;
 }
 
@@ -1240,9 +1256,9 @@ bool Loading::show_close() const noexcept {
 
 Loading& Loading::show(elements::UIElement& host, LoadingOptions options) {
     const auto viewport = viewport_for(host);
-    const auto size = options.fullscreen ? layout::Size{viewport.width, viewport.height}
-                                         : layout::Size{220.0F, 140.0F};
-    const auto bounds = options.fullscreen ? viewport : centered_bounds(viewport, size);
+    const auto size = layout::Size{viewport.width, viewport.height};
+    const auto bounds = layout::Rect{std::numeric_limits<float>::quiet_NaN(),
+                                     std::numeric_limits<float>::quiet_NaN(), 0.0F, 0.0F};
     const auto show_close = false;
     if (auto* existing = find_top_layer<Loading>(host)) {
         existing->set_text(options.text)
@@ -1517,11 +1533,11 @@ Dialog& Dialog::show(elements::UIElement& host, DialogOptions options) {
     auto& dialog_ref = *dialog;
     auto top_layer_options = elements::TopLayerOptions{};
     top_layer_options.bounds = bounds;
-    top_layer_options.light_dismiss = true;
-    top_layer_options.close_on_escape = true;
+    top_layer_options.light_dismiss = options.close_on_click_modal;
+    top_layer_options.close_on_escape = options.close_on_press_escape;
     top_layer_options.modal = options.modal;
     top_layer_options.backdrop_color =
-        options.modal ? rendering::Color::rgba(0, 0, 0, 80) : rendering::Color::rgba(0, 0, 0, 0);
+        options.modal ? rendering::Color::rgba(0, 0, 0, 80) : transparent;
     host.push_top_layer(std::move(dialog), std::move(top_layer_options));
     return dialog_ref;
 }

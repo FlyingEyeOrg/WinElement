@@ -44,13 +44,6 @@ std::uint64_t next_local_theme_generation() noexcept {
 [[nodiscard]] layout::Rect
 effective_top_layer_bounds(layout::Rect bounds, layout::Rect host_frame,
                            const layout::LayoutConstraints& root_constraints) noexcept {
-    if (!std::isfinite(bounds.x)) {
-        bounds.x = host_frame.x;
-    }
-    if (!std::isfinite(bounds.y)) {
-        bounds.y = host_frame.y;
-    }
-
     const auto fallback_width = root_constraints.width.value_or(host_frame.width);
     const auto fallback_height = root_constraints.height.value_or(host_frame.height);
     bounds.width = std::isfinite(bounds.width) && bounds.width > 0.0F
@@ -59,6 +52,12 @@ effective_top_layer_bounds(layout::Rect bounds, layout::Rect host_frame,
     bounds.height = std::isfinite(bounds.height) && bounds.height > 0.0F
                         ? bounds.height
                         : std::max(fallback_height, 0.0F);
+    if (!std::isfinite(bounds.x)) {
+        bounds.x = host_frame.x + (std::max(fallback_width, 0.0F) - bounds.width) * 0.5F;
+    }
+    if (!std::isfinite(bounds.y)) {
+        bounds.y = host_frame.y + (std::max(fallback_height, 0.0F) - bounds.height) * 0.5F;
+    }
     return bounds;
 }
 
@@ -966,7 +965,8 @@ void UIElement::dismiss_own_top_layer() {
             return;
         }
         static_cast<void>(host.mark_top_layer_entry_pending_removal(entry.id));
-        if (host.event_router_ == nullptr || !host.event_router_->dispatch_active()) {
+        if (host.animation_tick_depth_ == 0U &&
+            (host.event_router_ == nullptr || !host.event_router_->dispatch_active())) {
             host.flush_pending_top_layer_removals();
         }
         return;
@@ -983,7 +983,8 @@ void UIElement::dismiss_topmost_on_escape() {
     }
     static_cast<void>(
         host.mark_top_layer_entry_pending_removal(host.top_layer_manager_.entries()[*index].id));
-    if (host.event_router_ == nullptr || !host.event_router_->dispatch_active()) {
+    if (host.animation_tick_depth_ == 0U &&
+        (host.event_router_ == nullptr || !host.event_router_->dispatch_active())) {
         host.flush_pending_top_layer_removals();
     }
 }
@@ -1209,7 +1210,22 @@ UIElement& UIElement::clear_property(const core::PropertyMetadata& metadata) {
 
 bool UIElement::tick_animations(animation::AnimationTimePoint now) {
     verify_thread_access();
-    return tick_animations_subtree(now);
+    auto& host = top_layer_host();
+    ++host.animation_tick_depth_;
+    try {
+        const auto active = tick_animations_subtree(now);
+        --host.animation_tick_depth_;
+        if (host.animation_tick_depth_ == 0U) {
+            host.flush_pending_top_layer_removals();
+        }
+        return active;
+    } catch (...) {
+        --host.animation_tick_depth_;
+        if (host.animation_tick_depth_ == 0U) {
+            host.flush_pending_top_layer_removals();
+        }
+        throw;
+    }
 }
 
 bool UIElement::has_running_animations() const noexcept {
@@ -2805,10 +2821,10 @@ void UIElement::offset_top_layer_entries_for_logical_owner_delta(
     root_constraints.height = host.committed_absolute_frame_.height;
 
     for (auto& entry : host.top_layer_manager_.entries()) {
-        if (entry.pending_removal || entry.element == nullptr || entry.options.logical_owner != this ||
-            entry.element.get() == this || entry.options.bounds.width <= 0.0F ||
-            entry.options.bounds.height <= 0.0F || !std::isfinite(entry.options.bounds.x) ||
-            !std::isfinite(entry.options.bounds.y)) {
+        if (entry.pending_removal || entry.element == nullptr ||
+            entry.options.logical_owner != this || entry.element.get() == this ||
+            entry.options.bounds.width <= 0.0F || entry.options.bounds.height <= 0.0F ||
+            !std::isfinite(entry.options.bounds.x) || !std::isfinite(entry.options.bounds.y)) {
             continue;
         }
 
@@ -3592,17 +3608,15 @@ layout::Rect UIElement::visible_subtree_bounds() const noexcept {
         if (shadow_visible()) {
             const auto shadow_style = shadow();
             bounds = layout::union_rects(
-                bounds,
-                layout::inflate_rect(
-                    layout::offset_rect(committed_absolute_frame_, shadow_style.offset),
-                    std::max(shadow_style.spread, 0.0F) +
-                        std::max(shadow_style.blur_radius, 0.0F)));
+                bounds, layout::inflate_rect(
+                            layout::offset_rect(committed_absolute_frame_, shadow_style.offset),
+                            std::max(shadow_style.spread, 0.0F) +
+                                std::max(shadow_style.blur_radius, 0.0F)));
         }
         if (has_render_layer()) {
             bounds = layout::union_rects(
-                bounds,
-                rendering::transform_rect(committed_absolute_frame_,
-                                          render_layer_options().transform));
+                bounds, rendering::transform_rect(committed_absolute_frame_,
+                                                  render_layer_options().transform));
         }
 
         for (const auto& child : children_) {

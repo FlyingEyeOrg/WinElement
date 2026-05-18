@@ -23,6 +23,7 @@ struct MessageOptions {
     std::string text;
     MessageType type = MessageType::Info;
     bool show_close = false;
+    int duration_ms = 3000;
     float width = 360.0F;
     float top = 20.0F;
     std::function<void()> on_close;
@@ -54,6 +55,7 @@ class Message final : public Control {
     void apply_visual_state();
     void restart_open_animation() noexcept;
     void apply_open_animation() noexcept;
+    void set_duration(int duration_ms) noexcept;
     void close();
 
     elements::UIElement* surface_ = nullptr;
@@ -64,6 +66,8 @@ class Message final : public Control {
     std::string text_;
     MessageType type_ = MessageType::Info;
     bool show_close_ = false;
+    int duration_ms_ = 3000;
+    animation::AnimationTimePoint opened_at_{};
     AnimatedFloat open_progress_{0.86F};
 };
 
@@ -88,6 +92,9 @@ struct MessageBoxOptions {
     bool center = false;
     bool distinguish_cancel_and_close = false;
     bool draggable = true;
+    bool modal = true;
+    bool close_on_click_modal = true;
+    bool close_on_press_escape = true;
     float width = 420.0F;
     MessageBoxContentBuilder content_builder;
     std::string input_error_message = "Invalid input";
@@ -240,6 +247,8 @@ struct DialogOptions {
     bool show_close = true;
     bool show_cancel_button = true;
     bool modal = true;
+    bool close_on_click_modal = true;
+    bool close_on_press_escape = true;
     bool fullscreen = false;
     bool draggable = true;
     float width = 520.0F;

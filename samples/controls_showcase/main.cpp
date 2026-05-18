@@ -41,6 +41,40 @@ constexpr auto canvas_height = 4200.0F;
     return rendering::Transform2D{.m11 = 1.0F, .m21 = x_shear, .m22 = 1.0F};
 }
 
+enum class MotionDemoKind { Translate, Scale, Rotate, Skew };
+
+class MotionDemoPanel final : public controls::Panel {
+  public:
+    MotionDemoPanel& set_motion_kind(MotionDemoKind kind) noexcept {
+        kind_ = kind;
+        return *this;
+    }
+
+  protected:
+    bool on_animation_frame(animation::AnimationTimePoint now) override {
+        const auto seconds = std::chrono::duration<float>(now.time_since_epoch()).count();
+        const auto phase = std::sin(seconds * 2.4F);
+        switch (kind_) {
+        case MotionDemoKind::Translate:
+            set_render_transform(rendering::Transform2D::translation(phase * 16.0F, phase * 4.0F));
+            break;
+        case MotionDemoKind::Scale:
+            set_render_transform(scale_transform(1.0F + (phase + 1.0F) * 0.035F));
+            break;
+        case MotionDemoKind::Rotate:
+            set_render_transform(rotate_transform(phase * 5.0F));
+            break;
+        case MotionDemoKind::Skew:
+            set_render_transform(skew_transform(phase * 0.12F));
+            break;
+        }
+        return true;
+    }
+
+  private:
+    MotionDemoKind kind_ = MotionDemoKind::Translate;
+};
+
 void configure_card(elements::UIElement& element, float width = 320.0F) {
     element.configure_layout([width](layout::LayoutElement& item) {
         item.set_width(layout::Length::points(width))
@@ -403,7 +437,8 @@ void add_choice_scroll_section(controls::StackPanel& root) {
     auto& vertical_content = vertical_viewport.append_new_child<controls::StackPanel>();
     vertical_content.set_gap(6.0F);
     vertical_content.configure_layout([](layout::LayoutElement& item) {
-        item.set_width(layout::Length::points(310.0F)).set_flex_shrink(0.0F);
+        item.set_size(layout::Length::points(310.0F), layout::Length::points(450.0F))
+            .set_flex_shrink(0.0F);
     });
     for (auto index = 1; index <= 12; ++index) {
         auto& item = vertical_content.append_new_child<controls::Border>();
@@ -422,7 +457,7 @@ void add_choice_scroll_section(controls::StackPanel& root) {
     auto& vertical = vertical_line.append_new_child<controls::Scrollbar>();
     vertical.set_orientation(controls::ScrollbarOrientation::Vertical)
         .set_visibility_mode(controls::ScrollbarVisibility::Always)
-        .set_range(0.0F, 384.0F, 156.0F)
+        .set_range(0.0F, 302.0F, 156.0F)
         .set_value(96.0F)
         .set_on_scroll([&vertical_viewport](float value) {
             vertical_viewport.set_scroll_offset(layout::Point{0.0F, value});
@@ -475,7 +510,7 @@ void add_choice_scroll_section(controls::StackPanel& root) {
     auto& horizontal = horizontal_group.append_new_child<controls::Scrollbar>();
     horizontal.set_orientation(controls::ScrollbarOrientation::Horizontal)
         .set_visibility_mode(controls::ScrollbarVisibility::Always)
-        .set_range(0.0F, 860.0F, 540.0F)
+        .set_range(0.0F, 328.0F, 540.0F)
         .set_value(180.0F)
         .set_on_scroll([&horizontal_viewport](float value) {
             horizontal_viewport.set_scroll_offset(layout::Point{value, 0.0F});
@@ -569,9 +604,15 @@ void add_feedback_section(controls::StackPanel& root) {
         button.set_on_click([&root, type, label]() {
             controls::Message::show(root, controls::MessageOptions{.text = label + " message",
                                                                    .type = type,
-                                                                   .show_close = true});
+                                                                   .duration_ms = 3000});
         });
     }
+    add_button(message_row, "Manual close", controls::ButtonType::Info).set_on_click([&root]() {
+        controls::Message::show(root, controls::MessageOptions{.text = "Manual close message",
+                                                               .type = controls::MessageType::Info,
+                                                               .show_close = true,
+                                                               .duration_ms = 0});
+    });
 
     auto& message_boxes = add_demo_group(section, "MessageBox");
     auto& box_row = message_boxes.append_new_child<controls::StackPanel>();
@@ -583,7 +624,9 @@ void add_feedback_section(controls::StackPanel& root) {
                                         .message = "Simple notification with one primary action.",
                                         .kind = controls::MessageBoxKind::Alert,
                                         .type = controls::MessageType::Info,
-                                        .show_cancel_button = false});
+                                        .show_cancel_button = false,
+                                        .close_on_click_modal = false,
+                                        .close_on_press_escape = false});
     });
     add_button(box_row, "Confirm", controls::ButtonType::Warning).set_on_click([&root]() {
         controls::MessageBox::show(
@@ -594,6 +637,7 @@ void add_feedback_section(controls::StackPanel& root) {
                       .type = controls::MessageType::Warning,
                       .distinguish_cancel_and_close = true,
                       .draggable = true,
+                      .modal = true,
                       .on_action = [&root](controls::MessageBoxAction action, std::string value) {
                           static_cast<void>(value);
                           controls::Message::show(
@@ -637,6 +681,17 @@ void add_feedback_section(controls::StackPanel& root) {
                                             .show_close = true});
                           }});
     });
+    add_button(box_row, "Non-modal", controls::ButtonType::Default).set_on_click([&root]() {
+        controls::MessageBox::show(
+            root,
+            controls::MessageBoxOptions{.title = "Non-modal MessageBox",
+                                        .message = "No backdrop mask; the page remains visible.",
+                                        .kind = controls::MessageBoxKind::Confirm,
+                                        .type = controls::MessageType::Primary,
+                                        .draggable = true,
+                                        .modal = false,
+                                        .close_on_click_modal = false});
+    });
 
     auto& dialogs = add_demo_group(section, "Dialog");
     auto& dialog_row = dialogs.append_new_child<controls::StackPanel>();
@@ -647,6 +702,7 @@ void add_feedback_section(controls::StackPanel& root) {
                       .title = "Dialog",
                       .body = "Modal surface with header, body, footer, close and confirm actions.",
                       .show_cancel_button = true,
+                      .modal = true,
                       .draggable = true,
                       .on_action = [&root](controls::DialogAction action) {
                           controls::Message::show(
@@ -665,14 +721,29 @@ void add_feedback_section(controls::StackPanel& root) {
                                     .draggable = false,
                                     .width = 420.0F});
     });
+    add_button(dialog_row, "Non-modal dialog", controls::ButtonType::Info).set_on_click([&root]() {
+        controls::Dialog::show(
+            root, controls::DialogOptions{.title = "Non-modal dialog",
+                                          .body = "Element Plus style dialog without modal mask.",
+                                          .show_cancel_button = true,
+                                          .modal = false,
+                                          .close_on_click_modal = false,
+                                          .draggable = true,
+                                          .width = 520.0F});
+    });
 
     auto& loading_group = add_demo_group(section, "Loading");
     auto& loading_row = loading_group.append_new_child<controls::StackPanel>();
     configure_row(loading_row);
-    add_button(loading_row, "Loading service", controls::ButtonType::Primary)
+    add_button(loading_row, "Fullscreen loading", controls::ButtonType::Primary)
         .set_on_click([&root]() {
             controls::Loading::show(
-                root, controls::LoadingOptions{.text = "Loading service", .fullscreen = false});
+                root, controls::LoadingOptions{.text = "Loading service", .fullscreen = true});
+        });
+    add_button(loading_row, "Target loading", controls::ButtonType::Default)
+        .set_on_click([&root]() {
+            controls::Loading::show(
+                root, controls::LoadingOptions{.text = "Target loading", .fullscreen = false});
         });
     add_button(loading_row, "Custom loading", controls::ButtonType::Success)
         .set_on_click([&root]() {
@@ -688,27 +759,44 @@ void add_feedback_section(controls::StackPanel& root) {
 void add_animation_section(controls::StackPanel& root) {
     auto& section = add_section(root, "Animations");
 
-    auto& effects = add_demo_group(section, "Transforms and shadows");
+    auto& effects = add_demo_group(section, "Live transforms and shadows");
     auto& transform_row = effects.append_new_child<controls::StackPanel>();
     configure_row(transform_row);
-    const std::array<std::pair<std::string_view, rendering::Transform2D>, 4U> transforms{{
-        {"translate", rendering::Transform2D::translation(16.0F, 4.0F)},
-        {"scale", scale_transform(1.06F)},
-        {"rotate", rotate_transform(-4.0F)},
-        {"skew", skew_transform(0.12F)},
+    const std::array<std::pair<std::string_view, MotionDemoKind>, 4U> transforms{{
+        {"translate", MotionDemoKind::Translate},
+        {"scale", MotionDemoKind::Scale},
+        {"rotate", MotionDemoKind::Rotate},
+        {"skew", MotionDemoKind::Skew},
     }};
-    for (const auto& [name, transform] : transforms) {
-        auto& card = transform_row.append_new_child<controls::Panel>();
-        card.set_title(name).set_background(rendering::Color::rgba(255, 255, 255));
+    for (const auto& [name, kind] : transforms) {
+        auto& card = transform_row.append_new_child<MotionDemoPanel>();
+        card.set_motion_kind(kind).set_title(name).set_background(
+            rendering::Color::rgba(236, 245, 255));
+        card.set_border(rendering::Color::rgba(179, 216, 255), 1.0F);
         card.set_corner_radius(rendering::CornerRadius::uniform(4.0F));
         card.set_shadow(rendering::ShadowStyle{.color = rendering::Color::rgba(0, 0, 0, 36),
                                                .offset = layout::Point{0.0F, 8.0F},
                                                .blur_radius = 18.0F,
                                                .spread = 1.0F});
-        card.set_render_transform(transform);
         configure_card(card, 220.0F);
         card.append_new_child<controls::Text>().set_text(name);
     }
+
+    auto& live_controls = effects.append_new_child<controls::StackPanel>();
+    configure_row(live_controls);
+    auto& inline_loading = live_controls.append_new_child<controls::Loading>();
+    inline_loading.set_text("Inline spinner")
+        .set_active(true)
+        .set_background(rendering::Color::rgba(236, 245, 255));
+    inline_loading.configure_layout([](layout::LayoutElement& item) {
+        item.set_size(layout::Length::points(180.0F), layout::Length::points(88.0F))
+            .set_flex_shrink(0.0F);
+    });
+    live_controls.append_new_child<controls::Button>()
+        .set_text("Loading")
+        .set_type(controls::ButtonType::Primary)
+        .set_loading(true);
+    live_controls.append_new_child<controls::Switch>().set_loading(true).set_checked(true);
 
     auto& shadow_row = effects.append_new_child<controls::StackPanel>();
     configure_row(shadow_row);

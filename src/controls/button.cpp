@@ -633,10 +633,13 @@ void Button::on_paint(rendering::RenderContext& context, layout::Rect absolute_f
         text_rect.width = text_layout_width;
     }
 
-    const auto text_layout = create_text_layout(text_rect);
-    const auto origin = layout::Point{text_rect.x, text_rect.y};
+    const auto text_paint_rect =
+        layout::Rect{text_rect.x, absolute_frame.y, text_rect.width, absolute_frame.height};
+    const auto text_layout = create_text_layout(text_paint_rect);
+    const auto origin = layout::Point{text_paint_rect.x, text_paint_rect.y};
     context.save();
-    context.push_clip(content_rect);
+    context.push_clip(
+        layout::Rect{content_rect.x, absolute_frame.y, content_rect.width, absolute_frame.height});
     context.draw_text_layout(text_layout, origin);
     context.pop_clip();
     context.restore();
@@ -884,16 +887,7 @@ rendering::Color Button::interactive_text_color() const noexcept {
 }
 
 std::string_view Button::display_text() const {
-    if (!has_flag(flags_, ButtonFlag::Loading)) {
-        return text_storage();
-    }
-    if (!display_text_cache_valid_ || display_text_cache_source_ != text_storage()) {
-        display_text_cache_source_ = text_storage();
-        display_text_cache_ = "Loading... ";
-        display_text_cache_.append(text_storage());
-        display_text_cache_valid_ = true;
-    }
-    return display_text_cache_;
+    return text_storage();
 }
 
 void Button::invalidate_display_text_cache() const noexcept {

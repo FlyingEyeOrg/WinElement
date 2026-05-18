@@ -45,6 +45,20 @@ constexpr auto password_mask_visual_center_factor = 0.62F;
                         bounds.y + (bounds.height - extent) * 0.5F, extent, extent};
 }
 
+[[nodiscard]] bool contains_centered_circle(layout::Rect bounds, float diameter,
+                                            layout::Point point) noexcept {
+    const auto circle = centered_square_rect(bounds, diameter);
+    if (circle.width <= 0.0F || circle.height <= 0.0F) {
+        return false;
+    }
+    const auto radius = circle.width * 0.5F;
+    const auto center =
+        layout::Point{circle.x + circle.width * 0.5F, circle.y + circle.height * 0.5F};
+    const auto dx = point.x - center.x;
+    const auto dy = point.y - center.y;
+    return dx * dx + dy * dy <= radius * radius;
+}
+
 [[nodiscard]] bool is_ascii_word_byte(unsigned char value) noexcept {
     return std::isalnum(value) != 0 || value == '_';
 }
@@ -1326,7 +1340,8 @@ void Input::on_pointer_event(elements::PointerEvent& event) {
     const auto local_frame = layout::Rect{0.0F, 0.0F, frame().width, frame().height};
     const auto geometry = create_geometry(local_frame);
     if (geometry.has_clear_button &&
-        contains_local_point(geometry.clear_button_rect, event.local_position)) {
+        contains_centered_circle(geometry.clear_button_rect, input_icon_draw_size,
+                                 event.local_position)) {
         clear();
         return;
     }
@@ -1615,7 +1630,8 @@ elements::PointerCursor Input::cursor_for_local_point(layout::Point local_positi
     }
     const auto geometry = create_geometry(layout::Rect{0.0F, 0.0F, frame().width, frame().height});
     if ((geometry.has_clear_button &&
-         contains_local_point(geometry.clear_button_rect, local_position)) ||
+         contains_centered_circle(geometry.clear_button_rect, input_icon_draw_size,
+                                  local_position)) ||
         (geometry.has_password_button &&
          contains_local_point(geometry.password_button_rect, local_position))) {
         return elements::PointerCursor::Hand;

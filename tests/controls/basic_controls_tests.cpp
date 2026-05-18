@@ -301,16 +301,22 @@ TEST(BasicControlsTests, MessageShowPushesTopLayerEntry) {
     });
     root.calculate_layout();
 
-    auto& message = Message::show(
-        root,
-        MessageOptions{.text = "Top message", .type = MessageType::Primary, .show_close = true});
-    auto& reused = Message::show(
+    auto& message = Message::show(root, MessageOptions{.text = "Top message",
+                                                       .type = MessageType::Primary,
+                                                       .show_close = true,
+                                                       .duration_ms = 0});
+    auto& second = Message::show(
         root, MessageOptions{.text = "Updated message", .type = MessageType::Success});
 
+    EXPECT_EQ(root.top_layer_count(), 2U);
+    EXPECT_NE(&message, &second);
+    EXPECT_EQ(second.text(), "Updated message");
+    EXPECT_FALSE(second.show_close());
+    EXPECT_GT(root.top_layer_bounds(second).y, root.top_layer_bounds(message).y);
+
+    static_cast<void>(root.tick_animations(winelement::animation::AnimationClockType::now() +
+                                           std::chrono::milliseconds(3200)));
     EXPECT_EQ(root.top_layer_count(), 1U);
-    EXPECT_EQ(&message, &reused);
-    EXPECT_EQ(reused.text(), "Updated message");
-    EXPECT_FALSE(reused.show_close());
 }
 
 TEST(BasicControlsTests, MessageBoxPromptKeepsInputAndPaintsActions) {
@@ -357,7 +363,7 @@ TEST(BasicControlsTests, MessageBoxPromptKeepsInputAndPaintsActions) {
     EXPECT_GT(message_rect.y - (title_rect.y + title_rect.height), 8.0F);
     EXPECT_LT(message_rect.y - (title_rect.y + title_rect.height), 30.0F);
     EXPECT_GT(create_rect.y - (message_rect.y + message_rect.height), 56.0F);
-    EXPECT_LT(create_rect.y, 190.0F);
+    EXPECT_LT(create_rect.y, 220.0F);
     EXPECT_NEAR(cancel_rect.y, create_rect.y, 1.0F);
     EXPECT_EQ(find_command(context, RenderCommandType::DrawTextLayout, "x"), nullptr);
     EXPECT_GE(command_count(context, RenderCommandType::DrawBoxShadow), 1U);
@@ -394,6 +400,48 @@ TEST(BasicControlsTests, MessageBoxAlertKeepsHeaderContentGapAtDefaultHeight) {
     EXPECT_GT(message_rect.y - (title_rect.y + title_rect.height), 8.0F);
     EXPECT_LT(message_rect.y - (title_rect.y + title_rect.height), 24.0F);
     EXPECT_GT(confirm_rect.y - (message_rect.y + message_rect.height), 8.0F);
+    EXPECT_GT(confirm_rect.y, 80.0F);
+}
+
+TEST(BasicControlsTests, MessageBoxModalOptionsMatchElementPlusShortcuts) {
+    auto engine = create_unrounded_engine();
+    Panel root;
+    root.bind_layout_tree(engine);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(640.0F), Length::points(360.0F));
+    });
+    root.calculate_layout();
+    EventRouter router(root);
+
+    auto& alert = MessageBox::show(root, MessageBoxOptions{.title = "Alert",
+                                                           .message = "Manual close only",
+                                                           .kind = MessageBoxKind::Alert,
+                                                           .show_cancel_button = false,
+                                                           .close_on_click_modal = false,
+                                                           .close_on_press_escape = false});
+    const auto alert_bounds = root.top_layer_bounds(alert);
+    static_cast<void>(router.route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
+                                                              .position = Point{8.0F, 8.0F},
+                                                              .button = PointerButton::Primary}));
+    EXPECT_EQ(root.top_layer_count(), 1U);
+    EXPECT_EQ(root.top_layer_bounds(alert), alert_bounds);
+    static_cast<void>(
+        router.route_key_event(KeyEvent{.kind = KeyEventKind::Down, .key = Key::Escape}));
+    EXPECT_EQ(root.top_layer_count(), 1U);
+    root.clear_top_layer();
+
+    static_cast<void>(MessageBox::show(root, MessageBoxOptions{.title = "Confirm",
+                                                               .message = "Click backdrop closes",
+                                                               .kind = MessageBoxKind::Confirm,
+                                                               .modal = false,
+                                                               .close_on_click_modal = true}));
+    EXPECT_EQ(root.top_layer_count(), 1U);
+    EXPECT_TRUE(router
+                    .route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
+                                                      .position = Point{8.0F, 8.0F},
+                                                      .button = PointerButton::Primary})
+                    .handled);
+    EXPECT_EQ(root.top_layer_count(), 0U);
 }
 
 TEST(BasicControlsTests, DialogPaintsBodyAndFooterActions) {
@@ -451,6 +499,32 @@ TEST(BasicControlsTests, DialogShowReusesExistingTopLayer) {
     EXPECT_EQ(&first, &second);
     EXPECT_EQ(second.title(), "Second");
     EXPECT_EQ(second.body(), "Two");
+}
+
+TEST(BasicControlsTests, DialogCanBeNonModalAndKeepBackdropClickOpen) {
+    auto engine = create_unrounded_engine();
+    Panel root;
+    root.bind_layout_tree(engine);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(640.0F), Length::points(360.0F));
+    });
+    root.calculate_layout();
+    EventRouter router(root);
+
+    auto& dialog = Dialog::show(root, DialogOptions{.title = "Non-modal",
+                                                    .body = "Page remains interactive.",
+                                                    .modal = false,
+                                                    .close_on_click_modal = false,
+                                                    .close_on_press_escape = false});
+    const auto bounds = root.top_layer_bounds(dialog);
+    static_cast<void>(router.route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
+                                                              .position = Point{8.0F, 8.0F},
+                                                              .button = PointerButton::Primary}));
+    EXPECT_EQ(root.top_layer_count(), 1U);
+    EXPECT_EQ(root.top_layer_bounds(dialog), bounds);
+    static_cast<void>(
+        router.route_key_event(KeyEvent{.kind = KeyEventKind::Down, .key = Key::Escape}));
+    EXPECT_EQ(root.top_layer_count(), 1U);
 }
 
 TEST(BasicControlsTests, LoadingAnimatesAndPaintsSpinner) {
@@ -592,6 +666,20 @@ TEST(BasicControlsTests, LoadingShowReusesExistingTopLayerAndCanHideCloseButton)
     auto& first = Loading::show(root, LoadingOptions{.text = "Preparing"});
     auto& second = Loading::show(
         root, LoadingOptions{.text = "Still preparing", .fullscreen = false, .show_close = false});
+    auto centered_bounds = root.top_layer_bounds(second);
+    EXPECT_FLOAT_EQ(centered_bounds.x, 0.0F);
+    EXPECT_FLOAT_EQ(centered_bounds.y, 0.0F);
+    EXPECT_FLOAT_EQ(centered_bounds.width, 640.0F);
+    EXPECT_FLOAT_EQ(centered_bounds.height, 360.0F);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(800.0F), Length::points(400.0F));
+    });
+    root.calculate_layout();
+    centered_bounds = root.top_layer_bounds(second);
+    EXPECT_FLOAT_EQ(centered_bounds.x, 0.0F);
+    EXPECT_FLOAT_EQ(centered_bounds.y, 0.0F);
+    EXPECT_FLOAT_EQ(centered_bounds.width, 800.0F);
+    EXPECT_FLOAT_EQ(centered_bounds.height, 400.0F);
     auto& third = Loading::show(
         root, LoadingOptions{.text = "Blocking", .fullscreen = true, .show_close = true});
 
@@ -772,6 +860,8 @@ TEST(BasicControlsTests, ButtonLoadingAnimationUsesBuiltInSvgIconAndFrameTick) {
 
     RenderCommandRecorder context;
     root.paint(context);
+    EXPECT_NE(find_command(context, RenderCommandType::DrawTextLayout, "Save"), nullptr);
+    EXPECT_EQ(find_command(context, RenderCommandType::DrawTextLayout, "Loading... Save"), nullptr);
     EXPECT_GT(command_count(context, RenderCommandType::FillGeometry), 0U);
     EXPECT_GT(command_count(context, RenderCommandType::PushLayer), 0U);
 }
@@ -1373,18 +1463,29 @@ TEST(BasicControlsTests, ClearAffordancesUseHandCursor) {
 
     const auto input_frame = input.absolute_frame();
     const auto input_clear_point =
-        Point{input_frame.x + input_frame.width - 24.0F, input_frame.y + 2.0F};
+        Point{input_frame.x + input_frame.width - 21.0F, input_frame.y + input_frame.height * 0.5F};
     static_cast<void>(router.route_pointer_event(
         PointerEvent{.kind = PointerEventKind::Move, .position = input_clear_point}));
     EXPECT_EQ(router.cursor_for_point(input_clear_point), PointerCursor::Hand);
+    const auto input_clear_slot_edge =
+        Point{input_frame.x + input_frame.width - 12.0F, input_clear_point.y};
+    static_cast<void>(router.route_pointer_event(
+        PointerEvent{.kind = PointerEventKind::Move, .position = input_clear_slot_edge}));
+    EXPECT_NE(router.cursor_for_point(input_clear_slot_edge), PointerCursor::Hand);
 
     const auto select_frame = select.absolute_frame();
     const auto select_clear_point =
-        Point{select_frame.x + select_frame.width - select.style().padding.right - 28.0F,
-              select_frame.y + 2.0F};
+        Point{select_frame.x + select_frame.width - select.style().padding.right - 33.0F,
+              select_frame.y + select_frame.height * 0.5F};
     static_cast<void>(router.route_pointer_event(
         PointerEvent{.kind = PointerEventKind::Move, .position = select_clear_point}));
     EXPECT_EQ(router.cursor_for_point(select_clear_point), PointerCursor::Hand);
+    const auto select_clear_slot_edge =
+        Point{select_frame.x + select_frame.width - select.style().padding.right - 23.5F,
+              select_clear_point.y};
+    static_cast<void>(router.route_pointer_event(
+        PointerEvent{.kind = PointerEventKind::Move, .position = select_clear_slot_edge}));
+    EXPECT_NE(router.cursor_for_point(select_clear_slot_edge), PointerCursor::Hand);
 }
 
 TEST(BasicControlsTests, InputCaretCommandKeepsStyleWidthWithAndWithoutText) {
@@ -2467,7 +2568,7 @@ TEST(BasicControlsTests, PanelUsesRectangleStyleTokens) {
     EXPECT_EQ(command_stroke_color(context.commands()[2]), panel_style.border_color);
 }
 
-TEST(BasicControlsTests, ButtonTextLayoutIsVerticallyCenteredInContentBox) {
+TEST(BasicControlsTests, ButtonTextLayoutUsesFullHeightForDescenders) {
     auto engine = create_unrounded_engine();
     Button button;
     button.bind_layout_tree(engine);
@@ -2486,7 +2587,11 @@ TEST(BasicControlsTests, ButtonTextLayoutIsVerticallyCenteredInContentBox) {
         Rect{button.style().padding.left, button.style().padding.top,
              button.frame().width - button.style().padding.left - button.style().padding.right,
              button.frame().height - button.style().padding.top - button.style().padding.bottom};
-    EXPECT_FLOAT_EQ(command_rect(*text_command).y, content_rect.y);
+    EXPECT_FLOAT_EQ(command_rect(*text_command).x, content_rect.x);
+    EXPECT_FLOAT_EQ(command_rect(*text_command).y, 0.0F);
+    const auto* layout = text_command->payload<DrawTextLayoutCommand>().layout_value();
+    ASSERT_NE(layout, nullptr);
+    EXPECT_FLOAT_EQ(layout->options.max_height, button.frame().height);
     EXPECT_EQ(command_text_style(*text_command).alignment, TextAlignment::Center);
     EXPECT_EQ(command_text_style(*text_command).vertical_alignment, TextVerticalAlignment::Center);
     EXPECT_EQ(command_text_style(*text_command).trimming, TextTrimming::CharacterEllipsis);

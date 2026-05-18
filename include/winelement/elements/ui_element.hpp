@@ -540,6 +540,7 @@ class UIElement {
     bool has_scrollable_extent_ : 1 = false;
     bool theme_dirty_ : 1 = true;
     bool theme_subtree_dirty_ : 1 = true;
+    std::uint32_t animation_tick_depth_ = 0;
     std::uint64_t z_index_gen_ = 0;
     std::unique_ptr<StyleState> style_state_;
     std::unique_ptr<TextState> text_state_;

@@ -121,6 +121,20 @@ constexpr auto pi = 3.14159265358979323846F;
                         bounds.y + (bounds.height - extent) * 0.5F, extent, extent};
 }
 
+[[nodiscard]] bool contains_centered_circle(layout::Rect bounds, float diameter,
+                                            layout::Point point) noexcept {
+    const auto circle = centered_square_rect(bounds, diameter);
+    if (circle.width <= 0.0F || circle.height <= 0.0F) {
+        return false;
+    }
+    const auto radius = circle.width * 0.5F;
+    const auto center =
+        layout::Point{circle.x + circle.width * 0.5F, circle.y + circle.height * 0.5F};
+    const auto dx = point.x - center.x;
+    const auto dy = point.y - center.y;
+    return dx * dx + dy * dy <= radius * radius;
+}
+
 [[nodiscard]] rendering::Transform2D rotation_transform(float radians) noexcept {
     const auto cosine = std::cos(radians);
     const auto sine = std::sin(radians);
@@ -926,10 +940,12 @@ void Select::on_pointer_event(elements::PointerEvent& event) {
             hovered_tag_close_index_.reset();
         } else if (clearable_ && (selected_index_.has_value() || !selected_indices_.empty()) &&
                    contains_local_point(clear_rect, event.local_position)) {
-            if (multiple_) {
-                set_selected_indices({});
-            } else {
-                set_selected_index(std::nullopt);
+            if (contains_centered_circle(clear_rect, select_icon_size, event.local_position)) {
+                if (multiple_) {
+                    set_selected_indices({});
+                } else {
+                    set_selected_index(std::nullopt);
+                }
             }
         } else if (popup_open_) {
             dismiss_popup();
@@ -956,7 +972,9 @@ Select::cursor_for_local_point(layout::Point local_position) const noexcept {
         layout::Rect{arrow_rect.x - arrow_width, 0.0F, arrow_width, local_frame.height};
     const auto has_value = selected_index_.has_value() || !selected_indices_.empty();
     if (clearable_ && has_value && contains_local_point(clear_rect, local_position)) {
-        return elements::PointerCursor::Hand;
+        return contains_centered_circle(clear_rect, select_icon_size, local_position)
+                   ? elements::PointerCursor::Hand
+                   : elements::PointerCursor::Default;
     }
     return contains_local_point(local_frame, local_position) && !filterable_
                ? elements::PointerCursor::Hand
