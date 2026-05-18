@@ -32,6 +32,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -47,6 +48,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace winelement::platform::win32 {
@@ -783,6 +785,40 @@ void collect_visible_opcode_indices(const rendering::RenderCommandList& commands
     }
 }
 
+void collect_visible_opcode_indices_for_tiles(
+    const rendering::RenderCommandList& commands,
+    std::span<PreparedRenderTile> tiles) {
+    const auto& opcodes = commands.opcodes();
+    if (opcodes.empty() || tiles.empty()) {
+        return;
+    }
+
+    const auto reserve_count =
+        std::min<std::size_t>(opcodes.size(),
+                              std::max<std::size_t>(32U, opcodes.size() / tiles.size()));
+    for (auto& tile : tiles) {
+        tile.command_indices.clear();
+        tile.command_indices.reserve(reserve_count);
+        tile.uses_shared_command_indices = false;
+    }
+
+    for (std::size_t opcode_index = 0U; opcode_index < opcodes.size(); ++opcode_index) {
+        const auto& opcode = opcodes[opcode_index];
+        if (!is_draw_command(opcode.opcode)) {
+            for (auto& tile : tiles) {
+                append_opcode_index(tile.command_indices, opcode_index);
+            }
+            continue;
+        }
+
+        for (auto& tile : tiles) {
+            if (rendering::layout::rects_intersect(opcode.bounds, tile.cull_clip)) {
+                append_opcode_index(tile.command_indices, opcode_index);
+            }
+        }
+    }
+}
+
 [[nodiscard]] std::uint32_t
 count_pass_visible_commands(const std::vector<rendering::RenderOpcodeRecord>& opcodes,
                             const rendering::RenderFramePass& pass,
@@ -876,6 +912,8 @@ prepare_render_plan(const rendering::RenderCommandList& commands,
         collect_visible_opcode_indices(commands, plan.tiles.front().cull_clip,
                                        plan.shared_command_indices);
         plan.tiles.front().uses_shared_command_indices = true;
+    } else if (!command_list_has_serial_barrier(commands)) {
+        collect_visible_opcode_indices_for_tiles(commands, plan.tiles);
     } else if (pool != nullptr && plan.tiles.size() >= 4U) {
         pool->parallel_for(
             plan.tiles.size(), 1U, [&plan, &commands](std::size_t first, std::size_t last) {
@@ -2157,6 +2195,12 @@ struct D3D11DisplayListRenderer::RenderPlanCacheState {
             plan.tiles.front().uses_shared_command_indices = true;
             add_visible_command_count(plan.visible_command_count,
                                       plan.shared_command_indices.size());
+        } else if (!command_list_has_serial_barrier(commands)) {
+            collect_visible_opcode_indices_for_tiles(commands, plan.tiles);
+            for (const auto& tile : plan.tiles) {
+                add_visible_command_count(plan.visible_command_count,
+                                          tile.command_indices.size());
+            }
         } else {
             for (auto& tile : plan.tiles) {
                 tile.command_indices =
@@ -2556,7 +2600,7 @@ void D3D11DisplayListRenderer::render(ID3D11DeviceContext& context, ID3D11Render
 
     const auto resource_start = Clock::now();
     if (analysis.use_parallel_recording) {
-        prepare_text_resources_for_scene(scene);
+        prepare_text_resources_for_scene(scene, analysis.dirty_clips);
         upload_glyph_atlas_if_dirty(context, false);
         assign_glyph_snapshot(analysis, snapshot_glyph_atlas());
     }
@@ -2841,24 +2885,31 @@ void D3D11DisplayListRenderer::ensure_worker_recorder_pool(std::size_t recorder_
 
 void D3D11DisplayListRenderer::record_render_work_items(RenderFrameAnalysis& analysis,
                                                         ID3D11RenderTargetView& target) {
-    auto worker_item_count = std::size_t{0U};
-    for (const auto& item : analysis.work_items) {
-        if (item.kind != RenderWorkKind::Clear) {
-            ++worker_item_count;
-        }
-    }
-    ensure_worker_recorder_pool(std::min(worker_item_count, shared_render_thread_pool().worker_count()));
-
-    auto futures = std::vector<std::future<void>>{};
-    futures.reserve(analysis.work_items.size());
+    auto worker_item_indices = std::vector<std::size_t>{};
+    worker_item_indices.reserve(analysis.work_items.size());
     for (std::size_t index = 0U; index < analysis.work_items.size(); ++index) {
         auto& item = analysis.work_items[index];
         if (item.kind == RenderWorkKind::Clear) {
             record_work_item_to_command_list(item, target);
             continue;
         }
+        worker_item_indices.push_back(index);
+    }
 
-        futures.push_back(shared_render_thread_pool().submit([this, &analysis, &target, index]() {
+    if (worker_item_indices.empty()) {
+        return;
+    }
+
+    auto& pool = shared_render_thread_pool();
+    const auto task_count = std::min(worker_item_indices.size(), pool.worker_count());
+    ensure_worker_recorder_pool(task_count);
+
+    auto futures = std::vector<std::future<void>>{};
+    futures.reserve(task_count);
+    auto next_item = std::atomic_size_t{0U};
+    for (std::size_t task_index = 0U; task_index < task_count; ++task_index) {
+        futures.push_back(pool.submit([this, &analysis, &target, &worker_item_indices,
+                                       &next_item]() {
             auto recorder = acquire_worker_recorder();
             if (recorder == nullptr) {
                 return;
@@ -2867,8 +2918,26 @@ void D3D11DisplayListRenderer::record_render_work_items(RenderFrameAnalysis& ana
                 recorder->adopt_glyph_atlas_snapshot(*analysis.glyph_atlas_snapshot);
             }
             recorder->frame_sequence_ = frame_sequence_;
-            recorder->record_work_item_to_command_list(analysis.work_items[index], target);
-            analysis.work_items[index].recorder_lease = std::move(recorder);
+
+            auto first_recorded_item = std::numeric_limits<std::size_t>::max();
+            for (;;) {
+                const auto worker_item_offset = next_item.fetch_add(1U, std::memory_order_relaxed);
+                if (worker_item_offset >= worker_item_indices.size()) {
+                    break;
+                }
+
+                const auto item_index = worker_item_indices[worker_item_offset];
+                if (first_recorded_item == std::numeric_limits<std::size_t>::max()) {
+                    first_recorded_item = item_index;
+                }
+                recorder->record_work_item_to_command_list(analysis.work_items[item_index], target);
+            }
+
+            if (first_recorded_item != std::numeric_limits<std::size_t>::max()) {
+                analysis.work_items[first_recorded_item].recorder_lease = std::move(recorder);
+            } else {
+                release_worker_recorder(std::move(recorder));
+            }
         }));
     }
 
@@ -2929,24 +2998,28 @@ void D3D11DisplayListRenderer::render_work_item_to_context(
 
 void D3D11DisplayListRenderer::submit_recorded_work_items(
     ID3D11DeviceContext& context, RenderFrameAnalysis& analysis) {
-    std::stable_sort(analysis.work_items.begin(), analysis.work_items.end(),
-                     [](const RenderWorkItem& left, const RenderWorkItem& right) {
-                         const auto& a = left.sort_key;
-                         const auto& b = right.sort_key;
-                         if (a.pass_order != b.pass_order) {
-                             return a.pass_order < b.pass_order;
-                         }
-                         if (a.scene_order != b.scene_order) {
-                             return a.scene_order < b.scene_order;
-                         }
-                         if (a.layer_depth != b.layer_depth) {
-                             return a.layer_depth < b.layer_depth;
-                         }
-                         if (a.z_order != b.z_order) {
-                             return a.z_order < b.z_order;
-                         }
-                         return a.dirty_bucket_order < b.dirty_bucket_order;
-                     });
+    const auto work_item_less = [](const RenderWorkItem& left, const RenderWorkItem& right) {
+        const auto& a = left.sort_key;
+        const auto& b = right.sort_key;
+        if (a.pass_order != b.pass_order) {
+            return a.pass_order < b.pass_order;
+        }
+        if (a.scene_order != b.scene_order) {
+            return a.scene_order < b.scene_order;
+        }
+        if (a.layer_depth != b.layer_depth) {
+            return a.layer_depth < b.layer_depth;
+        }
+        if (a.z_order != b.z_order) {
+            return a.z_order < b.z_order;
+        }
+        return a.dirty_bucket_order < b.dirty_bucket_order;
+    };
+    if (!std::is_sorted(analysis.work_items.begin(), analysis.work_items.end(),
+                        work_item_less)) {
+        std::stable_sort(analysis.work_items.begin(), analysis.work_items.end(),
+                         work_item_less);
+    }
 
     for (const auto& item : analysis.work_items) {
         if (item.command_list != nullptr) {
@@ -3652,19 +3725,26 @@ template <typename Payload>
 }
 
 void D3D11DisplayListRenderer::prepare_text_resources_for_scene(
-    const rendering::RenderScene* scene) {
+    const rendering::RenderScene* scene,
+    std::span<const D3D11RenderDirtyClip> dirty_clips) {
     prepared_draw_text_layouts_.clear();
-    if (scene == nullptr || scene->root() == nullptr) {
+    prepared_text_layout_resource_keys_.clear();
+    if (scene == nullptr || scene->root() == nullptr || dirty_clips.empty()) {
         return;
     }
-    prepare_text_resources_for_node(*scene->root());
+    prepare_text_resources_for_node(*scene->root(), dirty_clips);
 }
 
 void D3D11DisplayListRenderer::prepare_text_resources_for_node(
-    const rendering::RenderNode& node) {
+    const rendering::RenderNode& node,
+    std::span<const D3D11RenderDirtyClip> dirty_clips) {
+    if (!dirty_clips_intersect_node(dirty_clips, node)) {
+        return;
+    }
+
     prepare_text_resources_for_command_list(node.commands);
     for (const auto& child : node.children) {
-        prepare_text_resources_for_node(child);
+        prepare_text_resources_for_node(child, dirty_clips);
     }
 }
 
@@ -3711,6 +3791,11 @@ void D3D11DisplayListRenderer::prepare_text_layout_resources(
     const rendering::TextLayout& layout,
     const rendering::PreparedTextGlyphCoverageList* prepared) {
     if (layout.text.empty()) {
+        return;
+    }
+
+    const auto resource_key = text_atlas_run_fingerprint(layout);
+    if (!prepared_text_layout_resource_keys_.insert(resource_key).second) {
         return;
     }
 

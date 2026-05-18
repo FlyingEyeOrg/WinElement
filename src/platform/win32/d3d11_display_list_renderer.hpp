@@ -16,6 +16,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #ifndef NOMINMAX
@@ -337,8 +338,11 @@ class D3D11DisplayListRenderer final {
                          std::uint32_t target_pixel_width, std::uint32_t target_pixel_height,
                          const D3D11RenderResourceCache& resource_cache,
                          const rendering::RenderFrameGraph* frame_graph);
-    void prepare_text_resources_for_scene(const rendering::RenderScene* scene);
-    void prepare_text_resources_for_node(const rendering::RenderNode& node);
+    void prepare_text_resources_for_scene(
+        const rendering::RenderScene* scene,
+        std::span<const D3D11RenderDirtyClip> dirty_clips);
+    void prepare_text_resources_for_node(const rendering::RenderNode& node,
+                                         std::span<const D3D11RenderDirtyClip> dirty_clips);
     void prepare_text_resources_for_command_list(const rendering::RenderCommandList& commands);
     void prepare_text_layout_resources(const rendering::TextLayout& layout,
                                        const rendering::PreparedTextGlyphCoverageList* prepared);
@@ -513,6 +517,7 @@ class D3D11DisplayListRenderer final {
     std::unordered_map<TextFaceKey, Microsoft::WRL::ComPtr<IDWriteFontFace>, TextFaceKeyHash>
         text_face_cache_;
     std::vector<PreparedDrawTextLayoutSnapshot> prepared_draw_text_layouts_;
+    std::unordered_set<std::size_t> prepared_text_layout_resource_keys_;
     std::vector<std::byte> glyph_atlas_pixels_;
     std::uint32_t glyph_atlas_cursor_x_ = 0U;
     std::uint32_t glyph_atlas_cursor_y_ = 0U;
