@@ -465,6 +465,8 @@ class UIElement {
     [[nodiscard]] bool top_layer_entry_contains_logical(const TopLayerEntry& entry,
                                                         const UIElement& element) const noexcept;
     [[nodiscard]] bool tick_animations_subtree(animation::AnimationTimePoint now);
+    [[nodiscard]] bool tick_animations_subtree(
+        animation::AnimationTimePoint now, const std::optional<layout::Rect>& clip_rect);
     [[nodiscard]] bool contains(const UIElement& element) const noexcept;
     [[nodiscard]] UIElement& top_layer_host() noexcept;
     [[nodiscard]] const UIElement& top_layer_host() const noexcept;

@@ -87,6 +87,18 @@ inverse_transform_point(layout::Point point, rendering::Transform2D transform) n
            std::isfinite(transform.dx) && std::isfinite(transform.dy);
 }
 
+[[nodiscard]] std::optional<layout::Rect>
+intersect_clip_rect(const std::optional<layout::Rect>& current, layout::Rect next) noexcept {
+    if (!current.has_value()) {
+        return next;
+    }
+    return layout::intersect_rects(*current, next);
+}
+
+[[nodiscard]] bool clip_rect_has_area(const std::optional<layout::Rect>& clip_rect) noexcept {
+    return !clip_rect.has_value() || (clip_rect->width > 0.0F && clip_rect->height > 0.0F);
+}
+
 template <typename Value> void hash_combine(std::size_t& seed, const Value& value) noexcept {
     seed ^= std::hash<Value>{}(value) + 0x9E3779B9U + (seed << 6U) + (seed >> 2U);
 }
@@ -1231,7 +1243,10 @@ bool UIElement::tick_animations(animation::AnimationTimePoint now) {
     auto& host = top_layer_host();
     ++host.animation_tick_depth_;
     try {
-        const auto active = tick_animations_subtree(now);
+        const auto active =
+            tick_animations_subtree(now, layout_generation_ == 0U
+                                             ? std::optional<layout::Rect>{}
+                                             : std::optional<layout::Rect>{committed_absolute_frame_});
         --host.animation_tick_depth_;
         if (host.animation_tick_depth_ == 0U) {
             host.flush_pending_top_layer_removals();
@@ -3340,16 +3355,39 @@ void UIElement::append_overlay_scene_subtree(
 }
 
 bool UIElement::tick_animations_subtree(animation::AnimationTimePoint now) {
-    auto active = on_animation_frame(now);
-    if (animation_state_ != nullptr && !animation_state_->implicit_property_animations.empty()) {
+    return tick_animations_subtree(now, std::nullopt);
+}
+
+bool UIElement::tick_animations_subtree(animation::AnimationTimePoint now,
+                                        const std::optional<layout::Rect>& clip_rect) {
+    if (!visible_) {
+        return false;
+    }
+
+    const auto subtree_visible =
+        !clip_rect.has_value() || layout::rects_intersect(visible_subtree_bounds(), *clip_rect);
+    auto active = false;
+    if (subtree_visible) {
+        active = on_animation_frame(now);
+    }
+    if (subtree_visible && animation_state_ != nullptr &&
+        !animation_state_->implicit_property_animations.empty()) {
         active = animation_state_->implicit_property_animations.tick(now) || active;
     }
-    for (auto& child : children_) {
-        active = child->tick_animations_subtree(now) || active;
+
+    auto child_clip_rect = clip_rect;
+    if (subtree_visible && clips_children_to_viewport()) {
+        child_clip_rect = intersect_clip_rect(child_clip_rect, effective_absolute_child_clip_rect());
+    }
+
+    if (subtree_visible && clip_rect_has_area(child_clip_rect)) {
+        for (auto& child : children_) {
+            active = child->tick_animations_subtree(now, child_clip_rect) || active;
+        }
     }
     for (auto& entry : top_layer_manager_.entries()) {
         if (!entry.pending_removal && entry.element != nullptr) {
-            active = entry.element->tick_animations_subtree(now) || active;
+            active = entry.element->tick_animations_subtree(now, std::nullopt) || active;
         }
     }
     return active;

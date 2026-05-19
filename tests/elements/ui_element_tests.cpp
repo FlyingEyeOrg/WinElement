@@ -1,4 +1,5 @@
 #include <winelement/elements.hpp>
+#include <winelement/animation.hpp>
 #include <winelement/layout.hpp>
 
 #include <winelement/rendering.hpp>
@@ -114,6 +115,20 @@ class CountingPaintElement final : public UIElement {
 
   private:
     int* paint_count_ = nullptr;
+};
+
+class CountingAnimationElement final : public UIElement {
+  public:
+    explicit CountingAnimationElement(int& animation_ticks) : animation_ticks_(&animation_ticks) {}
+
+  protected:
+    bool on_animation_frame(winelement::animation::AnimationTimePoint) override {
+        ++(*animation_ticks_);
+        return true;
+    }
+
+  private:
+    int* animation_ticks_ = nullptr;
 };
 
 [[nodiscard]] LayoutEngine create_unrounded_engine() {
@@ -2551,6 +2566,43 @@ TEST(UIElementTests, CommitsRenderCommandsAndCollectsLocalDirtyRegion) {
     EXPECT_FLOAT_EQ(dirty_region.rects()[0].y, 8.0F);
     EXPECT_FLOAT_EQ(dirty_region.rects()[0].width, 30.0F);
     EXPECT_FLOAT_EQ(dirty_region.rects()[0].height, 20.0F);
+}
+
+TEST(UIElementTests, BaseElementViewportSkipsOffscreenChildAnimationTicks) {
+    auto engine = create_unrounded_engine();
+    UIElement root;
+    root.bind_layout_tree(engine);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(120.0F), Length::points(80.0F));
+    });
+    root.set_viewport(Rect{0.0F, 0.0F, 120.0F, 80.0F}).set_overflow(Overflow::Hidden);
+
+    auto visible_ticks = 0;
+    auto hidden_ticks = 0;
+
+    auto visible_child = std::make_unique<CountingAnimationElement>(visible_ticks);
+    visible_child->configure_layout([](LayoutElement& layout) {
+        layout.set_position_type(PositionType::Absolute)
+            .set_position(Edge::Left, Length::points(8.0F))
+            .set_position(Edge::Top, Length::points(8.0F))
+            .set_size(Length::points(32.0F), Length::points(32.0F));
+    });
+
+    auto hidden_child = std::make_unique<CountingAnimationElement>(hidden_ticks);
+    hidden_child->configure_layout([](LayoutElement& layout) {
+        layout.set_position_type(PositionType::Absolute)
+            .set_position(Edge::Left, Length::points(8.0F))
+            .set_position(Edge::Top, Length::points(140.0F))
+            .set_size(Length::points(32.0F), Length::points(32.0F));
+    });
+
+    root.append_child(std::move(visible_child));
+    root.append_child(std::move(hidden_child));
+    root.calculate_layout(LayoutConstraints{.width = 120.0F, .height = 80.0F});
+
+    EXPECT_TRUE(root.tick_animations());
+    EXPECT_GT(visible_ticks, 0);
+    EXPECT_EQ(hidden_ticks, 0);
 }
 
 TEST(UIElementTests, BackdropTopLayerInvalidatesWholeHostForRepaint) {

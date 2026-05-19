@@ -35,6 +35,10 @@ constexpr auto showcase_page_gap = 8.0F;
     return rendering::Transform2D{.m11 = scale, .m22 = scale};
 }
 
+[[nodiscard]] rendering::Transform2D scale_x_transform(float scale) noexcept {
+    return rendering::Transform2D{.m11 = scale, .m22 = 1.0F};
+}
+
 [[nodiscard]] rendering::Transform2D rotate_transform(float degrees) noexcept {
     const auto radians = degrees * 3.14159265358979323846F / 180.0F;
     const auto c = std::cos(radians);
@@ -160,10 +164,12 @@ class LiveSampleCard final : public controls::Panel {
         auto& fill = track.append_new_child<controls::Panel>();
         fill.set_background(fill_color_);
         fill.set_corner_radius(rendering::CornerRadius::uniform(4.0F));
+        fill.set_layer_enabled(true);
         fill.configure_layout([](layout::LayoutElement& item) {
-            item.set_size(layout::Length::points(0.0F), layout::Length::points(8.0F))
+            item.set_size(layout::Length::points(220.0F), layout::Length::points(8.0F))
                 .set_flex_shrink(0.0F);
         });
+        fill.set_render_transform(scale_x_transform(0.0F));
         fill_ = &fill;
     }
 
@@ -188,18 +194,17 @@ class LiveSampleCard final : public controls::Panel {
 
         const auto sample = sample_function_(now);
         const auto progress = std::clamp(sample.progress, 0.0F, 1.0F);
-        if (label_ != nullptr && sample.label != label_text_) {
+        if (label_ != nullptr && sample.label != label_text_ &&
+            (label_text_.empty() ||
+             now - last_label_sync_ >= std::chrono::milliseconds(120))) {
             label_text_ = sample.label;
             label_->set_text(label_text_);
+            last_label_sync_ = now;
         }
 
-        const auto fill_width = std::round(track_width_ * progress);
-        if (fill_ != nullptr && std::abs(fill_width - fill_width_) >= 1.0F) {
-            fill_width_ = fill_width;
-            fill_->configure_layout([fill_width](layout::LayoutElement& item) {
-                item.set_size(layout::Length::points(fill_width), layout::Length::points(8.0F))
-                    .set_flex_shrink(0.0F);
-            });
+        if (fill_ != nullptr && std::abs(progress - fill_progress_) >= 0.0025F) {
+            fill_progress_ = progress;
+            fill_->set_render_transform(scale_x_transform(fill_progress_));
         }
         return true;
     }
@@ -210,7 +215,8 @@ class LiveSampleCard final : public controls::Panel {
     SampleFunction sample_function_;
     rendering::Color fill_color_ = rendering::Color::rgba(64, 158, 255);
     std::string label_text_;
-    float fill_width_ = -1.0F;
+    animation::AnimationTimePoint last_label_sync_{};
+    float fill_progress_ = -1.0F;
     float track_width_ = 220.0F;
 };
 
@@ -260,10 +266,12 @@ class ImplicitPropertyDemoPanel final : public controls::Panel {
         auto& fill = track.append_new_child<controls::Panel>();
         fill.set_background(rendering::Color::rgba(64, 158, 255));
         fill.set_corner_radius(rendering::CornerRadius::uniform(999.0F));
+        fill.set_layer_enabled(true);
         fill.configure_layout([](layout::LayoutElement& item) {
-            item.set_size(layout::Length::points(0.0F), layout::Length::points(10.0F))
+            item.set_size(layout::Length::points(320.0F), layout::Length::points(10.0F))
                 .set_flex_shrink(0.0F);
         });
+        fill.set_render_transform(scale_x_transform(0.0F));
         fill_ = &fill;
 
         auto& replay = append_new_child<controls::Button>();
@@ -301,24 +309,22 @@ class ImplicitPropertyDemoPanel final : public controls::Panel {
         const auto progress =
             std::clamp(properties().value<float>(implicit_demo_progress_property(), 0.0F), 0.0F, 1.0F);
         if (value_ != nullptr) {
-            value_->set_text("Progress " +
-                             std::to_string(static_cast<int>(std::round(progress * 100.0F))) + "%");
-        }
-        if (fill_ != nullptr) {
-            const auto fill_width = std::round(track_width_ * progress);
-            if (fill_width != fill_width_) {
-                fill_width_ = fill_width;
-                fill_->configure_layout([fill_width](layout::LayoutElement& item) {
-                    item.set_size(layout::Length::points(fill_width), layout::Length::points(10.0F))
-                        .set_flex_shrink(0.0F);
-                });
+            const auto percent = static_cast<int>(std::round(progress * 100.0F));
+            if (percent != displayed_percent_) {
+                displayed_percent_ = percent;
+                value_->set_text("Progress " + std::to_string(displayed_percent_) + "%");
             }
+        }
+        if (fill_ != nullptr && std::abs(progress - fill_progress_) >= 0.0025F) {
+            fill_progress_ = progress;
+            fill_->set_render_transform(scale_x_transform(fill_progress_));
         }
     }
 
     controls::Text* value_ = nullptr;
     controls::Panel* fill_ = nullptr;
-    float fill_width_ = -1.0F;
+    int displayed_percent_ = -1;
+    float fill_progress_ = -1.0F;
     static constexpr auto track_width_ = 320.0F;
 };
 
