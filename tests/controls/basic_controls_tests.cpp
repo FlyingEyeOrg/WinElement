@@ -445,6 +445,33 @@ TEST(BasicControlsTests, MessageBoxModalOptionsMatchElementPlusShortcuts) {
     EXPECT_EQ(root.top_layer_count(), 0U);
 }
 
+TEST(BasicControlsTests, MessageBoxModalBackdropUsesNeutralOverlay) {
+    auto engine = create_unrounded_engine();
+    Panel root;
+    root.bind_layout_tree(engine);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(640.0F), Length::points(360.0F));
+    });
+    root.calculate_layout();
+
+    static_cast<void>(MessageBox::show(root, MessageBoxOptions{.title = "Modal",
+                                                               .message = "Backdrop covers page",
+                                                               .kind = MessageBoxKind::Alert,
+                                                               .modal = true}));
+
+    RenderCommandRecorder context;
+    root.paint(context);
+
+    const auto iterator = std::find_if(context.commands().begin(), context.commands().end(),
+                                       [](const auto& command) {
+                                           return command.type() == RenderCommandType::FillRect &&
+                                                  command_rect(command) ==
+                                                      Rect{0.0F, 0.0F, 640.0F, 360.0F};
+                                       });
+    ASSERT_NE(iterator, context.commands().end());
+    EXPECT_EQ(command_fill_color(*iterator), Color::rgba(96, 98, 102, 244));
+}
+
 TEST(BasicControlsTests, DialogPaintsBodyAndFooterActions) {
     auto engine = create_unrounded_engine();
     Dialog dialog;
