@@ -31,7 +31,9 @@ constexpr auto floating_overlay_shadow =
 constexpr auto close_icon_size = 16.0F;
 constexpr auto message_status_icon_size = 16.0F;
 constexpr auto message_stack_spacing = 16.0F;
-constexpr auto modal_backdrop_color = rendering::Color::rgba(0, 0, 0, 128);
+// Equivalent to Element Plus' rgba(0, 0, 0, .5) over the light app surface,
+// but opaque so underlying 1px borders cannot bleed through as dark seams.
+constexpr auto modal_backdrop_color = rendering::Color::rgba(128, 128, 128);
 constexpr auto message_box_padding = 16.0F;
 constexpr auto message_box_header_height = 18.0F;
 constexpr auto message_box_gap = 12.0F;

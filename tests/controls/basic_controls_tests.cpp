@@ -469,7 +469,33 @@ TEST(BasicControlsTests, MessageBoxModalBackdropFullyCoversUnderlyingContent) {
                                                       Rect{0.0F, 0.0F, 640.0F, 360.0F};
                                        });
     ASSERT_NE(iterator, context.commands().end());
-    EXPECT_EQ(command_fill_color(*iterator), Color::rgba(0, 0, 0, 128));
+    EXPECT_EQ(command_fill_color(*iterator), Color::rgba(128, 128, 128));
+}
+
+TEST(BasicControlsTests, DialogModalBackdropFullyCoversUnderlyingContent) {
+    auto engine = create_unrounded_engine();
+    Panel root;
+    root.bind_layout_tree(engine);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(640.0F), Length::points(360.0F));
+    });
+    root.calculate_layout();
+
+    static_cast<void>(Dialog::show(root, DialogOptions{.title = "Dialog",
+                                                       .body = "Backdrop covers page",
+                                                       .modal = true}));
+
+    RenderCommandRecorder context;
+    root.paint(context);
+
+    const auto iterator = std::find_if(context.commands().begin(), context.commands().end(),
+                                       [](const auto& command) {
+                                           return command.type() == RenderCommandType::FillRect &&
+                                                  command_rect(command) ==
+                                                      Rect{0.0F, 0.0F, 640.0F, 360.0F};
+                                       });
+    ASSERT_NE(iterator, context.commands().end());
+    EXPECT_EQ(command_fill_color(*iterator), Color::rgba(128, 128, 128));
 }
 
 TEST(BasicControlsTests, DialogPaintsBodyAndFooterActions) {
