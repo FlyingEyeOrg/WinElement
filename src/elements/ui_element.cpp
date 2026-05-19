@@ -717,8 +717,7 @@ UIElement& UIElement::push_top_layer_entry(std::unique_ptr<UIElement> element,
         host.focus_manager_->invalidate_focusable_cache();
     }
     host.invalidate_layout();
-    if (entry.options.modal || entry.options.backdrop_base_color.alpha != 0 ||
-        entry.options.backdrop_color.alpha != 0) {
+    if (entry.options.modal || entry.options.backdrop_color.alpha != 0) {
         host.invalidate_paint();
     }
     return element_ref;
@@ -742,8 +741,7 @@ std::unique_ptr<UIElement> UIElement::remove_top_layer_entry(std::size_t index) 
     }
     host.clear_top_layer_logical_owner_references(*iterator->element);
     const auto affects_backdrop =
-        iterator->options.modal || iterator->options.backdrop_base_color.alpha != 0 ||
-        iterator->options.backdrop_color.alpha != 0;
+        iterator->options.modal || iterator->options.backdrop_color.alpha != 0;
     auto on_dismissed = std::move(iterator->options.on_dismissed);
     auto removed = std::move(iterator->element);
     if (host.layout_dirty_root_ != nullptr && removed->contains(*host.layout_dirty_root_)) {
@@ -800,8 +798,7 @@ bool UIElement::mark_top_layer_entry_pending_removal(std::uint64_t entry_id) {
     iterator->element->visible_ = false;
     host.mark_logical_descendant_top_layer_entries_pending_removal(*iterator->element, entry_id);
     host.invalidate_layout();
-    if (iterator->options.modal || iterator->options.backdrop_base_color.alpha != 0 ||
-        iterator->options.backdrop_color.alpha != 0) {
+    if (iterator->options.modal || iterator->options.backdrop_color.alpha != 0) {
         host.invalidate_paint();
     }
     return true;
@@ -3351,9 +3348,6 @@ void UIElement::append_top_layer_commands(rendering::RenderCommandRecorder& reco
         if (entry.pending_removal) {
             continue;
         }
-        if (entry.options.backdrop_base_color.alpha != 0) {
-            recorder.fill_rect(committed_absolute_frame_, entry.options.backdrop_base_color);
-        }
         if (entry.options.backdrop_color.alpha != 0) {
             recorder.fill_rect(committed_absolute_frame_, entry.options.backdrop_color);
         }
@@ -3370,17 +3364,9 @@ void UIElement::append_top_layer_scene_nodes(
         if (entry.pending_removal) {
             continue;
         }
-        if (entry.options.backdrop_base_color.alpha != 0 ||
-            entry.options.backdrop_color.alpha != 0) {
+        if (entry.options.backdrop_color.alpha != 0) {
             rendering::RenderCommandRecorder backdrop_recorder(prepared_cache);
-            if (entry.options.backdrop_base_color.alpha != 0) {
-                backdrop_recorder.fill_rect(committed_absolute_frame_,
-                                            entry.options.backdrop_base_color);
-            }
-            if (entry.options.backdrop_color.alpha != 0) {
-                backdrop_recorder.fill_rect(committed_absolute_frame_,
-                                            entry.options.backdrop_color);
-            }
+            backdrop_recorder.fill_rect(committed_absolute_frame_, entry.options.backdrop_color);
             auto node = rendering::RenderNode{.kind = rendering::RenderNodeKind::Picture,
                                               .commands = backdrop_recorder.take_command_list()};
             refresh_scene_node_metadata(node);
@@ -3774,9 +3760,6 @@ void UIElement::paint_top_layer(rendering::RenderContext& context) const {
         if (entry.pending_removal) {
             continue;
         }
-        if (entry.options.backdrop_base_color.alpha != 0) {
-            context.fill_rect(committed_absolute_frame_, entry.options.backdrop_base_color);
-        }
         if (entry.options.backdrop_color.alpha != 0) {
             context.fill_rect(committed_absolute_frame_, entry.options.backdrop_color);
         }
@@ -4104,7 +4087,6 @@ UIElement* UIElement::top_layer_pointer_target(layout::Point absolute_point) noe
             return hit;
         }
         if (iterator->options.light_dismiss || iterator->options.modal ||
-            iterator->options.backdrop_base_color.alpha != 0 ||
             iterator->options.backdrop_color.alpha != 0) {
             return iterator->element.get();
         }
@@ -4122,7 +4104,6 @@ const UIElement* UIElement::top_layer_pointer_target(layout::Point absolute_poin
             return hit;
         }
         if (iterator->options.light_dismiss || iterator->options.modal ||
-            iterator->options.backdrop_base_color.alpha != 0 ||
             iterator->options.backdrop_color.alpha != 0) {
             return iterator->element.get();
         }

@@ -462,16 +462,14 @@ TEST(BasicControlsTests, MessageBoxModalBackdropFullyCoversUnderlyingContent) {
     RenderCommandRecorder context;
     root.paint(context);
 
-    std::vector<Color> backdrop_colors;
-    for (const auto& command : context.commands()) {
-        if (command.type() == RenderCommandType::FillRect &&
-            command_rect(command) == Rect{0.0F, 0.0F, 640.0F, 360.0F}) {
-            backdrop_colors.push_back(command_fill_color(command));
-        }
-    }
-    ASSERT_GE(backdrop_colors.size(), 2U);
-    EXPECT_EQ(backdrop_colors[backdrop_colors.size() - 2U], Color::rgba(255, 255, 255, 230));
-    EXPECT_EQ(backdrop_colors.back(), Color::rgba(0, 0, 0, 128));
+    const auto iterator = std::find_if(context.commands().begin(), context.commands().end(),
+                                       [](const auto& command) {
+                                           return command.type() == RenderCommandType::FillRect &&
+                                                  command_rect(command) ==
+                                                      Rect{0.0F, 0.0F, 640.0F, 360.0F};
+                                       });
+    ASSERT_NE(iterator, context.commands().end());
+    EXPECT_EQ(command_fill_color(*iterator), Color::rgba(0, 0, 0, 80));
 }
 
 TEST(BasicControlsTests, DialogModalBackdropFullyCoversUnderlyingContent) {
@@ -490,16 +488,14 @@ TEST(BasicControlsTests, DialogModalBackdropFullyCoversUnderlyingContent) {
     RenderCommandRecorder context;
     root.paint(context);
 
-    std::vector<Color> backdrop_colors;
-    for (const auto& command : context.commands()) {
-        if (command.type() == RenderCommandType::FillRect &&
-            command_rect(command) == Rect{0.0F, 0.0F, 640.0F, 360.0F}) {
-            backdrop_colors.push_back(command_fill_color(command));
-        }
-    }
-    ASSERT_GE(backdrop_colors.size(), 2U);
-    EXPECT_EQ(backdrop_colors[backdrop_colors.size() - 2U], Color::rgba(255, 255, 255, 230));
-    EXPECT_EQ(backdrop_colors.back(), Color::rgba(0, 0, 0, 128));
+    const auto iterator = std::find_if(context.commands().begin(), context.commands().end(),
+                                       [](const auto& command) {
+                                           return command.type() == RenderCommandType::FillRect &&
+                                                  command_rect(command) ==
+                                                      Rect{0.0F, 0.0F, 640.0F, 360.0F};
+                                       });
+    ASSERT_NE(iterator, context.commands().end());
+    EXPECT_EQ(command_fill_color(*iterator), Color::rgba(0, 0, 0, 80));
 }
 
 TEST(BasicControlsTests, DialogPaintsBodyAndFooterActions) {

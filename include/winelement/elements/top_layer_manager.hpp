@@ -19,7 +19,6 @@ struct TopLayerOptions {
     layout::Rect bounds{};
     bool light_dismiss = true;
     bool preserve_focus = false;
-    rendering::Color backdrop_base_color = rendering::Color{0, 0, 0, 0};
     rendering::Color backdrop_color = rendering::Color{0, 0, 0, 0};
     bool close_on_escape = true;
     bool modal = false;
