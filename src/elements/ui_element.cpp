@@ -41,6 +41,13 @@ std::uint64_t next_local_theme_generation() noexcept {
                                      .height = std::max(bounds.height, 0.0F)};
 }
 
+[[nodiscard]] bool has_visible_backdrop_top_layer(const TopLayerManager& manager) noexcept {
+    return std::any_of(manager.entries().begin(), manager.entries().end(), [](const auto& entry) {
+        return !entry.pending_removal && entry.element != nullptr &&
+               entry.options.backdrop_color.alpha != 0U;
+    });
+}
+
 [[nodiscard]] layout::Rect
 effective_top_layer_bounds(layout::Rect bounds, layout::Rect host_frame,
                            const layout::LayoutConstraints& root_constraints) noexcept {
@@ -2865,6 +2872,11 @@ void UIElement::clear_paint_dirty_subtree_unchecked() noexcept {
 
 void UIElement::collect_paint_dirty_region_subtree(rendering::DirtyRegion& dirty_region) const {
     if (!visible_) {
+        return;
+    }
+
+    if (needs_paint_ && has_visible_backdrop_top_layer(top_layer_manager_)) {
+        dirty_region.add(committed_absolute_frame_);
         return;
     }
 
