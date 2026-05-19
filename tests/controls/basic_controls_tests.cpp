@@ -639,25 +639,29 @@ TEST(BasicControlsTests, MessageBoxAndDialogCanDragTopLayerBounds) {
 
     auto& box = MessageBox::show(
         root, MessageBoxOptions{.title = "Drag", .message = "Move me", .draggable = true});
+    static_cast<void>(box.tick_animations(winelement::animation::AnimationClockType::now() +
+                                          std::chrono::milliseconds(250)));
     const auto box_start = root.top_layer_bounds(box);
     const auto box_initial_transform = box.render_transform();
     EXPECT_EQ(router.cursor_for_point({box_start.x + 24.0F, box_start.y + 20.0F}),
               PointerCursor::Move);
+    EXPECT_EQ(router.cursor_for_point({box_start.x + 24.0F, box_start.y + 38.0F}),
+              PointerCursor::Move);
     EXPECT_EQ(router.cursor_for_point({box_start.x + box_start.width - 12.0F, box_start.y + 20.0F}),
               PointerCursor::Hand);
-    EXPECT_EQ(router.cursor_for_point({box_start.x + 24.0F, box_start.y + 42.0F}),
+    EXPECT_EQ(router.cursor_for_point({box_start.x + 24.0F, box_start.y + 44.0F}),
               PointerCursor::Arrow);
     EXPECT_EQ(router.cursor_for_point({box_start.x + 24.0F, box_start.y + 70.0F}),
               PointerCursor::Arrow);
     router.route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
-                                            .position = {box_start.x + 24.0F, box_start.y + 42.0F},
+                                            .position = {box_start.x + 24.0F, box_start.y + 44.0F},
                                             .button = PointerButton::Primary,
                                             .primary_button_down = true});
     router.route_pointer_event(PointerEvent{.kind = PointerEventKind::Move,
-                                            .position = {box_start.x + 64.0F, box_start.y + 72.0F},
+                                            .position = {box_start.x + 64.0F, box_start.y + 74.0F},
                                             .primary_button_down = true});
     router.route_pointer_event(PointerEvent{.kind = PointerEventKind::Up,
-                                            .position = {box_start.x + 64.0F, box_start.y + 72.0F},
+                                            .position = {box_start.x + 64.0F, box_start.y + 74.0F},
                                             .button = PointerButton::Primary});
     EXPECT_EQ(root.top_layer_bounds(box), box_start);
     EXPECT_EQ(box.render_transform(), box_initial_transform);
@@ -683,6 +687,8 @@ TEST(BasicControlsTests, MessageBoxAndDialogCanDragTopLayerBounds) {
 
     auto& dialog = Dialog::show(
         root, DialogOptions{.title = "Drag dialog", .body = "Move me", .draggable = true});
+    static_cast<void>(dialog.tick_animations(winelement::animation::AnimationClockType::now() +
+                                             std::chrono::milliseconds(250)));
     const auto dialog_start = root.top_layer_bounds(dialog);
     const auto dialog_initial_transform = dialog.render_transform();
     EXPECT_EQ(router.cursor_for_point({dialog_start.x + 24.0F, dialog_start.y + 24.0F}),

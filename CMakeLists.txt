@@ -34,8 +34,6 @@ if(WINELEMENT_BUILD_SAMPLES)
     add_subdirectory(samples/render_pipeline_demo)
     add_subdirectory(samples/render_pipeline_perf)
     add_subdirectory(samples/controls_showcase)
-    add_subdirectory(samples/dialog_spacing_probe)
-    add_subdirectory(samples/message_box_spacing_probe)
 endif()
 
 if(WINELEMENT_BUILD_TESTS)

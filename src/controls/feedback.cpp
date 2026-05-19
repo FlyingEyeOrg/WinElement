@@ -33,13 +33,13 @@ constexpr auto message_status_icon_size = 16.0F;
 constexpr auto message_stack_spacing = 16.0F;
 constexpr auto modal_backdrop_color = rendering::Color::rgba(0, 0, 0, 80);
 constexpr auto message_box_padding = 16.0F;
-constexpr auto message_box_header_height = 18.0F;
+constexpr auto message_box_header_height = 24.0F;
 constexpr auto message_box_footer_gap = 16.0F;
 constexpr auto message_box_prompt_gap = 12.0F;
 constexpr auto message_box_header_body_gap = 24.0F;
 constexpr auto message_box_status_size = 24.0F;
 constexpr auto message_box_footer_height = 32.0F;
-constexpr auto message_box_drag_height = message_box_padding + message_box_header_height;
+constexpr auto message_box_drag_height = 40.0F;
 constexpr auto dialog_padding = 16.0F;
 constexpr auto dialog_header_min_height = 24.0F;
 constexpr auto dialog_header_body_gap = 24.0F;
@@ -650,6 +650,7 @@ MessageBox::MessageBox() : Control() {
         .set_align_items(layout::Align::Center)
         .set_justify_content(layout::JustifyContent::FlexStart)
         .set_gap(6.0F);
+    header.set_hit_test_visible(false);
     header.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F))
             .set_margin(layout::Edge::Right, layout::Length::points(32.0F))
@@ -665,6 +666,7 @@ MessageBox::MessageBox() : Control() {
 
     auto& title = header.append_new_child<Text>();
     title.set_font_size(18.0F).set_color(rendering::Color::rgba(48, 49, 51));
+    title.set_hit_test_visible(false);
     title.configure_layout(
         [](layout::LayoutElement& item) { item.set_flex_grow(1.0F).set_flex_shrink(1.0F); });
     title_label_ = &title;

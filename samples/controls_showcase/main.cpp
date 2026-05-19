@@ -1257,7 +1257,6 @@ build_showcase_content(elements::UIElement& feedback_host) {
     root->set_background(rendering::Color::rgba(245, 247, 250));
     root->configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F))
-            .set_min_height(layout::Length::points(canvas_height))
             .set_padding(layout::Edge::All, layout::Length::points(24.0F));
     });
 
