@@ -138,7 +138,8 @@ void refresh_scene_node_metadata(rendering::RenderNode& node) noexcept {
     }
 
     if (node.kind == rendering::RenderNodeKind::Picture ||
-        node.kind == rendering::RenderNodeKind::Surface) {
+        node.kind == rendering::RenderNodeKind::Surface ||
+        (node.kind == rendering::RenderNodeKind::Layer && !node.clips_to_bounds)) {
         node.bounds = computed_bounds;
     }
 
@@ -1462,8 +1463,7 @@ UIElement& UIElement::set_render_transform(rendering::Transform2D transform) {
     }
 
     if (layout_generation_ != 0U) {
-        const auto previous_bounds =
-            rendering::transform_rect(committed_absolute_frame_, render_layer_options().transform);
+        const auto previous_bounds = visible_subtree_bounds();
         pending_visual_dirty_bounds_ =
             pending_visual_dirty_bounds_.has_value()
                 ? layout::union_rects(*pending_visual_dirty_bounds_, previous_bounds)
@@ -2913,16 +2913,12 @@ void UIElement::collect_paint_dirty_region_subtree(rendering::DirtyRegion& dirty
         if (pending_visual_dirty_bounds_.has_value()) {
             dirty_region.add(*pending_visual_dirty_bounds_);
         }
-        dirty_region.add(has_render_layer()
-                             ? rendering::transform_rect(committed_absolute_frame_,
-                                                         render_layer_options().transform)
-                             : committed_absolute_frame_);
+        dirty_region.add(visible_subtree_bounds());
         return;
     }
 
     if (has_render_layer() && needs_paint_) {
-        dirty_region.add(
-            rendering::transform_rect(committed_absolute_frame_, render_layer_options().transform));
+        dirty_region.add(visible_subtree_bounds());
         return;
     }
 
@@ -3472,7 +3468,7 @@ rendering::RenderLayerOptions UIElement::render_layer_options() const noexcept {
         .bounds = committed_absolute_frame_,
         .opacity = opacity(),
         .transform = rendering::transform_around_point(render_transform(), origin),
-        .clips_to_bounds = true};
+        .clips_to_bounds = false};
 }
 
 void UIElement::calculate_top_layer_layouts(layout::LayoutConstraints constraints,
@@ -3705,12 +3701,6 @@ layout::Rect UIElement::visible_subtree_bounds() const noexcept {
                             std::max(shadow_style.spread, 0.0F) +
                                 std::max(shadow_style.blur_radius, 0.0F)));
         }
-        if (has_render_layer()) {
-            bounds = layout::union_rects(
-                bounds, rendering::transform_rect(committed_absolute_frame_,
-                                                  render_layer_options().transform));
-        }
-
         for (const auto& child : children_) {
             bounds = layout::union_rects(bounds, child->visible_subtree_bounds());
         }
@@ -3718,6 +3708,9 @@ layout::Rect UIElement::visible_subtree_bounds() const noexcept {
             if (!entry.pending_removal && entry.element != nullptr) {
                 bounds = layout::union_rects(bounds, entry.element->visible_subtree_bounds());
             }
+        }
+        if (has_render_layer()) {
+            bounds = rendering::transform_rect(bounds, render_layer_options().transform);
         }
     }
 

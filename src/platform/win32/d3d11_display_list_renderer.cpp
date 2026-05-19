@@ -2340,10 +2340,10 @@ struct D3D11DisplayListRenderer::RenderPlanCacheState {
         prune_entries(render_plans);
     }
 
-    static constexpr auto max_frame_graphs = 64U;
-    static constexpr auto max_visibility_tiles = 128U;
-    static constexpr auto max_pass_metrics = 64U;
-    static constexpr auto max_render_plans = 48U;
+    static constexpr auto max_frame_graphs = 32U;
+    static constexpr auto max_visibility_tiles = 96U;
+    static constexpr auto max_pass_metrics = 32U;
+    static constexpr auto max_render_plans = 32U;
     std::vector<CachedFrameGraph> frame_graphs;
     std::vector<CachedVisibilityTile> visibility_tiles;
     std::vector<CachedPassMetrics> pass_metrics;
@@ -2385,7 +2385,7 @@ void D3D11DisplayListRenderer::prune_frame_caches_if_needed() {
 
     next_cache_prune_frame_ = frame_sequence_ + 32U;
 
-    constexpr auto transformed_geometry_max_idle_frames = 180U;
+    constexpr auto transformed_geometry_max_idle_frames = 120U;
     transformed_geometry_fill_cache_.erase(
         std::remove_if(transformed_geometry_fill_cache_.begin(),
                        transformed_geometry_fill_cache_.end(),
@@ -2396,7 +2396,7 @@ void D3D11DisplayListRenderer::prune_frame_caches_if_needed() {
                        }),
         transformed_geometry_fill_cache_.end());
 
-    constexpr auto text_glyph_run_max_idle_frames = 180U;
+    constexpr auto text_glyph_run_max_idle_frames = 120U;
     text_glyph_run_cache_.erase(
         std::remove_if(text_glyph_run_cache_.begin(), text_glyph_run_cache_.end(),
                        [this](const CachedTextGlyphRun& cached) {
@@ -2411,7 +2411,7 @@ void D3D11DisplayListRenderer::prune_frame_caches_if_needed() {
                        }),
         text_glyph_run_cache_.end());
 
-    constexpr auto render_plan_cache_max_idle_frames = 180U;
+    constexpr auto render_plan_cache_max_idle_frames = 120U;
     if (render_plan_cache_ != nullptr) {
         render_plan_cache_->prune_unused(frame_sequence_, render_plan_cache_max_idle_frames);
     }
@@ -2942,7 +2942,12 @@ void D3D11DisplayListRenderer::record_render_work_items(RenderFrameAnalysis& ana
     }
 
     auto& pool = shared_render_thread_pool();
-    const auto task_count = std::min(worker_item_indices.size(), pool.worker_count());
+    // A small UI frame usually benefits more from cache locality than from spawning one recorder
+    // per hardware worker. Two deferred recorders keep parallelism useful without retaining a
+    // large set of D3D contexts and glyph snapshots for showcase-sized scenes.
+    constexpr auto max_parallel_recorders_per_frame = 2U;
+    const auto task_count = std::min({worker_item_indices.size(), pool.worker_count(),
+                                      static_cast<std::size_t>(max_parallel_recorders_per_frame)});
     ensure_worker_recorder_pool(task_count);
 
     auto futures = std::vector<std::future<void>>{};

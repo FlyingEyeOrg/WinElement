@@ -190,8 +190,9 @@ void append_command(RenderCommandRecorder& recorder, const RenderCommandList& so
             ++index;
             auto layer = parse_retained_node(source, index, true,
                                              debug_name + ".layer." + std::to_string(layer_order));
+            const auto layer_content_bounds = layer.bounds;
             layer.kind = RenderNodeKind::Layer;
-            layer.bounds = options.bounds;
+            layer.bounds = options.clips_to_bounds ? options.bounds : layer_content_bounds;
             layer.transform = options.transform;
             layer.opacity = std::clamp(options.opacity, 0.0F, 1.0F);
             layer.clips_to_bounds = options.clips_to_bounds;

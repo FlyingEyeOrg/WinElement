@@ -41,6 +41,18 @@ template <typename CommandPayload>
     return command.payload<CommandPayload>();
 }
 
+[[nodiscard]] const RenderNode* first_layer_node(const RenderNode& node) noexcept {
+    if (node.kind == RenderNodeKind::Layer) {
+        return &node;
+    }
+    for (const auto& child : node.children) {
+        if (const auto* layer = first_layer_node(child)) {
+            return layer;
+        }
+    }
+    return nullptr;
+}
+
 struct PointerRecord {
     const UIElement* current_target = nullptr;
     Point local_position{};
@@ -2781,6 +2793,59 @@ TEST(UIElementTests, LayeredElementWrapsContentCommandsAndInvalidatesPaint) {
     EXPECT_TRUE(root.needs_paint());
 }
 
+TEST(UIElementTests, TransformedLayerKeepsShadowBleedAndDirtyRegion) {
+    auto engine = create_unrounded_engine();
+    UIElement root;
+    root.bind_layout_tree(engine);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(180.0F), Length::points(140.0F));
+    });
+
+    auto container = std::make_unique<UIElement>();
+    container->configure_layout([](LayoutElement& layout) {
+        layout.set_position_type(PositionType::Absolute)
+            .set_position(Edge::Left, Length::points(40.0F))
+            .set_position(Edge::Top, Length::points(30.0F))
+            .set_size(Length::points(50.0F), Length::points(40.0F));
+    });
+    auto surface = std::make_unique<UIElement>();
+    surface->set_background(Color::rgba(255, 255, 255))
+        .set_shadow(ShadowStyle{
+            .color = Color::rgba(0, 0, 0, 26), .offset = {0.0F, 8.0F}, .blur_radius = 12.0F});
+    surface->configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::percent(100.0F), Length::percent(100.0F));
+    });
+    container->append_child(std::move(surface));
+    auto& container_ref = root.append_child(std::move(container));
+
+    root.calculate_layout(LayoutConstraints{.width = 180.0F, .height = 140.0F});
+    RenderScene first_scene;
+    root.commit_render_scene(first_scene);
+    root.clear_paint_dirty_subtree();
+
+    container_ref.set_render_transform(Transform2D::translation(30.0F, 10.0F));
+
+    DirtyRegion dirty_region;
+    RenderScene scene;
+    root.commit_render_scene(scene, &dirty_region);
+
+    ASSERT_FALSE(dirty_region.empty());
+    const auto dirty_bounds = dirty_region.bounds();
+    EXPECT_LE(dirty_bounds.x, 28.0F);
+    EXPECT_LE(dirty_bounds.y, 26.0F);
+    EXPECT_GE(dirty_bounds.x + dirty_bounds.width, 132.0F);
+    EXPECT_GE(dirty_bounds.y + dirty_bounds.height, 100.0F);
+
+    ASSERT_NE(scene.root(), nullptr);
+    const auto* layer = first_layer_node(*scene.root());
+    ASSERT_NE(layer, nullptr);
+    EXPECT_FALSE(layer->clips_to_bounds);
+    EXPECT_LE(layer->bounds.x, 28.0F);
+    EXPECT_LE(layer->bounds.y, 26.0F);
+    EXPECT_GE(layer->bounds.x + layer->bounds.width, 102.0F);
+    EXPECT_GE(layer->bounds.y + layer->bounds.height, 90.0F);
+}
+
 TEST(UIElementTests, CommitRenderSceneBuildsRetainedLayerNodes) {
     auto engine = create_unrounded_engine();
     RecordingElement root;
@@ -2808,7 +2873,8 @@ TEST(UIElementTests, CommitRenderSceneBuildsRetainedLayerNodes) {
     const auto& child_layer = root_content.children.front();
     EXPECT_EQ(child_layer.kind, RenderNodeKind::Layer);
     EXPECT_FLOAT_EQ(child_layer.opacity, 0.5F);
-    EXPECT_FLOAT_EQ(child_layer.bounds.width, 50.0F);
+    EXPECT_GE(child_layer.bounds.width, 50.0F);
+    EXPECT_FALSE(child_layer.clips_to_bounds);
     EXPECT_FALSE(is_identity_transform(child_layer.transform));
 }
 
