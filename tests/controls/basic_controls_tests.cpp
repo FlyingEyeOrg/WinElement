@@ -266,7 +266,7 @@ TEST(BasicControlsTests, MessagePaintsSemanticSurfaceAndCloseState) {
     EXPECT_NE(find_command(context, RenderCommandType::DrawTextLayout, "Saved successfully"),
               nullptr);
     EXPECT_GE(command_count(context, RenderCommandType::FillRoundedRect), 1U);
-    EXPECT_EQ(command_count(context, RenderCommandType::DrawBoxShadow), 0U);
+    EXPECT_GE(command_count(context, RenderCommandType::DrawBoxShadow), 1U);
     EXPECT_EQ(find_command(context, RenderCommandType::DrawTextLayout, "x"), nullptr);
     EXPECT_GT(command_count(context, RenderCommandType::FillGeometry), 0U);
 }
@@ -314,8 +314,9 @@ TEST(BasicControlsTests, MessageShowPushesTopLayerEntry) {
     EXPECT_FALSE(second.show_close());
     EXPECT_GT(root.top_layer_bounds(second).y, root.top_layer_bounds(message).y);
 
-    static_cast<void>(root.tick_animations(winelement::animation::AnimationClockType::now() +
-                                           std::chrono::milliseconds(3200)));
+    const auto now = winelement::animation::AnimationClockType::now();
+    static_cast<void>(root.tick_animations(now + std::chrono::milliseconds(3200)));
+    static_cast<void>(root.tick_animations(now + std::chrono::milliseconds(3520)));
     EXPECT_EQ(root.top_layer_count(), 1U);
 }
 

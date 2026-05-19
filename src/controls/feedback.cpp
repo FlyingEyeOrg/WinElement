@@ -18,6 +18,12 @@ constexpr auto fallback_viewport = layout::Rect{0.0F, 0.0F, 960.0F, 640.0F};
 constexpr auto transparent = rendering::Color::rgba(0, 0, 0, 0);
 constexpr auto overlay_shadow = rendering::ShadowStyle{
     .color = rendering::Color::rgba(0, 0, 0, 20), .offset = {0.0F, 6.0F}, .blur_radius = 12.0F};
+constexpr auto message_shadow = rendering::ShadowStyle{
+    .color = rendering::Color::rgba(0, 0, 0, 14), .offset = {0.0F, 10.0F}, .blur_radius = 22.0F};
+constexpr auto modal_overlay_shadow =
+    rendering::ShadowStyle{.color = rendering::Color::rgba(0, 0, 0, 18),
+                           .offset = {0.0F, 12.0F},
+                           .blur_radius = 32.0F};
 constexpr auto floating_overlay_shadow =
     rendering::ShadowStyle{.color = rendering::Color::rgba(0, 0, 0, 26),
                            .offset = {0.0F, 12.0F},
@@ -515,15 +521,7 @@ bool Message::on_animation_frame(animation::AnimationTimePoint now) {
     }
     if (!closing_ && duration_ms_ > 0 &&
         now - opened_at_ >= std::chrono::milliseconds{duration_ms_}) {
-        if (auto* host = parent()) {
-            relayout_host_messages(*host, true);
-        }
-        const auto handler = close_handler_;
-        if (handler) {
-            handler();
-        }
-        dismiss_own_top_layer();
-        return false;
+        begin_close();
     }
     if (closing_ && !open_progress_.running() && open_progress_.value() <= 0.001F) {
         if (auto* host = parent()) {
@@ -542,7 +540,8 @@ bool Message::on_animation_frame(animation::AnimationTimePoint now) {
 void Message::apply_visual_state() {
     const auto palette = palette_for(type_);
     if (surface_ != nullptr) {
-        apply_surface_style(*surface_, 4.0F, palette.background, palette.border, false);
+        apply_surface_style(*surface_, 4.0F, palette.background, palette.border, true);
+        surface_->set_shadow(message_shadow);
     }
     if (text_label_ != nullptr) {
         text_label_->set_color(palette.text);
@@ -561,7 +560,8 @@ void Message::restart_open_animation() noexcept {
     closing_ = false;
     open_progress_.set(0.0F);
     apply_open_animation();
-    open_progress_.animate_to(1.0F, animation::AnimationDuration{0.4F});
+    open_progress_.animate_to(1.0F, animation::AnimationDuration{0.3F},
+                              animation::EasingFunction::ease_out_cubic());
 }
 
 void Message::apply_open_animation() noexcept {
@@ -570,7 +570,8 @@ void Message::apply_open_animation() noexcept {
 
 void Message::set_stack_top(float top, bool animate) noexcept {
     if (animate) {
-        stack_top_.animate_to(top, animation::AnimationDuration{0.4F});
+        stack_top_.animate_to(top, animation::AnimationDuration{0.3F},
+                              animation::EasingFunction::ease_in_out_cubic());
     } else {
         stack_top_.set(top);
     }
@@ -594,6 +595,9 @@ void Message::begin_close() noexcept {
         return;
     }
     closing_ = true;
+    if (auto* host = parent()) {
+        relayout_host_messages(*host, true);
+    }
     open_progress_.animate_to(0.0F, animation::AnimationDuration{0.25F},
                               animation::EasingFunction::ease_in_out_cubic());
 }
@@ -1045,7 +1049,7 @@ void MessageBox::apply_visual_state() {
         const auto border =
             modal_ ? rendering::Color::rgba(235, 238, 245) : rendering::Color::rgba(220, 223, 230);
         apply_surface_style(*surface_, 4.0F, rendering::Color::rgba(255, 255, 255), border, true);
-        surface_->set_shadow(modal_ ? overlay_shadow : floating_overlay_shadow);
+        surface_->set_shadow(modal_ ? modal_overlay_shadow : floating_overlay_shadow);
     }
     if (header_panel_ != nullptr) {
         header_panel_->set_justify_content(center_ ? layout::JustifyContent::Center
@@ -1424,6 +1428,7 @@ Dialog::Dialog() : Control() {
     configure_surface_layer(surface);
     apply_surface_style(surface, 4.0F, rendering::Color::rgba(255, 255, 255),
                         rendering::Color::rgba(235, 238, 245), true);
+    surface.set_shadow(modal_overlay_shadow);
     surface_ = &surface;
 
     configure_layout([](layout::LayoutElement& item) {
