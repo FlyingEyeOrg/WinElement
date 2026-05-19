@@ -826,7 +826,39 @@ class Window::Impl final {
                 next_animation_repaint_at_ += animation_frame_interval;
             } while (next_animation_repaint_at_ <= now);
         }
-        request_repaint();
+        request_animation_ui_frame();
+    }
+
+    void request_animation_ui_frame() noexcept {
+        if (hwnd_ == nullptr) {
+            return;
+        }
+
+        try {
+            ensure_render_worker();
+            ensure_ui_frame_worker();
+            if (render_worker_ == nullptr) {
+                return;
+            }
+
+            const auto target_pixel_size = client_pixel_size(hwnd_);
+            const auto layout_size = client_dip_size(hwnd_, dpi_);
+
+            UiFrameRequest request;
+            request.layout_constraints.width = layout_size.width;
+            request.layout_constraints.height = layout_size.height;
+            request.target_pixel_width = target_pixel_size.width;
+            request.target_pixel_height = target_pixel_size.height;
+
+            if (interactive_resize_) {
+                cancel_pending_ui_frame();
+                prepare_ui_frame(std::move(request), true);
+            } else {
+                post_ui_frame(std::move(request));
+            }
+        } catch (...) {
+            request_repaint();
+        }
     }
 
     void start_ui_frame_worker() {

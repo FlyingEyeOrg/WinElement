@@ -13,7 +13,6 @@ class AnimatedFloat final {
     explicit AnimatedFloat(float value = 0.0F) noexcept : value_(sanitize(value)) {}
 
     [[nodiscard]] float value() const noexcept {
-        static_cast<void>(tick(animation::AnimationClockType::now()));
         return value_;
     }
 

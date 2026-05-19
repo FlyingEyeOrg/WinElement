@@ -2900,6 +2900,10 @@ void UIElement::collect_paint_dirty_region_subtree(rendering::DirtyRegion& dirty
         return;
     }
 
+    if (!needs_paint_ && top_layer_manager_.entries().empty()) {
+        return;
+    }
+
     if (needs_paint_ && has_visible_backdrop_top_layer(top_layer_manager_)) {
         dirty_region.add(committed_absolute_frame_);
         return;

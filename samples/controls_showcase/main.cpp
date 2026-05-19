@@ -279,7 +279,7 @@ class ImplicitPropertyDemoPanel final : public controls::Panel {
         fill_ = &fill;
 
         auto& replay = append_new_child<controls::Button>();
-        replay.set_text("Replay implicit property animation").set_type(controls::ButtonType::Primary);
+        replay.set_text("Restart implicit property animation").set_type(controls::ButtonType::Primary);
         replay.configure_layout([](layout::LayoutElement& item) {
             item.set_width(layout::Length::points(280.0F)).set_flex_shrink(0.0F);
         });
@@ -294,7 +294,7 @@ class ImplicitPropertyDemoPanel final : public controls::Panel {
         animate_property<float>(
             implicit_demo_progress_property(), 1.0F,
             animation::AnimationTiming{.duration = animation::AnimationDuration{0.7F},
-                                       .iteration_count = 2.0F,
+                                       .iteration_count = std::numeric_limits<float>::infinity(),
                                        .direction = animation::PlaybackDirection::Alternate,
                                        .fill_mode = animation::FillMode::Both,
                                        .easing = animation::EasingFunction::ease_in_out_cubic()});
@@ -1108,6 +1108,7 @@ void add_animation_section(controls::StackPanel& root) {
     loading_preview_button
         .set_text("Loading")
         .set_type(controls::ButtonType::Primary)
+        .set_loading(true)
         .set_on_click([&loading_preview_button]() {
             loading_preview_button.set_loading(!loading_preview_button.loading());
         });
@@ -1165,15 +1166,15 @@ void add_animation_section(controls::StackPanel& root) {
           animation::PlaybackDirection::Alternate,
           animation::PlaybackDirection::AlternateReverse}) {
         auto& badge = timing_row.append_new_child<LiveSampleCard>();
+        const auto timing = animation::AnimationTiming{
+            .duration = animation::AnimationDuration{1.0F},
+            .iteration_count = 2.0F,
+            .direction = direction,
+            .fill_mode = animation::FillMode::Both,
+            .easing = animation::EasingFunction::ease_out_cubic()};
+        const auto timeline = animation::Timeline(timing);
         badge.set_label(playback_direction_label(direction))
-            .set_sample_function([direction](animation::AnimationTimePoint now) {
-                const auto timing = animation::AnimationTiming{
-                    .duration = animation::AnimationDuration{1.0F},
-                    .iteration_count = 2.0F,
-                    .direction = direction,
-                    .fill_mode = animation::FillMode::Both,
-                    .easing = animation::EasingFunction::ease_out_cubic()};
-                animation::Timeline timeline(timing);
+            .set_sample_function([timeline](animation::AnimationTimePoint now) {
                 const auto sample = timeline.sample(animation::AnimationDuration{
                     loop_progress(now, 0.45F) * 2.0F});
                 return LiveSample{
@@ -1211,7 +1212,7 @@ void add_animation_section(controls::StackPanel& root) {
     spring_card
         .set_label("Spring response")
         .set_sample_function([](animation::AnimationTimePoint now) {
-            animation::SpringSimulation spring(0.0F, 1.0F);
+            static const auto spring = animation::SpringSimulation(0.0F, 1.0F);
             const auto value =
                 spring.sample(animation::AnimationDuration{loop_progress(now, 0.55F) * 1.1F}).value;
             return LiveSample{
@@ -1225,7 +1226,7 @@ void add_animation_section(controls::StackPanel& root) {
     friction_card
         .set_label("Friction decay")
         .set_sample_function([](animation::AnimationTimePoint now) {
-            animation::FrictionSimulation friction(0.0F, 720.0F);
+            static const auto friction = animation::FrictionSimulation(0.0F, 720.0F);
             const auto value = friction.sample(
                 animation::AnimationDuration{loop_progress(now, 0.35F) * 1.4F});
             return LiveSample{
