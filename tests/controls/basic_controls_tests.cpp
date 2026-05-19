@@ -361,8 +361,8 @@ TEST(BasicControlsTests, MessageBoxPromptKeepsInputAndPaintsActions) {
     const auto message_rect = command_rect(*message_command);
     const auto create_rect = command_rect(*create_command);
     const auto cancel_rect = command_rect(*cancel_command);
-    EXPECT_GT(message_rect.y - (title_rect.y + title_rect.height), 2.0F);
-    EXPECT_LT(message_rect.y - (title_rect.y + title_rect.height), 10.0F);
+    EXPECT_GT(message_rect.y - (title_rect.y + title_rect.height), 10.0F);
+    EXPECT_LT(message_rect.y - (title_rect.y + title_rect.height), 20.0F);
     EXPECT_GT(create_rect.y - (message_rect.y + message_rect.height), 56.0F);
     EXPECT_LT(create_rect.y, 208.0F);
     EXPECT_NEAR(cancel_rect.y, create_rect.y, 1.0F);
@@ -398,8 +398,8 @@ TEST(BasicControlsTests, MessageBoxAlertKeepsHeaderContentGapAtDefaultHeight) {
     const auto title_rect = command_rect(*title_command);
     const auto message_rect = command_rect(*message_command);
     const auto confirm_rect = command_rect(*confirm_command);
-    EXPECT_GT(message_rect.y - (title_rect.y + title_rect.height), 2.0F);
-    EXPECT_LT(message_rect.y - (title_rect.y + title_rect.height), 10.0F);
+    EXPECT_GT(message_rect.y - (title_rect.y + title_rect.height), 10.0F);
+    EXPECT_LT(message_rect.y - (title_rect.y + title_rect.height), 20.0F);
     EXPECT_GT(confirm_rect.y - (message_rect.y + message_rect.height), 8.0F);
     EXPECT_LT(confirm_rect.y, 104.0F);
 }

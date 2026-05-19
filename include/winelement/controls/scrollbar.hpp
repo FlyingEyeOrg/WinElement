@@ -75,6 +75,7 @@ class Scrollbar final : public Control {
     void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override;
 
   private:
+    void sync_bound_range_if_needed();
     void update_measure_callback();
     [[nodiscard]] layout::Rect track_rect(layout::Rect frame) const noexcept;
     [[nodiscard]] layout::Rect thumb_rect(layout::Rect frame) const noexcept;

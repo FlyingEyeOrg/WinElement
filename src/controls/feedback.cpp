@@ -34,14 +34,15 @@ constexpr auto message_stack_spacing = 16.0F;
 constexpr auto modal_backdrop_color = rendering::Color::rgba(0, 0, 0, 80);
 constexpr auto message_box_padding = 16.0F;
 constexpr auto message_box_header_height = 18.0F;
-constexpr auto message_box_gap = 12.0F;
-constexpr auto message_box_header_body_gap = 8.0F;
+constexpr auto message_box_footer_gap = 16.0F;
+constexpr auto message_box_prompt_gap = 12.0F;
+constexpr auto message_box_header_body_gap = 16.0F;
 constexpr auto message_box_status_size = 24.0F;
 constexpr auto message_box_footer_height = 32.0F;
 constexpr auto message_box_drag_height = message_box_padding + message_box_header_height;
 constexpr auto dialog_padding = 16.0F;
 constexpr auto dialog_header_height = 24.0F;
-constexpr auto dialog_header_body_gap = 12.0F;
+constexpr auto dialog_header_body_gap = 16.0F;
 constexpr auto dialog_drag_height = dialog_padding + dialog_header_height;
 constexpr auto pi = 3.14159265358979323846F;
 constexpr auto loading_icon_size = 42.0F;
@@ -163,10 +164,10 @@ void apply_entry_animation(elements::UIElement& element, float progress, float y
     }
 
     auto height = message_box_padding * 2.0F + message_box_header_height +
-                  message_box_header_body_gap + content_height + message_box_gap +
+                  message_box_header_body_gap + content_height + message_box_footer_gap +
                   message_box_footer_height;
     if (options.kind == MessageBoxKind::Prompt) {
-        height += message_box_gap + 32.0F + 22.0F;
+        height += message_box_prompt_gap + 32.0F + 22.0F;
     }
     const auto minimum_height = options.kind == MessageBoxKind::Prompt ? 194.0F : 128.0F;
     return std::ceil(std::max(height, minimum_height));
@@ -715,7 +716,7 @@ MessageBox::MessageBox() : Control() {
     input.set_on_input([this](std::string_view) { clear_prompt_error(); });
     input.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F))
-            .set_margin(layout::Edge::Top, layout::Length::points(12.0F))
+            .set_margin(layout::Edge::Top, layout::Length::points(message_box_prompt_gap))
             .set_flex_shrink(0.0F);
     });
     input_ = &input;
@@ -739,7 +740,7 @@ MessageBox::MessageBox() : Control() {
         .set_align_items(layout::Align::Center);
     footer.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F))
-            .set_margin(layout::Edge::Top, layout::Length::points(message_box_gap))
+            .set_margin(layout::Edge::Top, layout::Length::points(message_box_footer_gap))
             .set_flex_shrink(0.0F);
     });
     footer_panel_ = &footer;

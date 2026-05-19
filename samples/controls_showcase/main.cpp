@@ -1326,16 +1326,12 @@ build_showcase_content(elements::UIElement& feedback_host) {
     viewport.set_background(rendering::Color::rgba(245, 247, 250));
     viewport.set_overflow(layout::Overflow::Hidden);
     viewport.set_scroll_wheel_enabled(true);
-    viewport.set_viewport(layout::Rect{
-        0.0F,
-        0.0F,
-        showcase_window_width - showcase_page_scrollbar_width - showcase_page_gap,
-        showcase_window_height});
     viewport.configure_layout([](layout::LayoutElement& item) {
-        item.set_size(layout::Length::points(showcase_window_width - showcase_page_scrollbar_width -
-                                             showcase_page_gap),
-                      layout::Length::points(showcase_window_height))
-            .set_flex_shrink(0.0F);
+        item.set_width(layout::Length::percent(100.0F))
+            .set_height(layout::Length::percent(100.0F))
+            .set_flex_grow(1.0F)
+            .set_flex_shrink(1.0F)
+            .set_min_width(layout::Length::points(0.0F));
     });
     viewport.append_child(build_showcase_content(*root));
 
@@ -1343,6 +1339,13 @@ build_showcase_content(elements::UIElement& feedback_host) {
     scrollbar.set_orientation(controls::ScrollbarOrientation::Vertical)
         .set_visibility_mode(controls::ScrollbarVisibility::Always)
         .set_value(0.0F)
+        .bind_range([&viewport]() {
+            return controls::ScrollbarRange{
+                .minimum = 0.0F,
+                .maximum = viewport.max_scroll_offset().y,
+                .page_size = viewport.viewport_rect().height,
+                .value = viewport.scroll_offset().y};
+        })
         .set_on_scroll([&viewport](float value) {
             viewport.set_scroll_offset(layout::Point{0.0F, value});
         });
@@ -1350,8 +1353,8 @@ build_showcase_content(elements::UIElement& feedback_host) {
         scrollbar.set_value(offset.y);
     });
     scrollbar.configure_layout([](layout::LayoutElement& item) {
-        item.set_size(layout::Length::points(showcase_page_scrollbar_width),
-                      layout::Length::points(showcase_window_height))
+        item.set_width(layout::Length::points(showcase_page_scrollbar_width))
+            .set_height(layout::Length::percent(100.0F))
             .set_flex_shrink(0.0F);
     });
 
@@ -1422,13 +1425,6 @@ int run_window_showcase() {
     platform::Window window(platform::WindowOptions{
         .title = L"WinElement Controls Showcase", .width = 1320, .height = 920});
     auto tree = build_showcase_window_tree();
-    auto engine = layout::LayoutEngine{};
-    tree.root->bind_layout_tree(engine);
-    tree.root->calculate_layout(layout::LayoutConstraints{.width = showcase_window_width,
-                                                          .height = showcase_window_height});
-    tree.scrollbar->set_range(0.0F, tree.viewport->max_scroll_offset().y,
-                              tree.viewport->viewport_rect().height);
-    tree.scrollbar->set_value(tree.viewport->scroll_offset().y);
     window.set_content(std::move(tree.root));
     window.show();
     return application.run();

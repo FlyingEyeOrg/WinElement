@@ -16,7 +16,7 @@ namespace {
 namespace fs = std::filesystem;
 
 constexpr auto probe_width = 1120U;
-constexpr auto probe_height = 320U;
+constexpr auto probe_height = 340U;
 constexpr auto probe_dpi = 96.0F;
 
 [[nodiscard]] winelement::rendering::RenderScene build_probe_scene() {
@@ -34,14 +34,14 @@ constexpr auto probe_dpi = 96.0F;
     backdrop.configure_layout([](winelement::layout::LayoutElement& item) {
         item.set_position_type(winelement::layout::PositionType::Absolute)
             .set_position(winelement::layout::Edge::Left,
-                          winelement::layout::Length::points(640.0F))
+                          winelement::layout::Length::points(660.0F))
             .set_position(winelement::layout::Edge::Top,
-                          winelement::layout::Length::points(128.0F))
-            .set_width(winelement::layout::Length::points(360.0F));
+                          winelement::layout::Length::points(154.0F))
+            .set_width(winelement::layout::Length::points(320.0F));
     });
     for (const auto label :
-         {std::string_view{"Show Primary"}, std::string_view{"Show Success"},
-          std::string_view{"Show Warning"}, std::string_view{"Show Info"}}) {
+         {std::string_view{"Open Message Box"}, std::string_view{"Open Confirm"},
+          std::string_view{"Open Warning"}}) {
         auto& button = backdrop.append_new_child<winelement::controls::Button>();
         button.set_text(label).set_type(winelement::controls::ButtonType::Default);
     }
@@ -51,11 +51,12 @@ constexpr auto probe_dpi = 96.0F;
 
     winelement::controls::MessageBox::show(
         root, winelement::controls::MessageBoxOptions{
-                  .title = "Title",
-                  .message = "This is a message",
-                  .kind = winelement::controls::MessageBoxKind::Alert,
-                  .type = winelement::controls::MessageType::Info,
-                  .show_cancel_button = false,
+                  .title = "Warning",
+                  .message = "This action will permanently remove the selected demo item.",
+                  .kind = winelement::controls::MessageBoxKind::Confirm,
+                  .type = winelement::controls::MessageType::Warning,
+                  .show_cancel_button = true,
+                  .distinguish_cancel_and_close = true,
                   .close_on_click_modal = false,
                   .close_on_press_escape = false});
 

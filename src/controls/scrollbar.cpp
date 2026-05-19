@@ -127,6 +127,13 @@ Scrollbar& Scrollbar::update() {
     return refresh_bound_range();
 }
 
+void Scrollbar::sync_bound_range_if_needed() {
+    if (!range_provider_) {
+        return;
+    }
+    refresh_bound_range();
+}
+
 Scrollbar& Scrollbar::scroll_to(float scroll_left, float scroll_top) {
     return orientation_ == ScrollbarOrientation::Vertical ? set_scroll_top(scroll_top)
                                                           : set_scroll_left(scroll_left);
@@ -213,6 +220,7 @@ bool Scrollbar::track_click_enabled() const noexcept {
 }
 
 void Scrollbar::on_pointer_event(elements::PointerEvent& event) {
+    sync_bound_range_if_needed();
     if (event.kind == elements::PointerEventKind::Enter) {
         hovered_ = true;
         animate_hover(1.0F);
@@ -278,6 +286,7 @@ void Scrollbar::on_pointer_event(elements::PointerEvent& event) {
 }
 
 bool Scrollbar::on_animation_frame(animation::AnimationTimePoint now) {
+    sync_bound_range_if_needed();
     auto active = hover_progress_.tick(now);
     active = drag_progress_.tick(now) || active;
     if (active) {
@@ -287,6 +296,7 @@ bool Scrollbar::on_animation_frame(animation::AnimationTimePoint now) {
 }
 
 void Scrollbar::on_key_event(elements::KeyEvent& event) {
+    sync_bound_range_if_needed();
     if (event.kind != elements::KeyEventKind::Down || disabled_) {
         return;
     }
@@ -344,6 +354,7 @@ void Scrollbar::on_key_event(elements::KeyEvent& event) {
 }
 
 void Scrollbar::on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const {
+    const_cast<Scrollbar*>(this)->sync_bound_range_if_needed();
     if (visibility_ == ScrollbarVisibility::Never ||
         (visibility_ == ScrollbarVisibility::Auto && maximum_ <= minimum_)) {
         return;
