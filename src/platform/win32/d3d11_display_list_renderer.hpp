@@ -531,7 +531,7 @@ class D3D11DisplayListRenderer final {
     std::vector<std::shared_ptr<D3D11DisplayListRenderer>> worker_recorders_;
     mutable std::mutex worker_recorder_mutex_;
     RenderTimingMetrics last_timing_metrics_{};
-    bool parallel_recording_enabled_ = true;
+    bool parallel_recording_enabled_ = false;
     bool resource_updates_allowed_ = true;
 };
 

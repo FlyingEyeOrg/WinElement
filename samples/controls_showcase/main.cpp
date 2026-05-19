@@ -30,6 +30,7 @@ constexpr auto showcase_window_width = 1320.0F;
 constexpr auto showcase_window_height = 920.0F;
 constexpr auto showcase_page_scrollbar_width = 14.0F;
 constexpr auto showcase_page_gap = 8.0F;
+constexpr auto showcase_animation_preview_duration = std::chrono::milliseconds(2200);
 
 [[nodiscard]] rendering::Transform2D scale_transform(float scale) noexcept {
     return rendering::Transform2D{.m11 = scale, .m22 = scale};
@@ -75,6 +76,10 @@ class MotionDemoPanel final : public controls::Panel {
 
   protected:
     bool on_animation_frame(animation::AnimationTimePoint now) override {
+        if (preview_until_ == animation::AnimationTimePoint{}) {
+            preview_until_ = now + showcase_animation_preview_duration;
+        }
+
         const auto seconds = std::chrono::duration<float>(now.time_since_epoch()).count();
         const auto phase = std::sin(seconds * 2.4F);
         switch (kind_) {
@@ -91,11 +96,12 @@ class MotionDemoPanel final : public controls::Panel {
             set_render_transform(skew_transform(phase * 0.12F));
             break;
         }
-        return true;
+        return now < preview_until_;
     }
 
   private:
     MotionDemoKind kind_ = MotionDemoKind::Translate;
+    animation::AnimationTimePoint preview_until_{};
 };
 
 struct LiveSample {
@@ -190,6 +196,9 @@ class LiveSampleCard final : public controls::Panel {
         if (!sample_function_) {
             return false;
         }
+        if (preview_until_ == animation::AnimationTimePoint{}) {
+            preview_until_ = now + showcase_animation_preview_duration;
+        }
 
         const auto sample = sample_function_(now);
         const auto progress = std::clamp(sample.progress, 0.0F, 1.0F);
@@ -205,7 +214,7 @@ class LiveSampleCard final : public controls::Panel {
             fill_progress_ = progress;
             fill_->set_render_transform(scale_x_transform(fill_progress_));
         }
-        return true;
+        return now < preview_until_;
     }
 
   private:
@@ -215,6 +224,7 @@ class LiveSampleCard final : public controls::Panel {
     rendering::Color fill_color_ = rendering::Color::rgba(64, 158, 255);
     std::string label_text_;
     animation::AnimationTimePoint last_label_sync_{};
+    animation::AnimationTimePoint preview_until_{};
     float fill_progress_ = -1.0F;
     float track_width_ = 220.0F;
 };
@@ -1108,19 +1118,17 @@ void add_animation_section(controls::StackPanel& root) {
 
     auto& live_controls = effects.append_new_child<controls::StackPanel>();
     configure_row(live_controls);
-    auto& inline_loading = live_controls.append_new_child<controls::Loading>();
-    inline_loading.set_text("Inline spinner")
-        .set_active(true)
-        .set_background(rendering::Color::rgba(236, 245, 255));
-    inline_loading.configure_layout([](layout::LayoutElement& item) {
-        item.set_size(layout::Length::points(180.0F), layout::Length::points(88.0F))
-            .set_flex_shrink(0.0F);
-    });
-    live_controls.append_new_child<controls::Button>()
+    add_label(live_controls,
+              "Loading controls are demonstrated from the Loading buttons above to avoid an "
+              "always-on spinner in the baseline showcase.");
+    auto& loading_preview_button = live_controls.append_new_child<controls::Button>();
+    loading_preview_button
         .set_text("Loading")
         .set_type(controls::ButtonType::Primary)
-        .set_loading(true);
-    live_controls.append_new_child<controls::Switch>().set_loading(true).set_checked(true);
+        .set_on_click([&loading_preview_button]() {
+            loading_preview_button.set_loading(!loading_preview_button.loading());
+        });
+    live_controls.append_new_child<controls::Switch>().set_checked(true);
 
     auto& shadow_row = effects.append_new_child<controls::StackPanel>();
     configure_row(shadow_row);
