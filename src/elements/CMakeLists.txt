@@ -1,4 +1,5 @@
 add_library(winelement_elements STATIC
+    command_cache.cpp
     element_descriptor.cpp
     event_routing_policy.cpp
     event_router.cpp

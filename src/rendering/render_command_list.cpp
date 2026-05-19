@@ -2164,14 +2164,10 @@ void PreparedRenderCache::merge(const PreparedRenderCache& other) {
     }
 }
 
-RenderCommandList::RenderCommandList()
-    : prepared_cache_(std::make_shared<PreparedRenderCache>()),
-      opcode_owner_(std::make_shared<RenderOpcodeOwner>(RenderOpcodeOwner{.list = this})) {}
+RenderCommandList::RenderCommandList() = default;
 
 RenderCommandList::RenderCommandList(std::shared_ptr<PreparedRenderCache> prepared_cache)
-    : prepared_cache_(prepared_cache != nullptr ? std::move(prepared_cache)
-                                                : std::make_shared<PreparedRenderCache>()),
-      opcode_owner_(std::make_shared<RenderOpcodeOwner>(RenderOpcodeOwner{.list = this})) {}
+    : prepared_cache_(std::move(prepared_cache)) {}
 
 RenderCommandList::RenderCommandList(const RenderCommandList& other) {
     *this = other;
@@ -2182,9 +2178,8 @@ RenderCommandList& RenderCommandList::operator=(const RenderCommandList& other) 
         return *this;
     }
 
-    prepared_cache_ = other.prepared_cache_ != nullptr ? other.prepared_cache_
-                                                       : std::make_shared<PreparedRenderCache>();
-    opcode_owner_ = std::make_shared<RenderOpcodeOwner>(RenderOpcodeOwner{.list = this});
+    prepared_cache_ = other.prepared_cache_;
+    opcode_owner_.reset();
     opcodes_ = other.opcodes_;
     opcode_payload_indices_ = other.opcode_payload_indices_;
     push_clip_payloads_ = other.push_clip_payloads_;
@@ -2214,7 +2209,9 @@ RenderCommandList& RenderCommandList::operator=(const RenderCommandList& other) 
     draw_batches_cache_.clear();
     serialized_opcodes_dirty_ = true;
     draw_batches_dirty_ = true;
-    rebind_opcode_owners();
+    if (!opcodes_.empty()) {
+        rebind_opcode_owners();
+    }
     return *this;
 }
 
@@ -2247,12 +2244,12 @@ RenderCommandList::RenderCommandList(RenderCommandList&& other) noexcept
       serialized_opcodes_dirty_(other.serialized_opcodes_dirty_),
       draw_batches_dirty_(other.draw_batches_dirty_) {
     opcode_owner_ = std::move(other.opcode_owner_);
-    if (prepared_cache_ == nullptr) {
-        prepared_cache_ = std::make_shared<PreparedRenderCache>();
+    if (!opcodes_.empty()) {
+        reset_opcode_owner();
+    } else {
+        opcode_owner_.reset();
     }
-    reset_opcode_owner();
-    other.opcode_owner_ =
-        std::make_shared<RenderOpcodeOwner>(RenderOpcodeOwner{.list = &other});
+    other.opcode_owner_.reset();
     other.bounds_ = {};
     other.fingerprint_ = 0U;
     other.change_signature_ = 0U;
@@ -2265,9 +2262,6 @@ RenderCommandList& RenderCommandList::operator=(RenderCommandList&& other) noexc
     }
 
     prepared_cache_ = std::move(other.prepared_cache_);
-    if (prepared_cache_ == nullptr) {
-        prepared_cache_ = std::make_shared<PreparedRenderCache>();
-    }
     opcode_owner_ = std::move(other.opcode_owner_);
     opcodes_ = std::move(other.opcodes_);
     opcode_payload_indices_ = std::move(other.opcode_payload_indices_);
@@ -2298,9 +2292,12 @@ RenderCommandList& RenderCommandList::operator=(RenderCommandList&& other) noexc
     draw_batches_cache_ = std::move(other.draw_batches_cache_);
     serialized_opcodes_dirty_ = other.serialized_opcodes_dirty_;
     draw_batches_dirty_ = other.draw_batches_dirty_;
-    reset_opcode_owner();
-    other.opcode_owner_ =
-        std::make_shared<RenderOpcodeOwner>(RenderOpcodeOwner{.list = &other});
+    if (!opcodes_.empty()) {
+        reset_opcode_owner();
+    } else {
+        opcode_owner_.reset();
+    }
+    other.opcode_owner_.reset();
     other.bounds_ = {};
     other.fingerprint_ = 0U;
     other.change_signature_ = 0U;
@@ -2309,6 +2306,10 @@ RenderCommandList& RenderCommandList::operator=(RenderCommandList&& other) noexc
 }
 
 void RenderCommandList::rebind_opcode_owners() noexcept {
+    if (opcodes_.empty()) {
+        opcode_owner_.reset();
+        return;
+    }
     reset_opcode_owner();
     for (auto& opcode : opcodes_) {
         opcode.owner = opcode_owner_.get();
