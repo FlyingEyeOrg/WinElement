@@ -445,7 +445,7 @@ TEST(BasicControlsTests, MessageBoxModalOptionsMatchElementPlusShortcuts) {
     EXPECT_EQ(root.top_layer_count(), 0U);
 }
 
-TEST(BasicControlsTests, MessageBoxModalBackdropUsesNeutralOverlay) {
+TEST(BasicControlsTests, MessageBoxModalBackdropFullyCoversUnderlyingContent) {
     auto engine = create_unrounded_engine();
     Panel root;
     root.bind_layout_tree(engine);
@@ -469,7 +469,7 @@ TEST(BasicControlsTests, MessageBoxModalBackdropUsesNeutralOverlay) {
                                                       Rect{0.0F, 0.0F, 640.0F, 360.0F};
                                        });
     ASSERT_NE(iterator, context.commands().end());
-    EXPECT_EQ(command_fill_color(*iterator), Color::rgba(96, 98, 102, 244));
+    EXPECT_EQ(command_fill_color(*iterator), Color::rgba(96, 98, 102));
 }
 
 TEST(BasicControlsTests, DialogPaintsBodyAndFooterActions) {
