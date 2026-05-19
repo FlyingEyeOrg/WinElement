@@ -307,6 +307,27 @@ TEST(UIElementTests, BaseElementUsesSharedDefaultStyleUntilFirstMutation) {
     EXPECT_EQ(default_panel_style().background, Color::rgba(0, 0, 0, 0));
 }
 
+TEST(UIElementTests, BaseElementCanConfigureCurrentStyleInPlace) {
+    auto engine = create_unrounded_engine();
+    UIElement element;
+    element.bind_layout_tree(engine);
+
+    element.configure_style([](UIElementStyle& style) {
+        style.background = Color::rgba(11, 22, 33);
+        style.padding = EdgeInsets{10.0F, 4.0F, 12.0F, 6.0F};
+        style.min_width = 80.0F;
+        style.text_color = Color::rgba(240, 241, 242);
+    });
+    element.set_text("Configured");
+    element.calculate_layout();
+
+    EXPECT_FALSE(element.theme_managed());
+    EXPECT_EQ(element.background(), Color::rgba(11, 22, 33));
+    EXPECT_EQ(element.text_color(), Color::rgba(240, 241, 242));
+    EXPECT_FLOAT_EQ(element.padding().left, 10.0F);
+    EXPECT_GE(element.frame().width, 80.0F);
+}
+
 TEST(UIElementTests, BaseElementMeasuresTextContentLikeLabel) {
     auto engine = create_unrounded_engine();
     UIElement label;

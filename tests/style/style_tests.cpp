@@ -246,6 +246,43 @@ TEST(StyleTests, ThemeStyleClassesRegisterUpdateAndRemoveNamedStyles) {
     EXPECT_EQ(theme.style_classes.size(), builtin_class_count);
 }
 
+TEST(StyleTests, StyleFromAndThemeClassConfigurationSupportPartialEdits) {
+    auto theme = make_default_theme();
+
+    const auto cta = style_from(default_button_style(), [](UIElementStyle& style) {
+        style.background = Color::rgba(10, 20, 30);
+        style.text_color = Color::rgba(250, 251, 252);
+        style.padding = EdgeInsets{18.0F, 9.0F, 18.0F, 9.0F};
+    });
+    set_theme_style_class(theme, "brand.cta", cta);
+
+    configure_theme_style_class(theme, "brand.cta", [](UIElementStyle& style) {
+        style.hover_background = Color::rgba(20, 40, 60);
+        style.border_width = 2.0F;
+    });
+
+    const auto* registered = theme_style_for_class(theme, "brand.cta");
+    ASSERT_NE(registered, nullptr);
+    EXPECT_EQ(registered->background, Color::rgba(10, 20, 30));
+    EXPECT_EQ(registered->hover_background, Color::rgba(20, 40, 60));
+    EXPECT_EQ(registered->text_color, Color::rgba(250, 251, 252));
+    EXPECT_FLOAT_EQ(registered->border_width, 2.0F);
+    EXPECT_FLOAT_EQ(registered->padding.left, 18.0F);
+
+    configure_theme_style_class(
+        theme, "brand.badge", default_text_style(), [](UIElementStyle& style) {
+            style.background = Color::rgba(236, 245, 255);
+            style.text_color = Color::rgba(64, 158, 255);
+            style.corner_radius = CornerRadius::uniform(999.0F);
+        });
+
+    const auto badge = style_for_class_or(theme, "brand.badge", default_panel_style());
+    EXPECT_EQ(badge.background, Color::rgba(236, 245, 255));
+    EXPECT_EQ(badge.text_color, Color::rgba(64, 158, 255));
+    EXPECT_EQ(style_for_class_or(theme, "missing", default_panel_style()).background,
+              default_panel_style().background);
+}
+
 TEST(StyleTests, BuiltInDarkThemeUsesDarkSurfaceAndReadableTextTokens) {
     const auto dark = make_dark_theme();
     const auto& dark_input = require_theme_style(dark, theme_class::input);

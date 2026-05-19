@@ -219,6 +219,12 @@ class UIElement {
     [[nodiscard]] bool repaint_boundary() const noexcept;
 
     virtual UIElement& set_style(style::UIElementStyle style);
+    template <typename Configure> UIElement& configure_style(Configure&& configure) {
+        verify_thread_access();
+        auto next_style = style_value();
+        std::forward<Configure>(configure)(next_style);
+        return apply_style_value(std::move(next_style), false);
+    }
     UIElement& set_theme_class(std::string_view theme_class);
     UIElement& clear_theme_class() noexcept;
     [[nodiscard]] std::string_view theme_class() const noexcept;

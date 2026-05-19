@@ -8,6 +8,7 @@
 #include <map>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace winelement::rendering {
 class RenderContext;
@@ -206,8 +207,34 @@ void set_theme(Theme theme);
 void reset_theme();
 [[nodiscard]] const UIElementStyle* theme_style_for_class(const Theme& theme,
                                                           std::string_view style_class) noexcept;
+[[nodiscard]] UIElementStyle style_for_class_or(const Theme& theme, std::string_view style_class,
+                                                UIElementStyle fallback_style);
 void set_theme_style_class(Theme& theme, std::string_view style_class, UIElementStyle style);
 [[nodiscard]] bool remove_theme_style_class(Theme& theme, std::string_view style_class) noexcept;
+
+template <typename Configure>
+[[nodiscard]] UIElementStyle style_from(UIElementStyle base_style, Configure&& configure) {
+    std::forward<Configure>(configure)(base_style);
+    return base_style;
+}
+
+template <typename Configure>
+Theme& configure_theme_style_class(Theme& theme, std::string_view style_class,
+                                   Configure&& configure) {
+    auto next_style = style_for_class_or(theme, style_class, UIElementStyle{});
+    std::forward<Configure>(configure)(next_style);
+    set_theme_style_class(theme, style_class, std::move(next_style));
+    return theme;
+}
+
+template <typename Configure>
+Theme& configure_theme_style_class(Theme& theme, std::string_view style_class,
+                                   UIElementStyle fallback_style, Configure&& configure) {
+    auto next_style = style_for_class_or(theme, style_class, std::move(fallback_style));
+    std::forward<Configure>(configure)(next_style);
+    set_theme_style_class(theme, style_class, std::move(next_style));
+    return theme;
+}
 
 [[nodiscard]] const UIElementStyle& default_button_style();
 [[nodiscard]] const UIElementStyle& default_primary_button_style();

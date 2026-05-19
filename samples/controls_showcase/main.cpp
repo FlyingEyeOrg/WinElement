@@ -32,12 +32,12 @@ constexpr auto showcase_page_scrollbar_width = 14.0F;
 constexpr auto showcase_page_gap = 8.0F;
 
 [[nodiscard]] style::UIElementStyle showcase_surface_style() noexcept {
-    auto surface = style::default_panel_style();
-    surface.background = rendering::Color::rgba(0, 0, 0, 0);
-    surface.border_color = rendering::Color::rgba(0, 0, 0, 0);
-    surface.border_width = 0.0F;
-    surface.shadow_visible = false;
-    return surface;
+    return style::style_from(style::default_panel_style(), [](style::UIElementStyle& surface) {
+        surface.background = rendering::Color::rgba(0, 0, 0, 0);
+        surface.border_color = rendering::Color::rgba(0, 0, 0, 0);
+        surface.border_width = 0.0F;
+        surface.shadow_visible = false;
+    });
 }
 
 [[nodiscard]] float loop_progress(animation::AnimationTimePoint now,

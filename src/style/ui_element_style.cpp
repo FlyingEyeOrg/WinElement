@@ -773,6 +773,14 @@ const UIElementStyle* theme_style_for_class(const Theme& theme,
     return iterator != theme.style_classes.end() ? std::addressof(iterator->second) : nullptr;
 }
 
+UIElementStyle style_for_class_or(const Theme& theme, std::string_view style_class,
+                                  UIElementStyle fallback_style) {
+    if (const auto* style = theme_style_for_class(theme, style_class)) {
+        return *style;
+    }
+    return fallback_style;
+}
+
 void set_theme_style_class(Theme& theme, std::string_view style_class, UIElementStyle style) {
     if (style_class.empty()) {
         throw std::invalid_argument("theme style class must not be empty");
