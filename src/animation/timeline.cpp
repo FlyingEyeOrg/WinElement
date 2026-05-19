@@ -258,6 +258,7 @@ void Storyboard::reserve(std::size_t channel_count) {
 
 void Storyboard::clear() noexcept {
     channels_.clear();
+    release_idle_channel_storage();
     clock_.cancel();
 }
 
@@ -306,11 +307,39 @@ bool Storyboard::tick(AnimationTimePoint now) {
     }
 
     const auto elapsed_time = clock_.elapsed(now);
-    const auto has_active_channel = seek(elapsed_time);
-    if (!has_active_channel && !channels_.empty()) {
+    const auto had_channels = !channels_.empty();
+    auto has_active_channel = false;
+    auto write = channels_.begin();
+    for (auto read = channels_.begin(); read != channels_.end(); ++read) {
+        auto& channel = *read;
+        if (channel == nullptr) {
+            continue;
+        }
+        if (channel->apply(elapsed_time)) {
+            has_active_channel = true;
+            if (write != read) {
+                *write = std::move(channel);
+            }
+            ++write;
+        }
+    }
+    if (write != channels_.end()) {
+        channels_.erase(write, channels_.end());
+        if (channels_.empty()) {
+            release_idle_channel_storage();
+        }
+    }
+    if (!has_active_channel && had_channels) {
         clock_.finish(now);
     }
     return has_active_channel;
+}
+
+void Storyboard::release_idle_channel_storage() noexcept {
+    constexpr auto retained_idle_channel_capacity = std::size_t{4U};
+    if (channels_.empty() && channels_.capacity() > retained_idle_channel_capacity) {
+        std::vector<std::unique_ptr<AnimationChannel>>{}.swap(channels_);
+    }
 }
 
 } // namespace winelement::animation

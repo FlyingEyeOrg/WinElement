@@ -279,6 +279,8 @@ class Storyboard final {
     [[nodiscard]] bool tick(AnimationTimePoint now = AnimationClockType::now());
 
   private:
+    void release_idle_channel_storage() noexcept;
+
     AnimationClock clock_;
     std::vector<std::unique_ptr<AnimationChannel>> channels_;
 };

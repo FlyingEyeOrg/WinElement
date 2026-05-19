@@ -126,6 +126,23 @@ TEST(AnimationTests, StoryboardAppliesChannelsAndFinishesFiniteAnimations) {
     EXPECT_EQ(storyboard.state(), AnimationPlayState::Finished);
 }
 
+TEST(AnimationTests, StoryboardPrunesFinishedChannelsAfterTick) {
+    auto opacity = 0.0F;
+    Storyboard storyboard;
+    storyboard.add(make_keyframe_animation<float>(
+        KeyframeTrack<float>({Keyframe<float>{.offset = 0.0F, .value = 0.0F},
+                              Keyframe<float>{.offset = 1.0F, .value = 1.0F}}),
+        AnimationTiming{.duration = AnimationDuration{0.1F}, .fill_mode = FillMode::Forwards},
+        [&opacity](const float& value) { opacity = value; }));
+
+    const auto start = AnimationClockType::now();
+    storyboard.play(start);
+    EXPECT_FALSE(storyboard.tick(start + std::chrono::milliseconds(150)));
+    EXPECT_FLOAT_EQ(opacity, 1.0F);
+    EXPECT_EQ(storyboard.state(), AnimationPlayState::Finished);
+    EXPECT_EQ(storyboard.channel_count(), 0U);
+}
+
 TEST(AnimationTests, PropertyAnimationsWriteThroughPropertyStore) {
     auto opacity_property = winelement::core::make_property_metadata<float>(
         "opacity", winelement::core::PropertyInvalidation::Paint);

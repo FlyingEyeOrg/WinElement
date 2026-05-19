@@ -357,6 +357,9 @@ class WindowRenderCache final {
   public:
     void reset() {
         snapshot_.reset();
+        prepared_cache_ = std::make_shared<rendering::PreparedRenderCache>();
+        promotion_plan_ = {};
+        frame_graph_ = {};
         valid_ = false;
     }
 
@@ -820,8 +823,8 @@ class Window::Impl final {
             return;
         }
 
-        const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-            next_animation_repaint_at_ - now + std::chrono::milliseconds(1));
+        const auto remaining =
+            std::chrono::duration_cast<std::chrono::milliseconds>(next_animation_repaint_at_ - now);
         const auto delay = static_cast<UINT>(std::max<std::int64_t>(1, remaining.count()));
         SetTimer(hwnd_, animation_frame_timer_id, delay, nullptr);
     }
@@ -829,12 +832,10 @@ class Window::Impl final {
     void fire_animation_repaint(std::chrono::steady_clock::time_point now) noexcept {
         animation_repaint_pending_.store(false, std::memory_order_release);
         if (next_animation_repaint_at_ == std::chrono::steady_clock::time_point{} ||
-            now - next_animation_repaint_at_ > animation_frame_interval * 4) {
+            now - next_animation_repaint_at_ > animation_frame_interval) {
             next_animation_repaint_at_ = now + animation_frame_interval;
         } else {
-            do {
-                next_animation_repaint_at_ += animation_frame_interval;
-            } while (next_animation_repaint_at_ <= now);
+            next_animation_repaint_at_ += animation_frame_interval;
         }
         request_animation_ui_frame();
     }
