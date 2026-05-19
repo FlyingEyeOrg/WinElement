@@ -375,12 +375,15 @@ class WindowRenderCache final {
         promotion_plan_ = rendering::build_compositor_promotion_plan(next_scene);
         frame_graph_ = rendering::build_render_frame_graph(next_scene);
 
-        const auto previous_bounds = snapshot_ == nullptr ? layout::Rect{} : snapshot_->bounds();
+        const auto had_valid_snapshot = valid_ && snapshot_ != nullptr;
+        const auto previous_bounds = had_valid_snapshot ? snapshot_->bounds() : layout::Rect{};
+        const auto next_bounds = next_scene.bounds();
         dirty_region.add(ui_dirty_region);
-        dirty_region.add(previous_bounds);
-        dirty_region.add(next_scene.bounds());
-        if (!valid_) {
+        if (!had_valid_snapshot) {
             dirty_region.add(content.absolute_frame());
+        } else if (previous_bounds != next_bounds) {
+            dirty_region.add(previous_bounds);
+            dirty_region.add(next_bounds);
         }
 
         snapshot_ = std::make_shared<rendering::RenderScene>(std::move(next_scene));

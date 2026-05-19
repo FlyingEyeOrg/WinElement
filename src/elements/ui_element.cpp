@@ -1462,6 +1462,15 @@ UIElement& UIElement::set_render_transform(rendering::Transform2D transform) {
         return *this;
     }
 
+    if (layout_generation_ != 0U) {
+        const auto previous_bounds =
+            rendering::transform_rect(committed_absolute_frame_, render_layer_options().transform);
+        pending_visual_dirty_bounds_ =
+            pending_visual_dirty_bounds_.has_value()
+                ? layout::union_rects(*pending_visual_dirty_bounds_, previous_bounds)
+                : previous_bounds;
+    }
+
     detach_theme_management();
     visual.transform = transform;
     mutable_style_value().visual = visual;
@@ -2413,6 +2422,7 @@ void UIElement::clear_paint_dirty() {
 
     self_needs_paint_ = false;
     needs_paint_ = false;
+    pending_visual_dirty_bounds_.reset();
 }
 
 void UIElement::clear_paint_dirty_subtree() {
@@ -2877,6 +2887,7 @@ void UIElement::offset_top_layer_entries_for_logical_owner_delta(
 void UIElement::clear_paint_dirty_subtree_unchecked() noexcept {
     self_needs_paint_ = false;
     needs_paint_ = false;
+    pending_visual_dirty_bounds_.reset();
     for (auto& child : children_) {
         child->clear_paint_dirty_subtree_unchecked();
     }
@@ -2896,6 +2907,9 @@ void UIElement::collect_paint_dirty_region_subtree(rendering::DirtyRegion& dirty
     }
 
     if (self_needs_paint_) {
+        if (pending_visual_dirty_bounds_.has_value()) {
+            dirty_region.add(*pending_visual_dirty_bounds_);
+        }
         dirty_region.add(has_render_layer()
                              ? rendering::transform_rect(committed_absolute_frame_,
                                                          render_layer_options().transform)

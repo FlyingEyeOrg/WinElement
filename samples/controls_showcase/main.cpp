@@ -164,7 +164,6 @@ class LiveSampleCard final : public controls::Panel {
         auto& fill = track.append_new_child<controls::Panel>();
         fill.set_background(fill_color_);
         fill.set_corner_radius(rendering::CornerRadius::uniform(4.0F));
-        fill.set_layer_enabled(true);
         fill.configure_layout([](layout::LayoutElement& item) {
             item.set_size(layout::Length::points(220.0F), layout::Length::points(8.0F))
                 .set_flex_shrink(0.0F);
@@ -266,7 +265,6 @@ class ImplicitPropertyDemoPanel final : public controls::Panel {
         auto& fill = track.append_new_child<controls::Panel>();
         fill.set_background(rendering::Color::rgba(64, 158, 255));
         fill.set_corner_radius(rendering::CornerRadius::uniform(999.0F));
-        fill.set_layer_enabled(true);
         fill.configure_layout([](layout::LayoutElement& item) {
             item.set_size(layout::Length::points(320.0F), layout::Length::points(10.0F))
                 .set_flex_shrink(0.0F);

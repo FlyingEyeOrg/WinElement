@@ -2568,6 +2568,43 @@ TEST(UIElementTests, CommitsRenderCommandsAndCollectsLocalDirtyRegion) {
     EXPECT_FLOAT_EQ(dirty_region.rects()[0].height, 20.0F);
 }
 
+TEST(UIElementTests, TransformChangeInvalidatesPreviousAndCurrentVisualBounds) {
+    auto engine = create_unrounded_engine();
+    RecordingElement root;
+    root.bind_layout_tree(engine);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(120.0F), Length::points(80.0F));
+    });
+
+    auto child = std::make_unique<RecordingElement>();
+    auto& child_ref = *child;
+    child->configure_layout([](LayoutElement& layout) {
+        layout.set_position_type(PositionType::Absolute)
+            .set_position(Edge::Left, Length::points(10.0F))
+            .set_position(Edge::Top, Length::points(8.0F))
+            .set_size(Length::points(10.0F), Length::points(10.0F));
+    });
+    child->set_render_transform(Transform2D::translation(20.0F, 0.0F));
+    root.append_child(std::move(child));
+    root.calculate_layout(LayoutConstraints{.width = 120.0F, .height = 80.0F});
+
+    RenderCommandList first_commit;
+    root.commit_render_commands(first_commit, nullptr);
+    root.clear_paint_dirty_subtree();
+
+    child_ref.set_render_transform(Transform2D::translation(40.0F, 0.0F));
+
+    RenderCommandList command_list;
+    DirtyRegion dirty_region;
+    root.commit_render_commands(command_list, &dirty_region);
+
+    const auto dirty_bounds = dirty_region.bounds();
+    EXPECT_LE(dirty_bounds.x, 30.0F);
+    EXPECT_LE(dirty_bounds.y, 8.0F);
+    EXPECT_GE(dirty_bounds.x + dirty_bounds.width, 60.0F);
+    EXPECT_GE(dirty_bounds.y + dirty_bounds.height, 18.0F);
+}
+
 TEST(UIElementTests, BaseElementViewportSkipsOffscreenChildAnimationTicks) {
     auto engine = create_unrounded_engine();
     UIElement root;

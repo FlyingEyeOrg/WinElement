@@ -523,6 +523,7 @@ class UIElement {
     layout::Rect committed_frame_{};
     layout::Rect committed_absolute_frame_{};
     std::uint64_t layout_generation_ = 0;
+    std::optional<layout::Rect> pending_visual_dirty_bounds_;
     std::thread::id owner_thread_id_;
     EventRouter* event_router_ = nullptr;
     FocusManager* focus_manager_ = nullptr;
