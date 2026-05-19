@@ -58,8 +58,8 @@ constexpr auto default_dpi = 96.0F;
 constexpr auto triangle_vertex_count = 3U;
 constexpr auto max_vertices = 16383U;
 constexpr auto pi = 3.14159265358979323846F;
-constexpr auto glyph_atlas_width = 2048U;
-constexpr auto glyph_atlas_height = 2048U;
+constexpr auto glyph_atlas_width = 1024U;
+constexpr auto glyph_atlas_height = 1024U;
 constexpr auto glyph_atlas_padding = 2U;
 constexpr auto glyph_atlas_bytes_per_pixel = 4U;
 constexpr auto geometry_epsilon = 0.0001F;
@@ -484,7 +484,7 @@ dirty_clips_for_layer(std::span<const D3D11RenderDirtyClip> parent_clips,
     thread_local rendering::TextEngine engine;
     thread_local bool configured = false;
     if (!configured) {
-        engine.set_max_cached_layouts(24U);
+        engine.set_max_cached_layouts(12U);
         configured = true;
     }
     return engine;
@@ -6116,7 +6116,7 @@ void D3D11DisplayListRenderer::draw_text_layout(
                 }
             }
 
-            constexpr auto max_text_glyph_run_cache_entries = 128U;
+            constexpr auto max_text_glyph_run_cache_entries = 48U;
             auto* cache_slot = static_cast<CachedTextGlyphRun*>(nullptr);
             if (text_glyph_run_cache_.size() >= max_text_glyph_run_cache_entries) {
                 const auto iterator = std::min_element(

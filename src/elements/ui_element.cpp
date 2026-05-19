@@ -4114,7 +4114,7 @@ rendering::TextEngine& UIElement::text_engine() const {
     thread_local rendering::TextEngine engine;
     thread_local bool configured = false;
     if (!configured) {
-        engine.set_max_cached_layouts(24U);
+        engine.set_max_cached_layouts(12U);
         configured = true;
     }
     return engine;
