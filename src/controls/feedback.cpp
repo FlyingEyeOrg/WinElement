@@ -20,9 +20,11 @@ constexpr auto overlay_shadow = rendering::ShadowStyle{
     .color = rendering::Color::rgba(0, 0, 0, 20), .offset = {0.0F, 6.0F}, .blur_radius = 12.0F};
 constexpr auto close_icon_size = 16.0F;
 constexpr auto message_status_icon_size = 16.0F;
+constexpr auto message_stack_spacing = 16.0F;
 constexpr auto message_box_padding = 12.0F;
 constexpr auto message_box_header_height = 24.0F;
 constexpr auto message_box_gap = 12.0F;
+constexpr auto message_box_header_body_gap = 16.0F;
 constexpr auto message_box_status_size = 24.0F;
 constexpr auto message_box_footer_height = 32.0F;
 constexpr auto message_box_drag_height = message_box_padding + message_box_header_height;
@@ -148,8 +150,9 @@ void apply_entry_animation(elements::UIElement& element, float progress, float y
         content_height += 6.0F + 52.0F;
     }
 
-    auto height = message_box_padding * 2.0F + message_box_header_height + message_box_gap +
-                  content_height + message_box_gap + message_box_footer_height;
+    auto height = message_box_padding * 2.0F + message_box_header_height +
+                  message_box_header_body_gap + content_height + message_box_gap +
+                  message_box_footer_height;
     if (options.kind == MessageBoxKind::Prompt) {
         height += message_box_gap + 32.0F + 22.0F;
     }
@@ -460,16 +463,19 @@ Message& Message::show(elements::UIElement& host, MessageOptions options) {
     const auto width =
         std::min(std::max(options.width, 240.0F), std::max(viewport.width - 32.0F, 240.0F));
     const auto size = layout::Size{width, 40.0F};
-    const auto stack_index = static_cast<float>(top_layer_count_of<Message>(host));
     const auto bounds = layout::Rect{viewport.x + std::max((viewport.width - width) * 0.5F, 0.0F),
-                                     viewport.y + std::max(options.top, 0.0F) + stack_index * 56.0F,
-                                     width, size.height};
+                                     viewport.y + std::max(options.top, 0.0F), width,
+                                     size.height};
 
     auto message = std::make_unique<Message>();
     message->set_text(options.text)
         .set_type(options.type)
         .set_show_close(options.show_close)
         .set_on_close(std::move(options.on_close));
+    message->width_ = width;
+    message->height_ = size.height;
+    message->top_offset_ = std::max(options.top, 0.0F);
+    message->stack_top_.set(message->top_offset_);
     message->set_duration(options.duration_ms);
     set_fixed_size(*message, size);
     auto& message_ref = *message;
@@ -479,6 +485,7 @@ Message& Message::show(elements::UIElement& host, MessageOptions options) {
     top_layer_options.close_on_escape = false;
     top_layer_options.preserve_focus = true;
     host.push_top_layer(std::move(message), std::move(top_layer_options));
+    relayout_host_messages(host, false);
     return message_ref;
 }
 
@@ -494,15 +501,38 @@ void Message::on_paint_overlay(rendering::RenderContext& context,
 }
 
 bool Message::on_animation_frame(animation::AnimationTimePoint now) {
-    const auto active = open_progress_.tick(now);
-    if (active) {
+    const auto entry_active = open_progress_.tick(now);
+    const auto stack_active = stack_top_.tick(now);
+    if (entry_active) {
         apply_open_animation();
     }
-    if (duration_ms_ > 0 && now - opened_at_ >= std::chrono::milliseconds{duration_ms_}) {
-        close();
+    if (stack_active) {
+        sync_stack_bounds();
+    }
+    if (!closing_ && duration_ms_ > 0 &&
+        now - opened_at_ >= std::chrono::milliseconds{duration_ms_}) {
+        if (auto* host = parent()) {
+            relayout_host_messages(*host, true);
+        }
+        const auto handler = close_handler_;
+        if (handler) {
+            handler();
+        }
+        dismiss_own_top_layer();
         return false;
     }
-    return active || duration_ms_ > 0;
+    if (closing_ && !open_progress_.running() && open_progress_.value() <= 0.001F) {
+        if (auto* host = parent()) {
+            relayout_host_messages(*host, true);
+        }
+        const auto handler = close_handler_;
+        if (handler) {
+            handler();
+        }
+        dismiss_own_top_layer();
+        return false;
+    }
+    return entry_active || stack_active || duration_ms_ > 0 || closing_;
 }
 
 void Message::apply_visual_state() {
@@ -524,13 +554,64 @@ void Message::apply_visual_state() {
 
 void Message::restart_open_animation() noexcept {
     opened_at_ = animation::AnimationClockType::now();
-    open_progress_.set(0.86F);
+    closing_ = false;
+    open_progress_.set(0.0F);
     apply_open_animation();
-    open_progress_.animate_to(1.0F, animation::AnimationDuration{0.18F});
+    open_progress_.animate_to(1.0F, animation::AnimationDuration{0.4F});
 }
 
 void Message::apply_open_animation() noexcept {
-    apply_entry_animation(*this, open_progress_.value(), -16.0F);
+    apply_entry_animation(*this, open_progress_.value(), -std::max(height_, 40.0F));
+}
+
+void Message::set_stack_top(float top, bool animate) noexcept {
+    if (animate) {
+        stack_top_.animate_to(top, animation::AnimationDuration{0.4F});
+    } else {
+        stack_top_.set(top);
+    }
+    sync_stack_bounds();
+}
+
+void Message::sync_stack_bounds() noexcept {
+    auto* host = parent();
+    if (host == nullptr) {
+        return;
+    }
+
+    const auto viewport = viewport_for(*host);
+    host->set_top_layer_bounds(
+        *this, layout::Rect{viewport.x + std::max((viewport.width - width_) * 0.5F, 0.0F),
+                            viewport.y + stack_top_.value(), width_, height_});
+}
+
+void Message::begin_close() noexcept {
+    if (closing_) {
+        return;
+    }
+    closing_ = true;
+    open_progress_.animate_to(0.0F, animation::AnimationDuration{0.25F},
+                              animation::EasingFunction::ease_in_out_cubic());
+}
+
+void Message::relayout_host_messages(elements::UIElement& host, bool animate) {
+    auto next_top = 0.0F;
+    auto has_visible_message = false;
+    auto previous_height = 0.0F;
+    for (auto index = std::size_t{}; index < host.top_layer_count(); ++index) {
+        auto* message = dynamic_cast<Message*>(&host.top_layer_at(index));
+        if (message == nullptr || message->closing_) {
+            continue;
+        }
+        if (!has_visible_message) {
+            next_top = std::max(message->top_offset_, 0.0F);
+            has_visible_message = true;
+        } else {
+            next_top += previous_height + message_stack_spacing;
+        }
+        previous_height = message->height_;
+        message->set_stack_top(next_top, animate);
+    }
 }
 
 void Message::set_duration(int duration_ms) noexcept {
@@ -538,11 +619,7 @@ void Message::set_duration(int duration_ms) noexcept {
 }
 
 void Message::close() {
-    auto handler = close_handler_;
-    dismiss_own_top_layer();
-    if (handler) {
-        handler();
-    }
+    begin_close();
 }
 
 MessageBox::MessageBox() : Control() {
@@ -584,13 +661,15 @@ MessageBox::MessageBox() : Control() {
 
     auto& body = append_new_child<StackPanel>();
     body.configure_layout([](layout::LayoutElement& item) {
-        item.set_width(layout::Length::percent(100.0F)).set_flex_grow(1.0F).set_flex_shrink(1.0F);
+        item.set_width(layout::Length::percent(100.0F))
+            .set_flex_grow(1.0F)
+            .set_flex_shrink(1.0F)
+            .set_margin(layout::Edge::Top, layout::Length::points(4.0F));
     });
 
     auto& content = body.append_new_child<StackPanel>();
-    content.set_orientation(Orientation::Horizontal)
-        .set_align_items(layout::Align::Center)
-        .set_gap(12.0F);
+    content.set_orientation(Orientation::Horizontal).set_align_items(layout::Align::FlexStart).set_gap(
+        12.0F);
     content.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F)).set_flex_shrink(1.0F);
     });

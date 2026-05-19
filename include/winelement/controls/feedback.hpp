@@ -55,7 +55,11 @@ class Message final : public Control {
     void apply_visual_state();
     void restart_open_animation() noexcept;
     void apply_open_animation() noexcept;
+    void set_stack_top(float top, bool animate) noexcept;
+    void sync_stack_bounds() noexcept;
+    void begin_close() noexcept;
     void set_duration(int duration_ms) noexcept;
+    static void relayout_host_messages(elements::UIElement& host, bool animate);
     void close();
 
     elements::UIElement* surface_ = nullptr;
@@ -66,9 +70,14 @@ class Message final : public Control {
     std::string text_;
     MessageType type_ = MessageType::Info;
     bool show_close_ = false;
+    bool closing_ = false;
     int duration_ms_ = 3000;
+    float width_ = 360.0F;
+    float height_ = 40.0F;
+    float top_offset_ = 20.0F;
     animation::AnimationTimePoint opened_at_{};
-    AnimatedFloat open_progress_{0.86F};
+    AnimatedFloat open_progress_{0.0F};
+    AnimatedFloat stack_top_{20.0F};
 };
 
 enum class MessageBoxKind { Alert, Confirm, Prompt };

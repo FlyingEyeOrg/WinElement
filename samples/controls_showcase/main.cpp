@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -39,6 +40,11 @@ constexpr auto canvas_height = 4200.0F;
 
 [[nodiscard]] rendering::Transform2D skew_transform(float x_shear) noexcept {
     return rendering::Transform2D{.m11 = 1.0F, .m21 = x_shear, .m22 = 1.0F};
+}
+
+[[nodiscard]] float loop_progress(animation::AnimationTimePoint now, float cycles_per_second) noexcept {
+    const auto seconds = std::chrono::duration<float>(now.time_since_epoch()).count();
+    return std::fmod(std::max(seconds * cycles_per_second, 0.0F), 1.0F);
 }
 
 enum class MotionDemoKind { Translate, Scale, Rotate, Skew };
@@ -73,6 +79,97 @@ class MotionDemoPanel final : public controls::Panel {
 
   private:
     MotionDemoKind kind_ = MotionDemoKind::Translate;
+};
+
+struct LiveSample {
+    float progress = 0.0F;
+    std::string label;
+};
+
+class LiveSampleCard final : public controls::Panel {
+  public:
+    using SampleFunction = std::function<LiveSample(animation::AnimationTimePoint)>;
+
+    LiveSampleCard() {
+        set_background(rendering::Color::rgba(255, 255, 255));
+        set_border(rendering::Color::rgba(220, 223, 230), 1.0F);
+        set_corner_radius(rendering::CornerRadius::uniform(4.0F));
+        configure_layout([](layout::LayoutElement& item) {
+            item.set_flex_direction(layout::FlexDirection::Column)
+                .set_gap(layout::Gutter::Row, layout::Length::points(8.0F))
+                .set_padding(layout::Edge::All, layout::Length::points(12.0F));
+        });
+
+        auto& label = append_new_child<controls::Text>();
+        label.set_size(controls::TextSize::Small);
+        label.configure_layout([](layout::LayoutElement& item) {
+            item.set_width(layout::Length::percent(100.0F)).set_flex_shrink(0.0F);
+        });
+        label_ = &label;
+
+        auto& track = append_new_child<controls::Panel>();
+        track.set_background(rendering::Color::rgba(245, 247, 250));
+        track.set_corner_radius(rendering::CornerRadius::uniform(4.0F));
+        track.configure_layout([](layout::LayoutElement& item) {
+            item.set_size(layout::Length::points(220.0F), layout::Length::points(8.0F))
+                .set_flex_shrink(0.0F);
+        });
+
+        auto& fill = track.append_new_child<controls::Panel>();
+        fill.set_background(fill_color_);
+        fill.set_corner_radius(rendering::CornerRadius::uniform(4.0F));
+        fill.configure_layout([](layout::LayoutElement& item) {
+            item.set_size(layout::Length::points(0.0F), layout::Length::points(8.0F))
+                .set_flex_shrink(0.0F);
+        });
+        fill_ = &fill;
+    }
+
+    LiveSampleCard& set_sample_function(SampleFunction sample_function) {
+        sample_function_ = std::move(sample_function);
+        return *this;
+    }
+
+    LiveSampleCard& set_fill_color(rendering::Color color) {
+        fill_color_ = color;
+        if (fill_ != nullptr) {
+            fill_->set_background(color);
+        }
+        return *this;
+    }
+
+  protected:
+    bool on_animation_frame(animation::AnimationTimePoint now) override {
+        if (!sample_function_) {
+            return false;
+        }
+
+        const auto sample = sample_function_(now);
+        const auto progress = std::clamp(sample.progress, 0.0F, 1.0F);
+        if (label_ != nullptr && sample.label != label_text_) {
+            label_text_ = sample.label;
+            label_->set_text(label_text_);
+        }
+
+        const auto fill_width = std::round(track_width_ * progress);
+        if (fill_ != nullptr && std::abs(fill_width - fill_width_) >= 1.0F) {
+            fill_width_ = fill_width;
+            fill_->configure_layout([fill_width](layout::LayoutElement& item) {
+                item.set_size(layout::Length::points(fill_width), layout::Length::points(8.0F))
+                    .set_flex_shrink(0.0F);
+            });
+        }
+        return true;
+    }
+
+  private:
+    controls::Text* label_ = nullptr;
+    controls::Panel* fill_ = nullptr;
+    SampleFunction sample_function_;
+    rendering::Color fill_color_ = rendering::Color::rgba(64, 158, 255);
+    std::string label_text_;
+    float fill_width_ = -1.0F;
+    float track_width_ = 220.0F;
 };
 
 void configure_card(elements::UIElement& element, float width = 320.0F) {
@@ -213,6 +310,20 @@ controls::StackPanel& add_demo_group(controls::StackPanel& parent, std::string_v
         return "Ease in-out back";
     }
     return "Linear";
+}
+
+[[nodiscard]] std::string playback_direction_label(animation::PlaybackDirection direction) {
+    switch (direction) {
+    case animation::PlaybackDirection::Normal:
+        return "Normal";
+    case animation::PlaybackDirection::Reverse:
+        return "Reverse";
+    case animation::PlaybackDirection::Alternate:
+        return "Alternate";
+    case animation::PlaybackDirection::AlternateReverse:
+        return "Alt reverse";
+    }
+    return "Normal";
 }
 
 controls::Button& add_button(controls::StackPanel& row, std::string_view text,
@@ -821,28 +932,19 @@ void add_animation_section(controls::StackPanel& root) {
     auto& curve_row = easing_group.append_new_child<controls::StackPanel>();
     configure_row(curve_row);
     for (const auto curve : curves) {
-        const auto value = std::clamp(animation::apply_easing(curve, 0.55F), 0.0F, 1.0F);
-        auto& card = curve_row.append_new_child<controls::StackPanel>();
-        card.set_gap(6.0F);
+        auto& card = curve_row.append_new_child<LiveSampleCard>();
+        card.set_sample_function([curve](animation::AnimationTimePoint now) {
+                const auto phase = loop_progress(now, 0.55F);
+                const auto value = std::clamp(animation::apply_easing(curve, phase), 0.0F, 1.0F);
+                return LiveSample{
+                    .progress = value,
+                    .label = easing_curve_label(curve) + " " +
+                             std::to_string(static_cast<int>(std::round(value * 100.0F))) + "%",
+                };
+            })
+            .set_fill_color(rendering::Color::rgba(64, 158, 255));
         card.configure_layout([](layout::LayoutElement& item) {
             item.set_width(layout::Length::points(240.0F)).set_flex_shrink(0.0F);
-        });
-        card.append_new_child<controls::Text>()
-            .set_text(easing_curve_label(curve))
-            .set_size(controls::TextSize::Small);
-        auto& track = card.append_new_child<controls::Panel>();
-        track.set_background(rendering::Color::rgba(245, 247, 250));
-        track.set_corner_radius(rendering::CornerRadius::uniform(4.0F));
-        track.configure_layout([](layout::LayoutElement& item) {
-            item.set_size(layout::Length::points(220.0F), layout::Length::points(8.0F))
-                .set_flex_shrink(0.0F);
-        });
-        auto& fill = track.append_new_child<controls::Panel>();
-        fill.set_background(rendering::Color::rgba(64, 158, 255));
-        fill.set_corner_radius(rendering::CornerRadius::uniform(4.0F));
-        fill.configure_layout([value](layout::LayoutElement& item) {
-            item.set_size(layout::Length::points(220.0F * value), layout::Length::points(8.0F))
-                .set_flex_shrink(0.0F);
         });
     }
 
@@ -853,53 +955,79 @@ void add_animation_section(controls::StackPanel& root) {
          {animation::PlaybackDirection::Normal, animation::PlaybackDirection::Reverse,
           animation::PlaybackDirection::Alternate,
           animation::PlaybackDirection::AlternateReverse}) {
-        animation::Timeline timeline(
-            animation::AnimationTiming{.duration = animation::AnimationDuration{1.0F},
-                                       .iteration_count = 2.0F,
-                                       .direction = direction,
-                                       .fill_mode = animation::FillMode::Both,
-                                       .easing = animation::EasingFunction::ease_out_cubic()});
-        const auto sample = timeline.sample(animation::AnimationDuration{0.65F});
-        auto& badge = timing_row.append_new_child<controls::Border>();
-        badge.set_preset(controls::BorderPreset::Primary);
+        auto& badge = timing_row.append_new_child<LiveSampleCard>();
+        badge.set_sample_function([direction](animation::AnimationTimePoint now) {
+                animation::Timeline timeline(animation::AnimationTiming{
+                    .duration = animation::AnimationDuration{1.0F},
+                    .iteration_count = 2.0F,
+                    .direction = direction,
+                    .fill_mode = animation::FillMode::Both,
+                    .easing = animation::EasingFunction::ease_out_cubic()});
+                const auto sample = timeline.sample(animation::AnimationDuration{
+                    loop_progress(now, 0.45F) * 2.0F});
+                return LiveSample{
+                    .progress = sample.progress,
+                    .label = playback_direction_label(direction) + " " +
+                             std::to_string(static_cast<int>(std::round(sample.progress * 100.0F))) +
+                             "%",
+                };
+            })
+            .set_fill_color(rendering::Color::rgba(64, 158, 255));
         configure_card(badge, 260.0F);
-        badge.append_new_child<controls::Text>().set_text(
-            "Direction progress " + std::to_string(static_cast<int>(sample.progress * 100.0F)) +
-            "%");
     }
 
     auto& keyframe_row = timeline_group.append_new_child<controls::StackPanel>();
     configure_row(keyframe_row);
-    animation::KeyframeTrack<float> opacity_track({
-        animation::Keyframe<float>{.offset = 0.0F, .value = 0.0F},
-        animation::Keyframe<float>{
-            .offset = 0.4F, .value = 1.0F, .easing = animation::EasingFunction::ease_out_cubic()},
-        animation::Keyframe<float>{.offset = 1.0F,
-                                   .value = 0.35F,
-                                   .easing = animation::EasingFunction::ease_in_out_cubic()},
-    });
-    auto& keyframe_card = keyframe_row.append_new_child<controls::Border>();
-    keyframe_card.set_title("Keyframe track").set_preset(controls::BorderPreset::Success);
+    auto& keyframe_card = keyframe_row.append_new_child<LiveSampleCard>();
+    keyframe_card
+        .set_sample_function([](animation::AnimationTimePoint now) {
+            animation::KeyframeTrack<float> opacity_track({
+                animation::Keyframe<float>{.offset = 0.0F, .value = 0.0F},
+                animation::Keyframe<float>{.offset = 0.4F,
+                                           .value = 1.0F,
+                                           .easing = animation::EasingFunction::ease_out_cubic()},
+                animation::Keyframe<float>{.offset = 1.0F,
+                                           .value = 0.35F,
+                                           .easing = animation::EasingFunction::ease_in_out_cubic()},
+            });
+            const auto value = opacity_track.sample(loop_progress(now, 0.4F));
+            return LiveSample{
+                .progress = value,
+                .label = "Keyframe sample " +
+                         std::to_string(static_cast<int>(std::round(value * 100.0F))) + "%",
+            };
+        })
+        .set_fill_color(rendering::Color::rgba(103, 194, 58));
     configure_card(keyframe_card, 300.0F);
-    keyframe_card.append_new_child<controls::Text>().set_text(
-        "Sample " + std::to_string(static_cast<int>(opacity_track.sample(0.55F) * 100.0F)) + "%");
 
-    animation::SpringSimulation spring(0.0F, 1.0F);
-    animation::FrictionSimulation friction(0.0F, 720.0F);
-    auto& spring_card = keyframe_row.append_new_child<controls::Border>();
-    spring_card.set_title("Spring").set_preset(controls::BorderPreset::Warning);
+    auto& spring_card = keyframe_row.append_new_child<LiveSampleCard>();
+    spring_card
+        .set_sample_function([](animation::AnimationTimePoint now) {
+            animation::SpringSimulation spring(0.0F, 1.0F);
+            const auto value =
+                spring.sample(animation::AnimationDuration{loop_progress(now, 0.55F) * 1.1F}).value;
+            return LiveSample{
+                .progress = std::clamp(value, 0.0F, 1.0F),
+                .label = "Spring " +
+                         std::to_string(static_cast<int>(std::round(value * 100.0F))) + "%",
+            };
+        })
+        .set_fill_color(rendering::Color::rgba(230, 162, 60));
     configure_card(spring_card, 260.0F);
-    spring_card.append_new_child<controls::Text>().set_text(
-        "Value " +
-        std::to_string(
-            static_cast<int>(spring.sample(animation::AnimationDuration{0.28F}).value * 100.0F)) +
-        "%");
-    auto& friction_card = keyframe_row.append_new_child<controls::Border>();
-    friction_card.set_title("Friction").set_preset(controls::BorderPreset::Info);
+
+    auto& friction_card = keyframe_row.append_new_child<LiveSampleCard>();
+    friction_card
+        .set_sample_function([](animation::AnimationTimePoint now) {
+            animation::FrictionSimulation friction(0.0F, 720.0F);
+            const auto value = friction.sample(
+                animation::AnimationDuration{loop_progress(now, 0.35F) * 1.4F});
+            return LiveSample{
+                .progress = std::clamp(value.value / 720.0F, 0.0F, 1.0F),
+                .label = "Friction " + std::to_string(static_cast<int>(std::round(value.value))),
+            };
+        })
+        .set_fill_color(rendering::Color::rgba(144, 147, 153));
     configure_card(friction_card, 260.0F);
-    friction_card.append_new_child<controls::Text>().set_text(
-        "Offset " + std::to_string(static_cast<int>(
-                        friction.sample(animation::AnimationDuration{0.28F}).value)));
 
     auto& animated = section.append_new_child<controls::Button>();
     animated.set_text("Implicit property animation sample").set_type(controls::ButtonType::Primary);
