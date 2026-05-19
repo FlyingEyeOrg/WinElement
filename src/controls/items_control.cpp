@@ -298,6 +298,14 @@ ItemsControl& ItemsControl::set_virtualized(bool virtualized) {
     return *this;
 }
 
+ItemsControl& ItemsControl::set_reusable_container_limit(std::size_t limit) {
+    reusable_container_limit_ = limit;
+    if (reusable_containers_.size() > reusable_container_limit_) {
+        reusable_containers_.resize(reusable_container_limit_);
+    }
+    return *this;
+}
+
 ItemsControl& ItemsControl::set_realized_range(std::size_t start_index, std::size_t count) {
     realized_start_index_ = std::min(start_index, items_.size());
     realized_count_ = count;
@@ -366,6 +374,10 @@ const std::vector<std::string>& ItemsControl::items() const noexcept {
     return items_;
 }
 
+std::size_t ItemsControl::item_count() const noexcept {
+    return items_.size();
+}
+
 ItemsControl::SelectionMode ItemsControl::selection_mode() const noexcept {
     return selection_mode_;
 }
@@ -392,16 +404,28 @@ std::size_t ItemsControl::realized_start_index() const noexcept {
     return realized_start_index_;
 }
 
+std::size_t ItemsControl::realized_end_index() const noexcept {
+    return std::min(realized_start_index_ + realized_count(), items_.size());
+}
+
 std::size_t ItemsControl::realized_count() const noexcept {
-    return virtualized_ ? std::min(realized_count_, items_.size() - realized_start_index_)
+    const auto start = std::min(realized_start_index_, items_.size());
+    return virtualized_ ? std::min(realized_count_, items_.size() - start)
                         : items_.size();
+}
+
+std::size_t ItemsControl::reusable_container_count() const noexcept {
+    return reusable_containers_.size();
+}
+
+std::size_t ItemsControl::reusable_container_limit() const noexcept {
+    return reusable_container_limit_;
 }
 
 void ItemsControl::rebuild_children() {
     while (child_count() > 0U) {
         recycle_container(remove_child_at(child_count() - 1U));
     }
-    reusable_containers_.clear();
     update_realized_children();
 }
 
@@ -523,6 +547,9 @@ void ItemsControl::recycle_container(std::unique_ptr<elements::UIElement> contai
     }
     auto* raw_container = dynamic_cast<ItemsControlItemContainer*>(container.get());
     if (raw_container == nullptr) {
+        return;
+    }
+    if (reusable_containers_.size() >= reusable_container_limit_) {
         return;
     }
     container.release();

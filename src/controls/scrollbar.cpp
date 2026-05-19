@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
+#include <stdexcept>
 #include <utility>
 
 namespace winelement::controls {
@@ -34,7 +36,9 @@ Scrollbar& Scrollbar::set_orientation(ScrollbarOrientation orientation) {
 
     orientation_ = orientation;
     update_measure_callback();
-    mark_measure_dirty();
+    if (!is_scroll_container()) {
+        mark_measure_dirty();
+    }
     invalidate_paint();
     return *this;
 }
@@ -78,7 +82,9 @@ Scrollbar& Scrollbar::set_value(float value) {
 Scrollbar& Scrollbar::set_thickness(float thickness) {
     thickness_ = std::isfinite(thickness) ? std::max(thickness, 1.0F) : 6.0F;
     update_measure_callback();
-    mark_measure_dirty();
+    if (!is_scroll_container()) {
+        mark_measure_dirty();
+    }
     invalidate_paint();
     return *this;
 }
@@ -108,12 +114,67 @@ Scrollbar& Scrollbar::set_track_click_enabled(bool enabled) noexcept {
     return *this;
 }
 
+Scrollbar& Scrollbar::set_container_mode(bool enabled) {
+    if (container_mode_ == enabled) {
+        return *this;
+    }
+
+    container_mode_ = enabled;
+    if (container_mode_) {
+        set_overflow(layout::Overflow::Hidden);
+        set_scroll_wheel_enabled(true);
+    }
+    update_measure_callback();
+    if (!is_scroll_container()) {
+        mark_measure_dirty();
+    }
+    invalidate_paint();
+    return *this;
+}
+
+Scrollbar& Scrollbar::set_height(float height) {
+    if (!std::isfinite(height) || height < 0.0F) {
+        throw std::invalid_argument("scrollbar height must be finite and non-negative");
+    }
+    set_container_mode(true);
+    configure_layout([height](layout::LayoutElement& item) {
+        item.set_height(layout::Length::points(height));
+    });
+    return *this;
+}
+
+Scrollbar& Scrollbar::set_max_height(float max_height) {
+    if (!std::isfinite(max_height) || max_height < 0.0F) {
+        throw std::invalid_argument("scrollbar max height must be finite and non-negative");
+    }
+    set_container_mode(true);
+    configure_layout([max_height](layout::LayoutElement& item) {
+        item.set_max_height(layout::Length::points(max_height));
+    });
+    return *this;
+}
+
+Scrollbar& Scrollbar::set_content(std::unique_ptr<elements::UIElement> content) {
+    set_container_mode(true);
+    clear_children();
+    if (content != nullptr) {
+        append_child(std::move(content));
+    }
+    invalidate_layout();
+    invalidate_paint();
+    return *this;
+}
+
 Scrollbar& Scrollbar::bind_range(RangeProvider provider) {
     range_provider_ = std::move(provider);
     return refresh_bound_range();
 }
 
 Scrollbar& Scrollbar::refresh_bound_range() {
+    if (is_scroll_container()) {
+        sync_container_range_if_needed();
+        return *this;
+    }
     if (!range_provider_) {
         return *this;
     }
@@ -128,18 +189,44 @@ Scrollbar& Scrollbar::update() {
 }
 
 void Scrollbar::sync_bound_range_if_needed() {
+    if (is_scroll_container()) {
+        sync_container_range_if_needed();
+        return;
+    }
     if (!range_provider_) {
         return;
     }
     refresh_bound_range();
 }
 
+void Scrollbar::sync_container_range_if_needed() {
+    const auto viewport = viewport_rect();
+    const auto maximum = max_scroll_offset();
+    minimum_ = 0.0F;
+    maximum_ =
+        orientation_ == ScrollbarOrientation::Vertical ? std::max(maximum.y, 0.0F)
+                                                       : std::max(maximum.x, 0.0F);
+    page_size_ = orientation_ == ScrollbarOrientation::Vertical ? std::max(viewport.height, 0.0F)
+                                                               : std::max(viewport.width, 0.0F);
+    value_ = orientation_ == ScrollbarOrientation::Vertical ? scroll_offset().y : scroll_offset().x;
+}
+
 Scrollbar& Scrollbar::scroll_to(float scroll_left, float scroll_top) {
+    if (is_scroll_container()) {
+        const auto previous_scroll = scroll_offset();
+        set_scroll_offset(layout::Point{scroll_left, scroll_top});
+        emit_container_scroll_changed(previous_scroll);
+        return *this;
+    }
     return orientation_ == ScrollbarOrientation::Vertical ? set_scroll_top(scroll_top)
                                                           : set_scroll_left(scroll_left);
 }
 
 Scrollbar& Scrollbar::set_scroll_top(float scroll_top) {
+    if (is_scroll_container()) {
+        set_container_scroll_axis(ScrollbarOrientation::Vertical, scroll_top);
+        return *this;
+    }
     if (orientation_ == ScrollbarOrientation::Vertical) {
         set_value(scroll_top);
     }
@@ -147,6 +234,10 @@ Scrollbar& Scrollbar::set_scroll_top(float scroll_top) {
 }
 
 Scrollbar& Scrollbar::set_scroll_left(float scroll_left) {
+    if (is_scroll_container()) {
+        set_container_scroll_axis(ScrollbarOrientation::Horizontal, scroll_left);
+        return *this;
+    }
     if (orientation_ == ScrollbarOrientation::Horizontal) {
         set_value(scroll_left);
     }
@@ -219,8 +310,118 @@ bool Scrollbar::track_click_enabled() const noexcept {
     return track_click_enabled_;
 }
 
+bool Scrollbar::container_mode() const noexcept {
+    return container_mode_;
+}
+
 void Scrollbar::on_pointer_event(elements::PointerEvent& event) {
     sync_bound_range_if_needed();
+    if (is_scroll_container()) {
+        if (event.kind == elements::PointerEventKind::Enter) {
+            hovered_ = true;
+            animate_hover(1.0F);
+            invalidate_paint();
+            return;
+        }
+        if (event.kind == elements::PointerEventKind::Leave) {
+            hovered_ = false;
+            if (!dragging_) {
+                animate_hover(0.0F);
+            }
+            invalidate_paint();
+            return;
+        }
+        if (event.kind == elements::PointerEventKind::Cancel) {
+            dragging_ = false;
+            drag_thumb_offset_ = 0.0F;
+            animate_drag(0.0F);
+            if (!hovered_) {
+                animate_hover(0.0F);
+            }
+            release_pointer_capture();
+            event.handled = true;
+            return;
+        }
+        const auto local_frame = layout::Rect{0.0F, 0.0F, frame().width, frame().height};
+        const auto max_scroll = max_scroll_offset();
+        const auto can_scroll_vertical = max_scroll.y > 0.0F;
+        const auto can_scroll_horizontal = max_scroll.x > 0.0F;
+        const auto axis_at_point = [&]() -> std::optional<ScrollbarOrientation> {
+            if ((can_scroll_vertical || visibility_ == ScrollbarVisibility::Always) &&
+                layout::rect_contains_point(thumb_hit_rect(local_frame, ScrollbarOrientation::Vertical),
+                                            event.local_position)) {
+                return ScrollbarOrientation::Vertical;
+            }
+            if ((can_scroll_horizontal || visibility_ == ScrollbarVisibility::Always) &&
+                layout::rect_contains_point(
+                    thumb_hit_rect(local_frame, ScrollbarOrientation::Horizontal),
+                    event.local_position)) {
+                return ScrollbarOrientation::Horizontal;
+            }
+            if (!track_click_enabled_) {
+                return std::nullopt;
+            }
+            if ((can_scroll_vertical || visibility_ == ScrollbarVisibility::Always) &&
+                layout::rect_contains_point(track_rect(local_frame, ScrollbarOrientation::Vertical),
+                                            event.local_position)) {
+                return ScrollbarOrientation::Vertical;
+            }
+            if ((can_scroll_horizontal || visibility_ == ScrollbarVisibility::Always) &&
+                layout::rect_contains_point(track_rect(local_frame, ScrollbarOrientation::Horizontal),
+                                            event.local_position)) {
+                return ScrollbarOrientation::Horizontal;
+            }
+            return std::nullopt;
+        };
+
+        if (event.kind == elements::PointerEventKind::Down &&
+            event.button == elements::PointerButton::Primary) {
+            const auto axis = axis_at_point();
+            if (axis.has_value()) {
+                const auto thumb = thumb_rect(local_frame, *axis);
+                dragging_orientation_ = *axis;
+                drag_thumb_offset_ =
+                    layout::rect_contains_point(thumb_hit_rect(local_frame, *axis),
+                                                event.local_position)
+                        ? axis_coordinate(event.local_position, *axis) - axis_origin(thumb, *axis)
+                        : axis_extent(thumb, *axis) * 0.5F;
+                dragging_ = true;
+                animate_drag(1.0F);
+                animate_hover(1.0F);
+                static_cast<void>(capture_pointer());
+                set_container_scroll_axis(*axis, value_for_local_point(event.local_position, *axis));
+                event.handled = true;
+                return;
+            }
+        }
+        if (event.kind == elements::PointerEventKind::Move && dragging_) {
+            set_container_scroll_axis(dragging_orientation_,
+                                      value_for_local_point(event.local_position,
+                                                            dragging_orientation_));
+            event.handled = true;
+            return;
+        }
+        if (event.kind == elements::PointerEventKind::Up && dragging_) {
+            set_container_scroll_axis(dragging_orientation_,
+                                      value_for_local_point(event.local_position,
+                                                            dragging_orientation_));
+            dragging_ = false;
+            drag_thumb_offset_ = 0.0F;
+            animate_drag(0.0F);
+            if (!hovered_) {
+                animate_hover(0.0F);
+            }
+            release_pointer_capture();
+            event.handled = true;
+            return;
+        }
+
+        const auto previous_scroll = scroll_offset();
+        elements::UIElement::on_pointer_event(event);
+        emit_container_scroll_changed(previous_scroll);
+        return;
+    }
+
     if (event.kind == elements::PointerEventKind::Enter) {
         hovered_ = true;
         animate_hover(1.0F);
@@ -301,6 +502,52 @@ void Scrollbar::on_key_event(elements::KeyEvent& event) {
         return;
     }
 
+    if (is_scroll_container()) {
+        const auto max_scroll = max_scroll_offset();
+        const auto current_scroll = scroll_offset();
+        const auto line_step = std::max(
+            orientation_ == ScrollbarOrientation::Vertical ? viewport_rect().height * 0.1F
+                                                           : viewport_rect().width * 0.1F,
+            1.0F);
+        const auto page_step =
+            std::max(orientation_ == ScrollbarOrientation::Vertical ? viewport_rect().height
+                                                                    : viewport_rect().width,
+                     line_step);
+        auto next_scroll = current_scroll;
+        switch (event.key) {
+        case elements::Key::Up:
+            next_scroll.y -= line_step;
+            break;
+        case elements::Key::Down:
+            next_scroll.y += line_step;
+            break;
+        case elements::Key::Left:
+            next_scroll.x -= line_step;
+            break;
+        case elements::Key::Right:
+            next_scroll.x += line_step;
+            break;
+        case elements::Key::PageUp:
+            next_scroll.y -= page_step;
+            break;
+        case elements::Key::PageDown:
+            next_scroll.y += page_step;
+            break;
+        case elements::Key::Home:
+            next_scroll = {};
+            break;
+        case elements::Key::End:
+            next_scroll = max_scroll;
+            break;
+        default:
+            return;
+        }
+        set_scroll_offset(next_scroll);
+        emit_container_scroll_changed(current_scroll);
+        event.handled = true;
+        return;
+    }
+
     const auto line_step = std::max(page_size_ * 0.1F, 1.0F);
     const auto page_step = std::max(page_size_, line_step);
     auto next_value = value_;
@@ -355,6 +602,13 @@ void Scrollbar::on_key_event(elements::KeyEvent& event) {
 
 void Scrollbar::on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const {
     const_cast<Scrollbar*>(this)->sync_bound_range_if_needed();
+    if (is_scroll_container()) {
+        if (style_storage().background.alpha != 0U) {
+            context.fill_rounded_rect(absolute_frame, style_storage().corner_radius,
+                                      style_storage().background);
+        }
+        return;
+    }
     if (visibility_ == ScrollbarVisibility::Never ||
         (visibility_ == ScrollbarVisibility::Auto && maximum_ <= minimum_)) {
         return;
@@ -382,7 +636,56 @@ void Scrollbar::on_paint(rendering::RenderContext& context, layout::Rect absolut
     context.fill_rounded_rect(thumb_rect(absolute_frame), style_storage().corner_radius, thumb);
 }
 
+void Scrollbar::on_paint_overlay(rendering::RenderContext& context,
+                                 layout::Rect absolute_frame) const {
+    if (!is_scroll_container()) {
+        return;
+    }
+    const_cast<Scrollbar*>(this)->sync_container_range_if_needed();
+    if (visibility_ == ScrollbarVisibility::Never) {
+        return;
+    }
+
+    const auto max_scroll = max_scroll_offset();
+    const auto hover_progress = animated_hover_progress();
+    const auto drag_progress = animated_drag_progress();
+    const auto visibility_progress =
+        visibility_ == ScrollbarVisibility::Always ? 1.0F : std::max(hover_progress, drag_progress);
+    if (visibility_progress <= 0.001F) {
+        return;
+    }
+    const auto idle_thumb = rendering::Color::rgba(
+        style_storage().hover_background.red, style_storage().hover_background.green,
+        style_storage().hover_background.blue,
+        scaled_alpha(style_storage().hover_background.alpha, 0.72F * visibility_progress));
+    const auto hover_thumb =
+        animation::interpolate_value(idle_thumb, style_storage().hover_background, hover_progress);
+    const auto thumb =
+        animation::interpolate_value(hover_thumb, style_storage().active_background, drag_progress);
+
+    const auto paint_axis = [&](ScrollbarOrientation orientation) {
+        const auto axis_max = orientation == ScrollbarOrientation::Vertical ? max_scroll.y
+                                                                            : max_scroll.x;
+        if (visibility_ == ScrollbarVisibility::Auto && axis_max <= 0.0F) {
+            return;
+        }
+        const auto track = track_rect(absolute_frame, orientation);
+        if (style_storage().background.alpha != 0U) {
+            context.fill_rounded_rect(track, style_storage().corner_radius,
+                                      style_storage().background);
+        }
+        context.fill_rounded_rect(thumb_rect(absolute_frame, orientation),
+                                  style_storage().corner_radius, thumb);
+    };
+    paint_axis(ScrollbarOrientation::Vertical);
+    paint_axis(ScrollbarOrientation::Horizontal);
+}
+
 void Scrollbar::update_measure_callback() {
+    if (is_scroll_container()) {
+        clear_measure_callback();
+        return;
+    }
     set_measure_callback([this](const layout::MeasureInput&) {
         return orientation_ == ScrollbarOrientation::Vertical ? layout::Size{thickness_, 120.0F}
                                                               : layout::Size{120.0F, thickness_};
@@ -390,43 +693,77 @@ void Scrollbar::update_measure_callback() {
 }
 
 layout::Rect Scrollbar::track_rect(layout::Rect frame) const noexcept {
+    return track_rect(frame, orientation_);
+}
+
+layout::Rect Scrollbar::track_rect(layout::Rect frame,
+                                   ScrollbarOrientation orientation) const noexcept {
     const auto cross_extent =
-        orientation_ == ScrollbarOrientation::Vertical ? frame.width : frame.height;
+        orientation == ScrollbarOrientation::Vertical ? frame.width : frame.height;
     const auto axis_length =
-        orientation_ == ScrollbarOrientation::Vertical ? frame.height : frame.width;
+        orientation == ScrollbarOrientation::Vertical ? frame.height : frame.width;
     const auto inset = std::min(element_scrollbar_edge_inset, std::max(axis_length, 0.0F) * 0.5F);
-    if (orientation_ == ScrollbarOrientation::Vertical) {
+    if (orientation == ScrollbarOrientation::Vertical) {
         const auto width = std::min(std::max(cross_extent, 0.0F), thickness_);
-        const auto x = frame.x + std::max(0.0F, frame.width - width) * 0.5F;
+        const auto x = is_scroll_container()
+                           ? frame.x + std::max(0.0F, frame.width - width - element_scrollbar_edge_inset)
+                           : frame.x + std::max(0.0F, frame.width - width) * 0.5F;
         return layout::Rect{x, frame.y + inset, width, std::max(0.0F, frame.height - inset * 2.0F)};
     }
     const auto height = std::min(std::max(cross_extent, 0.0F), thickness_);
-    const auto y = frame.y + std::max(0.0F, frame.height - height) * 0.5F;
+    const auto y = is_scroll_container()
+                       ? frame.y + std::max(0.0F, frame.height - height - element_scrollbar_edge_inset)
+                       : frame.y + std::max(0.0F, frame.height - height) * 0.5F;
     return layout::Rect{frame.x + inset, y, std::max(0.0F, frame.width - inset * 2.0F), height};
 }
 
 layout::Rect Scrollbar::thumb_rect(layout::Rect frame) const noexcept {
-    const auto track = track_rect(frame);
-    const auto range = std::max(maximum_ - minimum_, 0.0F);
-    const auto track_extent = axis_extent(track);
+    return thumb_rect(frame, orientation_);
+}
+
+layout::Rect Scrollbar::thumb_rect(layout::Rect frame,
+                                   ScrollbarOrientation orientation) const noexcept {
+    const auto track = track_rect(frame, orientation);
+    const auto max_scroll = is_scroll_container() ? max_scroll_offset() : layout::Point{};
+    const auto range = is_scroll_container()
+                           ? (orientation == ScrollbarOrientation::Vertical
+                                  ? std::max(max_scroll.y, 0.0F)
+                                  : std::max(max_scroll.x, 0.0F))
+                           : std::max(maximum_ - minimum_, 0.0F);
+    const auto track_extent = axis_extent(track, orientation);
     const auto cross_extent =
-        orientation_ == ScrollbarOrientation::Vertical ? track.width : track.height;
+        orientation == ScrollbarOrientation::Vertical ? track.width : track.height;
+    const auto viewport = viewport_rect();
+    const auto page_size = is_scroll_container()
+                               ? (orientation == ScrollbarOrientation::Vertical
+                                      ? std::max(viewport.height, 0.0F)
+                                      : std::max(viewport.width, 0.0F))
+                               : page_size_;
     const auto thumb_extent = range <= 0.0F
                                   ? track_extent
-                                  : std::clamp(track_extent * page_size_ / (range + page_size_),
+                                  : std::clamp(track_extent * page_size / (range + page_size),
                                                min_thumb_extent_, track_extent);
     const auto travel = std::max(track_extent - thumb_extent, 0.0F);
-    const auto ratio = range <= 0.0F ? 0.0F : (value_ - minimum_) / range;
+    const auto scroll = scroll_offset();
+    const auto value = is_scroll_container()
+                           ? (orientation == ScrollbarOrientation::Vertical ? scroll.y : scroll.x)
+                           : value_ - minimum_;
+    const auto ratio = range <= 0.0F ? 0.0F : value / range;
     const auto offset = travel * std::clamp(ratio, 0.0F, 1.0F);
-    if (orientation_ == ScrollbarOrientation::Vertical) {
+    if (orientation == ScrollbarOrientation::Vertical) {
         return layout::Rect{track.x, track.y + offset, cross_extent, thumb_extent};
     }
     return layout::Rect{track.x + offset, track.y, thumb_extent, cross_extent};
 }
 
 layout::Rect Scrollbar::thumb_hit_rect(layout::Rect frame) const noexcept {
-    auto hit_rect = thumb_rect(frame);
-    if (orientation_ == ScrollbarOrientation::Vertical) {
+    return thumb_hit_rect(frame, orientation_);
+}
+
+layout::Rect Scrollbar::thumb_hit_rect(layout::Rect frame,
+                                       ScrollbarOrientation orientation) const noexcept {
+    auto hit_rect = thumb_rect(frame, orientation);
+    if (orientation == ScrollbarOrientation::Vertical) {
         const auto hit_width =
             std::min(std::max(frame.width, 0.0F),
                      std::max(hit_rect.width, element_scrollbar_min_hit_cross_extent));
@@ -443,15 +780,28 @@ layout::Rect Scrollbar::thumb_hit_rect(layout::Rect frame) const noexcept {
 }
 
 float Scrollbar::axis_coordinate(layout::Point point) const noexcept {
-    return orientation_ == ScrollbarOrientation::Vertical ? point.y : point.x;
+    return axis_coordinate(point, orientation_);
+}
+
+float Scrollbar::axis_coordinate(layout::Point point,
+                                 ScrollbarOrientation orientation) const noexcept {
+    return orientation == ScrollbarOrientation::Vertical ? point.y : point.x;
 }
 
 float Scrollbar::axis_origin(layout::Rect rect) const noexcept {
-    return orientation_ == ScrollbarOrientation::Vertical ? rect.y : rect.x;
+    return axis_origin(rect, orientation_);
+}
+
+float Scrollbar::axis_origin(layout::Rect rect, ScrollbarOrientation orientation) const noexcept {
+    return orientation == ScrollbarOrientation::Vertical ? rect.y : rect.x;
 }
 
 float Scrollbar::axis_extent(layout::Rect rect) const noexcept {
-    return orientation_ == ScrollbarOrientation::Vertical ? rect.height : rect.width;
+    return axis_extent(rect, orientation_);
+}
+
+float Scrollbar::axis_extent(layout::Rect rect, ScrollbarOrientation orientation) const noexcept {
+    return orientation == ScrollbarOrientation::Vertical ? rect.height : rect.width;
 }
 
 float Scrollbar::animated_hover_progress() const {
@@ -471,12 +821,23 @@ void Scrollbar::animate_drag(float target) {
 }
 
 float Scrollbar::value_for_local_point(layout::Point point) const noexcept {
+    return value_for_local_point(point, orientation_);
+}
+
+float Scrollbar::value_for_local_point(layout::Point point,
+                                       ScrollbarOrientation orientation) const noexcept {
     const auto frame_rect = layout::Rect{0.0F, 0.0F, frame().width, frame().height};
-    const auto track = track_rect(frame_rect);
-    const auto thumb = thumb_rect(frame_rect);
-    const auto travel = std::max(axis_extent(track) - axis_extent(thumb), 0.0F);
-    const auto coordinate = axis_coordinate(point) - axis_origin(track) - drag_thumb_offset_;
+    const auto track = track_rect(frame_rect, orientation);
+    const auto thumb = thumb_rect(frame_rect, orientation);
+    const auto travel = std::max(axis_extent(track, orientation) - axis_extent(thumb, orientation),
+                                 0.0F);
+    const auto coordinate =
+        axis_coordinate(point, orientation) - axis_origin(track, orientation) - drag_thumb_offset_;
     const auto ratio = travel <= 0.0F ? 0.0F : std::clamp(coordinate / travel, 0.0F, 1.0F);
+    if (is_scroll_container()) {
+        const auto maximum = max_scroll_offset();
+        return ratio * (orientation == ScrollbarOrientation::Vertical ? maximum.y : maximum.x);
+    }
     return minimum_ + (maximum_ - minimum_) * ratio;
 }
 
@@ -484,37 +845,87 @@ float Scrollbar::clamped_value(float value) const noexcept {
     return std::isfinite(value) ? std::clamp(value, minimum_, maximum_) : minimum_;
 }
 
+bool Scrollbar::is_scroll_container() const noexcept {
+    return container_mode_;
+}
+
+void Scrollbar::set_container_scroll_axis(ScrollbarOrientation orientation, float value) {
+    const auto previous_scroll = scroll_offset();
+    auto next_scroll = previous_scroll;
+    if (orientation == ScrollbarOrientation::Vertical) {
+        next_scroll.y = value;
+    } else {
+        next_scroll.x = value;
+    }
+    set_scroll_offset(next_scroll);
+    emit_container_scroll_changed(previous_scroll);
+}
+
+void Scrollbar::emit_container_scroll_changed(layout::Point previous_scroll) {
+    const auto current_scroll = scroll_offset();
+    if (current_scroll.x == previous_scroll.x && current_scroll.y == previous_scroll.y) {
+        return;
+    }
+
+    sync_container_range_if_needed();
+    if (scroll_handler_) {
+        scroll_handler_(orientation_ == ScrollbarOrientation::Vertical ? current_scroll.y
+                                                                       : current_scroll.x);
+    }
+    if (scroll_data_handler_) {
+        scroll_data_handler_(ScrollbarScrollData{.scroll_left = current_scroll.x,
+                                                 .scroll_top = current_scroll.y});
+    }
+    const auto maximum = max_scroll_offset();
+    notify_end_reached(ScrollbarOrientation::Vertical, current_scroll.y, maximum.y);
+    notify_end_reached(ScrollbarOrientation::Horizontal, current_scroll.x, maximum.x);
+}
+
 void Scrollbar::notify_end_reached() {
     if (!end_reached_handler_ || maximum_ <= minimum_) {
         return;
     }
 
+    notify_end_reached(orientation_, value_ - minimum_, maximum_ - minimum_);
+}
+
+void Scrollbar::notify_end_reached(ScrollbarOrientation orientation, float value, float maximum) {
+    if (!end_reached_handler_ || maximum <= 0.0F) {
+        return;
+    }
+
     const auto threshold = std::max(distance_, 0.0F);
-    const auto at_min = value_ <= minimum_ + threshold;
-    const auto at_max = value_ >= maximum_ - threshold;
+    const auto at_min = value <= threshold;
+    const auto at_max = value >= maximum - threshold;
+    auto& min_latch = orientation == ScrollbarOrientation::Vertical ? top_end_reported_
+                                                                    : left_end_reported_;
+    auto& max_latch = orientation == ScrollbarOrientation::Vertical ? bottom_end_reported_
+                                                                    : right_end_reported_;
     if (!at_min) {
-        min_end_reported_ = false;
+        min_latch = false;
     }
     if (!at_max) {
-        max_end_reported_ = false;
+        max_latch = false;
     }
-    if (at_min && !min_end_reported_) {
-        min_end_reported_ = true;
-        end_reached_handler_(orientation_ == ScrollbarOrientation::Vertical
+    if (at_min && !min_latch) {
+        min_latch = true;
+        end_reached_handler_(orientation == ScrollbarOrientation::Vertical
                                  ? ScrollbarEndDirection::Top
                                  : ScrollbarEndDirection::Left);
     }
-    if (at_max && !max_end_reported_) {
-        max_end_reported_ = true;
-        end_reached_handler_(orientation_ == ScrollbarOrientation::Vertical
+    if (at_max && !max_latch) {
+        max_latch = true;
+        end_reached_handler_(orientation == ScrollbarOrientation::Vertical
                                  ? ScrollbarEndDirection::Bottom
                                  : ScrollbarEndDirection::Right);
     }
 }
 
 void Scrollbar::reset_end_reached_latches() {
-    min_end_reported_ = false;
-    max_end_reported_ = false;
+    top_end_reported_ = false;
+    right_end_reported_ = false;
+    bottom_end_reported_ = false;
+    left_end_reported_ = false;
 }
 
 } // namespace winelement::controls

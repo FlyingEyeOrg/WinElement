@@ -823,8 +823,46 @@ void add_choice_scroll_section(controls::StackPanel& root) {
             .set_flex_shrink(0.0F);
     });
 
+    auto& container_group = scroll_row.append_new_child<controls::StackPanel>();
+    container_group.set_gap(8.0F);
+    container_group.configure_layout([](layout::LayoutElement& item) {
+        item.set_width(layout::Length::points(420.0F)).set_flex_shrink(0.0F);
+    });
+    add_label(container_group, "Element Plus style scrollbar container");
+    auto& container_scrollbar = container_group.append_new_child<controls::Scrollbar>();
+    container_scrollbar.set_container_mode(true)
+        .set_always_visible(true)
+        .set_min_size(24.0F)
+        .set_distance(16.0F);
+    container_scrollbar.configure_layout([](layout::LayoutElement& item) {
+        item.set_width(layout::Length::percent(100.0F))
+            .set_height(layout::Length::points(180.0F))
+            .set_flex_shrink(0.0F);
+    });
+    auto& container_content = container_scrollbar.append_new_child<controls::StackPanel>();
+    container_content.set_gap(8.0F);
+    container_content.configure_layout([](layout::LayoutElement& item) {
+        item.set_width(layout::Length::percent(100.0F))
+            .set_min_height(layout::Length::points(420.0F))
+            .set_padding(layout::Edge::All, layout::Length::points(10.0F))
+            .set_flex_shrink(0.0F);
+    });
+    for (auto index = 1; index <= 10; ++index) {
+        auto& item = container_content.append_new_child<controls::Border>();
+        item.set_preset(index % 2 == 0 ? controls::BorderPreset::Primary
+                                       : controls::BorderPreset::Info);
+        item.configure_layout([](layout::LayoutElement& cell) {
+            cell.set_width(layout::Length::percent(100.0F))
+                .set_min_height(layout::Length::points(36.0F))
+                .set_padding(layout::Edge::All, layout::Length::points(8.0F))
+                .set_flex_shrink(0.0F);
+        });
+        item.append_new_child<controls::Text>().set_text("Container item " + std::to_string(index));
+    }
+
     auto& items = section.append_new_child<controls::ItemsControl>();
     items.set_items({"Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Eta", "Theta"})
+        .set_reusable_container_limit(16U)
         .set_item_factory([](controls::ItemsControl::ItemContext context) {
             auto item = std::make_unique<controls::StackPanel>();
             item->set_gap(4.0F);

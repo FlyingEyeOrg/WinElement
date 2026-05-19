@@ -886,6 +886,29 @@ TEST(BasicControlsTests, ItemsControlCanRealizeViewportWindow) {
     EXPECT_EQ(items.child_count(), 6U);
 }
 
+TEST(BasicControlsTests, ItemsControlBoundsReusableContainerPool) {
+    auto engine = create_unrounded_engine();
+    ItemsControl items;
+    items.bind_layout_tree(engine);
+    items.set_reusable_container_limit(2U)
+        .set_items({"0", "1", "2", "3", "4", "5"})
+        .set_virtualized(true)
+        .set_realized_range(0U, 5U);
+
+    EXPECT_EQ(items.item_count(), 6U);
+    EXPECT_EQ(items.realized_start_index(), 0U);
+    EXPECT_EQ(items.realized_end_index(), 5U);
+    EXPECT_EQ(items.child_count(), 5U);
+
+    items.set_realized_range(0U, 1U);
+    EXPECT_EQ(items.child_count(), 1U);
+    EXPECT_EQ(items.reusable_container_count(), 2U);
+    EXPECT_EQ(items.reusable_container_limit(), 2U);
+
+    items.set_reusable_container_limit(1U);
+    EXPECT_EQ(items.reusable_container_count(), 1U);
+}
+
 TEST(BasicControlsTests, ButtonHandlesPointerAndKeyboardClick) {
     auto engine = create_unrounded_engine();
     Panel root;
@@ -3876,6 +3899,65 @@ TEST(BasicControlsTests, HorizontalScrollbarDragSynchronizesViewportScrollOffset
     EXPECT_GT(scrollbar.value(), 180.0F);
     EXPECT_FLOAT_EQ(viewport.scroll_offset().x, scrollbar.value());
     EXPECT_LT(content.absolute_frame().x, initial_content_x - 180.0F);
+}
+
+TEST(BasicControlsTests, ScrollbarCanWrapScrollableContent) {
+    auto engine = create_unrounded_engine();
+    Scrollbar scrollbar;
+    scrollbar.bind_layout_tree(engine);
+    scrollbar.set_container_mode(true).set_always_visible(true).set_distance(4.0F);
+    scrollbar.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(220.0F), Length::points(120.0F));
+    });
+
+    auto& content = scrollbar.append_new_child<StackPanel>();
+    content.configure_layout([](LayoutElement& layout) {
+        layout.set_width(Length::percent(100.0F))
+            .set_height(Length::points(360.0F))
+            .set_flex_shrink(0.0F);
+    });
+    for (auto index = 0; index < 8; ++index) {
+        auto& item = content.append_new_child<Border>();
+        item.configure_layout([](LayoutElement& layout) {
+            layout.set_size(Length::points(180.0F), Length::points(42.0F)).set_flex_shrink(0.0F);
+        });
+    }
+
+    ScrollbarScrollData scroll_data;
+    std::vector<ScrollbarEndDirection> reached;
+    scrollbar.set_on_scroll_data([&scroll_data](ScrollbarScrollData data) { scroll_data = data; })
+        .set_on_end_reached(
+            [&reached](ScrollbarEndDirection direction) { reached.push_back(direction); });
+    scrollbar.calculate_layout(LayoutConstraints{.width = 220.0F, .height = 120.0F});
+
+    EXPECT_TRUE(scrollbar.container_mode());
+    EXPECT_FLOAT_EQ(scrollbar.max_scroll_offset().y, 240.0F);
+    scrollbar.set_scroll_top(80.0F);
+    EXPECT_FLOAT_EQ(scrollbar.scroll_offset().y, 80.0F);
+    EXPECT_FLOAT_EQ(scroll_data.scroll_top, 80.0F);
+
+    EventRouter router(scrollbar);
+    const auto bar = scrollbar.absolute_frame();
+    const auto x = bar.x + bar.width - 4.0F;
+    EXPECT_TRUE(router
+                    .route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
+                                                      .position = Point{x, bar.y + 8.0F},
+                                                      .button = PointerButton::Primary})
+                    .handled);
+    EXPECT_TRUE(router
+                    .route_pointer_event(PointerEvent{.kind = PointerEventKind::Move,
+                                                      .position = Point{x, bar.y + 108.0F}})
+                    .handled);
+    EXPECT_TRUE(router
+                    .route_pointer_event(PointerEvent{.kind = PointerEventKind::Up,
+                                                      .position = Point{x, bar.y + 108.0F},
+                                                      .button = PointerButton::Primary})
+                    .handled);
+    EXPECT_GT(scrollbar.scroll_offset().y, 160.0F);
+
+    scrollbar.set_scroll_top(240.0F);
+    ASSERT_FALSE(reached.empty());
+    EXPECT_EQ(reached.back(), ScrollbarEndDirection::Bottom);
 }
 
 TEST(BasicControlsTests, SelectUsesSvgIconArrowAndAnimatedDropdownLayer) {

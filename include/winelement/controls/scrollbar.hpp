@@ -6,6 +6,7 @@
 #include <winelement/style/ui_element_style.hpp>
 
 #include <functional>
+#include <memory>
 
 namespace winelement::controls {
 
@@ -46,6 +47,10 @@ class Scrollbar final : public Control {
     Scrollbar& set_always_visible(bool always) noexcept;
     Scrollbar& set_distance(float distance) noexcept;
     Scrollbar& set_track_click_enabled(bool enabled) noexcept;
+    Scrollbar& set_container_mode(bool enabled = true);
+    Scrollbar& set_height(float height);
+    Scrollbar& set_max_height(float max_height);
+    Scrollbar& set_content(std::unique_ptr<elements::UIElement> content);
     Scrollbar& bind_range(RangeProvider provider);
     Scrollbar& refresh_bound_range();
     Scrollbar& update();
@@ -67,29 +72,48 @@ class Scrollbar final : public Control {
     [[nodiscard]] float min_size() const noexcept;
     [[nodiscard]] float distance() const noexcept;
     [[nodiscard]] bool track_click_enabled() const noexcept;
+    [[nodiscard]] bool container_mode() const noexcept;
 
   protected:
     void on_pointer_event(elements::PointerEvent& event) override;
     void on_key_event(elements::KeyEvent& event) override;
     [[nodiscard]] bool on_animation_frame(animation::AnimationTimePoint now) override;
     void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override;
+    void on_paint_overlay(rendering::RenderContext& context, layout::Rect absolute_frame) const override;
 
   private:
     void sync_bound_range_if_needed();
+    void sync_container_range_if_needed();
     void update_measure_callback();
     [[nodiscard]] layout::Rect track_rect(layout::Rect frame) const noexcept;
+    [[nodiscard]] layout::Rect track_rect(layout::Rect frame,
+                                          ScrollbarOrientation orientation) const noexcept;
     [[nodiscard]] layout::Rect thumb_rect(layout::Rect frame) const noexcept;
+    [[nodiscard]] layout::Rect thumb_rect(layout::Rect frame,
+                                          ScrollbarOrientation orientation) const noexcept;
     [[nodiscard]] layout::Rect thumb_hit_rect(layout::Rect frame) const noexcept;
+    [[nodiscard]] layout::Rect thumb_hit_rect(layout::Rect frame,
+                                              ScrollbarOrientation orientation) const noexcept;
     [[nodiscard]] float axis_coordinate(layout::Point point) const noexcept;
+    [[nodiscard]] float axis_coordinate(layout::Point point,
+                                        ScrollbarOrientation orientation) const noexcept;
     [[nodiscard]] float axis_origin(layout::Rect rect) const noexcept;
+    [[nodiscard]] float axis_origin(layout::Rect rect, ScrollbarOrientation orientation) const noexcept;
     [[nodiscard]] float axis_extent(layout::Rect rect) const noexcept;
+    [[nodiscard]] float axis_extent(layout::Rect rect, ScrollbarOrientation orientation) const noexcept;
     [[nodiscard]] float animated_hover_progress() const;
     [[nodiscard]] float animated_drag_progress() const;
     void animate_hover(float target);
     void animate_drag(float target);
     [[nodiscard]] float value_for_local_point(layout::Point point) const noexcept;
+    [[nodiscard]] float value_for_local_point(layout::Point point,
+                                              ScrollbarOrientation orientation) const noexcept;
     [[nodiscard]] float clamped_value(float value) const noexcept;
+    [[nodiscard]] bool is_scroll_container() const noexcept;
+    void set_container_scroll_axis(ScrollbarOrientation orientation, float value);
+    void emit_container_scroll_changed(layout::Point previous_scroll);
     void notify_end_reached();
+    void notify_end_reached(ScrollbarOrientation orientation, float value, float maximum);
     void reset_end_reached_latches();
 
     ScrollHandler scroll_handler_;
@@ -107,9 +131,13 @@ class Scrollbar final : public Control {
     float distance_ = 0.0F;
     float drag_thumb_offset_ = 0.0F;
     bool dragging_ = false;
+    bool container_mode_ = false;
     bool track_click_enabled_ = true;
-    bool min_end_reported_ = false;
-    bool max_end_reported_ = false;
+    ScrollbarOrientation dragging_orientation_ = ScrollbarOrientation::Vertical;
+    bool top_end_reported_ = false;
+    bool right_end_reported_ = false;
+    bool bottom_end_reported_ = false;
+    bool left_end_reported_ = false;
     AnimatedFloat hover_progress_{0.0F};
     AnimatedFloat drag_progress_{0.0F};
 };

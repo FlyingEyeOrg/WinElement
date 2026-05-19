@@ -51,6 +51,7 @@ class ItemsControl final : public Control {
     ItemsControl& set_on_multi_selection_changed(MultiSelectionChangedHandler handler);
     ItemsControl& set_on_reorder(ReorderHandler handler);
     ItemsControl& set_virtualized(bool virtualized);
+    ItemsControl& set_reusable_container_limit(std::size_t limit);
     ItemsControl& set_realized_range(std::size_t start_index, std::size_t count);
     ItemsControl& set_virtualization_window(float scroll_offset, float viewport_extent,
                                             float item_extent, std::size_t overscan = 2U);
@@ -62,13 +63,17 @@ class ItemsControl final : public Control {
     ItemsControl& refresh_items();
     ItemsControl& set_style(style::UIElementStyle style) override;
     [[nodiscard]] const std::vector<std::string>& items() const noexcept;
+    [[nodiscard]] std::size_t item_count() const noexcept;
     [[nodiscard]] SelectionMode selection_mode() const noexcept;
     [[nodiscard]] std::optional<std::size_t> selected_index() const noexcept;
     [[nodiscard]] std::vector<std::size_t> selected_indices() const;
     [[nodiscard]] const std::vector<ItemGroup>& groups() const noexcept;
     [[nodiscard]] bool virtualized() const noexcept;
     [[nodiscard]] std::size_t realized_start_index() const noexcept;
+    [[nodiscard]] std::size_t realized_end_index() const noexcept;
     [[nodiscard]] std::size_t realized_count() const noexcept;
+    [[nodiscard]] std::size_t reusable_container_count() const noexcept;
+    [[nodiscard]] std::size_t reusable_container_limit() const noexcept;
 
   private:
     friend class ItemsControlItemContainer;
@@ -98,6 +103,7 @@ class ItemsControl final : public Control {
     std::size_t realized_count_ = 0;
     bool virtualized_ = false;
     VirtualizationPlanner virtualization_planner_;
+    std::size_t reusable_container_limit_ = 64U;
 };
 
 } // namespace winelement::controls
