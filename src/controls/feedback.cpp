@@ -21,10 +21,10 @@ constexpr auto overlay_shadow = rendering::ShadowStyle{
 constexpr auto close_icon_size = 16.0F;
 constexpr auto message_status_icon_size = 16.0F;
 constexpr auto message_stack_spacing = 16.0F;
-constexpr auto message_box_padding = 12.0F;
-constexpr auto message_box_header_height = 24.0F;
+constexpr auto message_box_padding = 16.0F;
+constexpr auto message_box_header_height = 28.0F;
 constexpr auto message_box_gap = 12.0F;
-constexpr auto message_box_header_body_gap = 16.0F;
+constexpr auto message_box_header_body_gap = 20.0F;
 constexpr auto message_box_status_size = 24.0F;
 constexpr auto message_box_footer_height = 32.0F;
 constexpr auto message_box_drag_height = message_box_padding + message_box_header_height;
@@ -642,8 +642,8 @@ MessageBox::MessageBox() : Control() {
     header.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F))
             .set_height(layout::Length::points(message_box_header_height))
-            .set_margin(layout::Edge::Right, layout::Length::points(28.0F))
-            .set_margin(layout::Edge::Bottom, layout::Length::points(message_box_gap))
+            .set_margin(layout::Edge::Right, layout::Length::points(32.0F))
+            .set_margin(layout::Edge::Bottom, layout::Length::points(message_box_header_body_gap))
             .set_flex_shrink(0.0F);
     });
     header_panel_ = &header;
@@ -663,8 +663,7 @@ MessageBox::MessageBox() : Control() {
     body.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F))
             .set_flex_grow(1.0F)
-            .set_flex_shrink(1.0F)
-            .set_margin(layout::Edge::Top, layout::Length::points(4.0F));
+            .set_flex_shrink(1.0F);
     });
 
     auto& content = body.append_new_child<StackPanel>();

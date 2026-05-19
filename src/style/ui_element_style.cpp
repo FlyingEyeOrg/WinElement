@@ -270,7 +270,14 @@ namespace {
 
 [[nodiscard]] UIElementStyle make_default_items_control_style() noexcept {
     auto style = make_default_panel_style();
-    style.background = rendering::Color::rgba(0, 0, 0, 0);
+    style.background = rendering::Color::rgba(255, 255, 255);
+    style.hover_background = rendering::Color::rgba(236, 245, 255);
+    style.active_background = rendering::Color::rgba(217, 236, 255);
+    style.border_color = rendering::Color::rgba(220, 223, 230);
+    style.focus_border_color = rendering::Color::rgba(64, 158, 255);
+    style.border_width = 1.0F;
+    style.corner_radius = rendering::CornerRadius::uniform(6.0F);
+    style.pixel_snapped_border = true;
     style.padding = layout::EdgeInsets{};
     return style;
 }
@@ -556,7 +563,14 @@ void register_builtin_theme_classes(Theme& theme, UIElementStyle panel, UIElemen
     switch_style.min_height = 20.0F;
     set_theme_style_class(theme, theme_class::switch_control, switch_style);
     auto items_control = panel_style;
-    items_control.background = rendering::Color::rgba(0, 0, 0, 0);
+    items_control.background = input_style.background;
+    items_control.hover_background = rendering::Color::rgba(236, 245, 255);
+    items_control.active_background = rendering::Color::rgba(217, 236, 255);
+    items_control.border_color = input_style.border_color;
+    items_control.focus_border_color = input_style.focus_border_color;
+    items_control.border_width = 1.0F;
+    items_control.corner_radius = rendering::CornerRadius::uniform(6.0F);
+    items_control.pixel_snapped_border = true;
     items_control.padding = layout::EdgeInsets{};
     set_theme_style_class(theme, theme_class::items_control, items_control);
     auto path_style = panel_style;

@@ -86,6 +86,29 @@ struct LiveSample {
     std::string label;
 };
 
+class SyncedViewportPanel final : public controls::Panel {
+  public:
+    using ScrollChangedHandler = std::function<void(layout::Point)>;
+
+    SyncedViewportPanel& set_on_scroll_changed(ScrollChangedHandler handler) {
+        scroll_changed_handler_ = std::move(handler);
+        return *this;
+    }
+
+  protected:
+    void on_pointer_event(elements::PointerEvent& event) override {
+        const auto before = scroll_offset();
+        controls::Panel::on_pointer_event(event);
+        const auto after = scroll_offset();
+        if ((before.x != after.x || before.y != after.y) && scroll_changed_handler_) {
+            scroll_changed_handler_(after);
+        }
+    }
+
+  private:
+    ScrollChangedHandler scroll_changed_handler_;
+};
+
 class LiveSampleCard final : public controls::Panel {
   public:
     using SampleFunction = std::function<LiveSample(animation::AnimationTimePoint)>;
@@ -170,6 +193,114 @@ class LiveSampleCard final : public controls::Panel {
     std::string label_text_;
     float fill_width_ = -1.0F;
     float track_width_ = 220.0F;
+};
+
+[[nodiscard]] const core::PropertyMetadata& implicit_demo_progress_property() {
+    static const auto metadata =
+        core::make_property_metadata<float>("showcase.implicit_demo_progress",
+                                            core::PropertyInvalidation::Paint);
+    return metadata;
+}
+
+class ImplicitPropertyDemoPanel final : public controls::Panel {
+  public:
+    ImplicitPropertyDemoPanel() {
+        set_background(rendering::Color::rgba(255, 255, 255));
+        set_border(rendering::Color::rgba(220, 223, 230), 1.0F);
+        set_corner_radius(rendering::CornerRadius::uniform(6.0F));
+        configure_layout([](layout::LayoutElement& item) {
+            item.set_flex_direction(layout::FlexDirection::Column)
+                .set_gap(layout::Gutter::Row, layout::Length::points(10.0F))
+                .set_padding(layout::Edge::All, layout::Length::points(14.0F));
+        });
+
+        auto& title = append_new_child<controls::Text>();
+        title.set_text("Implicit property animation demo");
+        title.set_size(controls::TextSize::Large);
+
+        auto& desc = append_new_child<controls::Text>();
+        desc.set_text("Click replay to drive a custom property and mirror it into a live fill track.")
+            .set_type(controls::TextType::Info)
+            .set_size(controls::TextSize::Small);
+        desc.configure_layout([](layout::LayoutElement& item) {
+            item.set_width(layout::Length::percent(100.0F)).set_flex_shrink(0.0F);
+        });
+
+        auto& value = append_new_child<controls::Text>();
+        value.set_text("Progress 0%");
+        value_ = &value;
+
+        auto& track = append_new_child<controls::Panel>();
+        track.set_background(rendering::Color::rgba(245, 247, 250));
+        track.set_corner_radius(rendering::CornerRadius::uniform(999.0F));
+        track.configure_layout([](layout::LayoutElement& item) {
+            item.set_size(layout::Length::points(track_width_), layout::Length::points(10.0F))
+                .set_flex_shrink(0.0F);
+        });
+
+        auto& fill = track.append_new_child<controls::Panel>();
+        fill.set_background(rendering::Color::rgba(64, 158, 255));
+        fill.set_corner_radius(rendering::CornerRadius::uniform(999.0F));
+        fill.configure_layout([](layout::LayoutElement& item) {
+            item.set_size(layout::Length::points(0.0F), layout::Length::points(10.0F))
+                .set_flex_shrink(0.0F);
+        });
+        fill_ = &fill;
+
+        auto& replay = append_new_child<controls::Button>();
+        replay.set_text("Replay implicit property animation").set_type(controls::ButtonType::Primary);
+        replay.configure_layout([](layout::LayoutElement& item) {
+            item.set_width(layout::Length::points(280.0F)).set_flex_shrink(0.0F);
+        });
+        replay.set_on_click([this]() { replay_animation(); });
+
+        set_property<float>(implicit_demo_progress_property(), 0.0F);
+        sync_visuals();
+    }
+
+    void replay_animation() {
+        set_property<float>(implicit_demo_progress_property(), 0.0F);
+        animate_property<float>(
+            implicit_demo_progress_property(), 1.0F,
+            animation::AnimationTiming{.duration = animation::AnimationDuration{0.7F},
+                                       .iteration_count = 2.0F,
+                                       .direction = animation::PlaybackDirection::Alternate,
+                                       .fill_mode = animation::FillMode::Both,
+                                       .easing = animation::EasingFunction::ease_in_out_cubic()});
+        sync_visuals();
+    }
+
+  protected:
+    bool on_animation_frame(animation::AnimationTimePoint now) override {
+        static_cast<void>(now);
+        sync_visuals();
+        return false;
+    }
+
+  private:
+    void sync_visuals() {
+        const auto progress =
+            std::clamp(properties().value<float>(implicit_demo_progress_property(), 0.0F), 0.0F, 1.0F);
+        if (value_ != nullptr) {
+            value_->set_text("Progress " +
+                             std::to_string(static_cast<int>(std::round(progress * 100.0F))) + "%");
+        }
+        if (fill_ != nullptr) {
+            const auto fill_width = std::round(track_width_ * progress);
+            if (fill_width != fill_width_) {
+                fill_width_ = fill_width;
+                fill_->configure_layout([fill_width](layout::LayoutElement& item) {
+                    item.set_size(layout::Length::points(fill_width), layout::Length::points(10.0F))
+                        .set_flex_shrink(0.0F);
+                });
+            }
+        }
+    }
+
+    controls::Text* value_ = nullptr;
+    controls::Panel* fill_ = nullptr;
+    float fill_width_ = -1.0F;
+    static constexpr auto track_width_ = 320.0F;
 };
 
 void configure_card(elements::UIElement& element, float width = 320.0F) {
@@ -533,7 +664,7 @@ void add_choice_scroll_section(controls::StackPanel& root) {
         item.set_width(layout::Length::percent(100.0F)).set_flex_shrink(0.0F);
     });
 
-    auto& vertical_viewport = vertical_line.append_new_child<controls::Panel>();
+    auto& vertical_viewport = vertical_line.append_new_child<SyncedViewportPanel>();
     vertical_viewport.set_background(rendering::Color::rgba(255, 255, 255));
     vertical_viewport.set_border(rendering::Color::rgba(220, 223, 230), 1.0F);
     vertical_viewport.set_corner_radius(rendering::CornerRadius::uniform(4.0F));
@@ -573,6 +704,9 @@ void add_choice_scroll_section(controls::StackPanel& root) {
         .set_on_scroll([&vertical_viewport](float value) {
             vertical_viewport.set_scroll_offset(layout::Point{0.0F, value});
         });
+    vertical_viewport.set_on_scroll_changed([&vertical](layout::Point offset) {
+        vertical.set_value(offset.y);
+    });
     vertical.configure_layout([](layout::LayoutElement& item) {
         item.set_size(layout::Length::points(14.0F), layout::Length::points(156.0F))
             .set_flex_shrink(0.0F);
@@ -585,7 +719,7 @@ void add_choice_scroll_section(controls::StackPanel& root) {
     });
     add_label(horizontal_group, "Horizontal content viewport");
 
-    auto& horizontal_viewport = horizontal_group.append_new_child<controls::Panel>();
+    auto& horizontal_viewport = horizontal_group.append_new_child<SyncedViewportPanel>();
     horizontal_viewport.set_background(rendering::Color::rgba(255, 255, 255));
     horizontal_viewport.set_border(rendering::Color::rgba(220, 223, 230), 1.0F);
     horizontal_viewport.set_corner_radius(rendering::CornerRadius::uniform(4.0F));
@@ -626,6 +760,9 @@ void add_choice_scroll_section(controls::StackPanel& root) {
         .set_on_scroll([&horizontal_viewport](float value) {
             horizontal_viewport.set_scroll_offset(layout::Point{value, 0.0F});
         });
+    horizontal_viewport.set_on_scroll_changed([&horizontal](layout::Point offset) {
+        horizontal.set_value(offset.x);
+    });
     horizontal.configure_layout([](layout::LayoutElement& item) {
         item.set_size(layout::Length::points(540.0F), layout::Length::points(14.0F))
             .set_flex_shrink(0.0F);
@@ -633,6 +770,21 @@ void add_choice_scroll_section(controls::StackPanel& root) {
 
     auto& items = section.append_new_child<controls::ItemsControl>();
     items.set_items({"Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Eta", "Theta"})
+        .set_item_factory([](controls::ItemsControl::ItemContext context) {
+            auto item = std::make_unique<controls::StackPanel>();
+            item->set_gap(4.0F);
+
+            auto& title = item->append_new_child<controls::Text>();
+            title.set_text(std::string(context.item))
+                .set_type(context.selected ? controls::TextType::Primary : controls::TextType::Primary);
+
+            auto& meta = item->append_new_child<controls::Text>();
+            meta.set_text("Item " + std::to_string(context.index + 1U) +
+                          (context.selected ? " - selected" : " - hover to inspect"))
+                .set_type(controls::TextType::Info)
+                .set_size(controls::TextSize::Small);
+            return item;
+        })
         .set_selection_mode(controls::ItemsControl::SelectionMode::Multiple)
         .set_selected_indices({1U, 3U})
         .set_virtualized(true)
@@ -921,6 +1073,9 @@ void add_animation_section(controls::StackPanel& root) {
     }
 
     auto& easing_group = add_demo_group(section, "Easing curves");
+    add_label(easing_group,
+              "Read-only probes: step curves are discrete. Step start jumps at the beginning, "
+              "step end holds until the last frame.");
     const std::array<animation::EasingCurve, 14U> curves{
         animation::EasingCurve::Linear,        animation::EasingCurve::StepStart,
         animation::EasingCurve::StepEnd,       animation::EasingCurve::EaseInSine,
@@ -938,7 +1093,9 @@ void add_animation_section(controls::StackPanel& root) {
                 const auto value = std::clamp(animation::apply_easing(curve, phase), 0.0F, 1.0F);
                 return LiveSample{
                     .progress = value,
-                    .label = easing_curve_label(curve) + " " +
+                    .label = easing_curve_label(curve) + " in " +
+                             std::to_string(static_cast<int>(std::round(phase * 100.0F))) +
+                             "% -> out " +
                              std::to_string(static_cast<int>(std::round(value * 100.0F))) + "%",
                 };
             })
@@ -949,6 +1106,9 @@ void add_animation_section(controls::StackPanel& root) {
     }
 
     auto& timeline_group = add_demo_group(section, "Timeline, keyframes and physics");
+    add_label(timeline_group,
+              "These cards are sampling timeline math and physics outputs. They are visual probes, "
+              "not interactive inputs.");
     auto& timing_row = timeline_group.append_new_child<controls::StackPanel>();
     configure_row(timing_row);
     for (const auto direction :
@@ -1029,21 +1189,11 @@ void add_animation_section(controls::StackPanel& root) {
         .set_fill_color(rendering::Color::rgba(144, 147, 153));
     configure_card(friction_card, 260.0F);
 
-    auto& animated = section.append_new_child<controls::Button>();
-    animated.set_text("Implicit property animation sample").set_type(controls::ButtonType::Primary);
-    animated.configure_layout([](layout::LayoutElement& item) {
-        item.set_width(layout::Length::points(360.0F)).set_flex_shrink(0.0F);
+    auto& implicit_demo = section.append_new_child<ImplicitPropertyDemoPanel>();
+    implicit_demo.configure_layout([](layout::LayoutElement& item) {
+        item.set_width(layout::Length::points(420.0F)).set_flex_shrink(0.0F);
     });
-    const auto opacity_property =
-        core::make_property_metadata<float>("showcase.opacity", core::PropertyInvalidation::Paint);
-    animated.set_property(opacity_property, 0.0F);
-    animated.animate_property<float>(
-        opacity_property, 1.0F,
-        animation::AnimationTiming{.duration = animation::AnimationDuration{0.3F},
-                                   .iteration_count = 2.0F,
-                                   .direction = animation::PlaybackDirection::Alternate,
-                                   .fill_mode = animation::FillMode::Both,
-                                   .easing = animation::EasingFunction::ease_in_out_cubic()});
+    implicit_demo.replay_animation();
 }
 
 [[nodiscard]] std::unique_ptr<controls::StackPanel> build_showcase_tree() {

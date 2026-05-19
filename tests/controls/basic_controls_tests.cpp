@@ -379,7 +379,7 @@ TEST(BasicControlsTests, MessageBoxAlertKeepsHeaderContentGapAtDefaultHeight) {
         .set_kind(MessageBoxKind::Alert)
         .set_type(MessageType::Info);
     box.configure_layout([](LayoutElement& layout) {
-        layout.set_size(Length::points(420.0F), Length::points(128.0F));
+        layout.set_size(Length::points(420.0F), Length::points(148.0F));
     });
     box.calculate_layout();
 
@@ -400,7 +400,7 @@ TEST(BasicControlsTests, MessageBoxAlertKeepsHeaderContentGapAtDefaultHeight) {
     EXPECT_GT(message_rect.y - (title_rect.y + title_rect.height), 8.0F);
     EXPECT_LT(message_rect.y - (title_rect.y + title_rect.height), 24.0F);
     EXPECT_GT(confirm_rect.y - (message_rect.y + message_rect.height), 8.0F);
-    EXPECT_GT(confirm_rect.y, 80.0F);
+    EXPECT_GT(confirm_rect.y, 96.0F);
 }
 
 TEST(BasicControlsTests, MessageBoxModalOptionsMatchElementPlusShortcuts) {

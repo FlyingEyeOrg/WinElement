@@ -18,7 +18,11 @@ class ItemsControlItemContainer final : public elements::UIElement {
         set_focusable(true);
         configure_layout([](layout::LayoutElement& item) {
             item.set_width(layout::Length::percent(100.0F))
-                .set_min_height(layout::Length::points(28.0F));
+                .set_min_height(layout::Length::points(36.0F))
+                .set_padding(layout::Edge::Left, layout::Length::points(10.0F))
+                .set_padding(layout::Edge::Right, layout::Length::points(10.0F))
+                .set_padding(layout::Edge::Top, layout::Length::points(8.0F))
+                .set_padding(layout::Edge::Bottom, layout::Length::points(8.0F));
         });
     }
     [[nodiscard]] std::size_t item_index() const noexcept {
@@ -36,6 +40,18 @@ class ItemsControlItemContainer final : public elements::UIElement {
 
   protected:
     void on_pointer_event(elements::PointerEvent& event) override {
+        if (event.kind == elements::PointerEventKind::Enter) {
+            hovered_ = true;
+            invalidate_paint();
+            return;
+        }
+        if (event.kind == elements::PointerEventKind::Leave) {
+            hovered_ = false;
+            if (!pressed_) {
+                invalidate_paint();
+            }
+            return;
+        }
         if (event.button != elements::PointerButton::Primary) {
             return;
         }
@@ -43,6 +59,7 @@ class ItemsControlItemContainer final : public elements::UIElement {
             event.kind == elements::PointerEventKind::DoubleClick) {
             pressed_ = true;
             static_cast<void>(capture_pointer());
+            invalidate_paint();
             event.handled = true;
             return;
         }
@@ -54,6 +71,7 @@ class ItemsControlItemContainer final : public elements::UIElement {
             const auto reorder_target = target_index_for_drag(event.local_position);
             pressed_ = false;
             release_pointer_capture();
+            invalidate_paint();
             if (reorder_target && *reorder_target != item_index_) {
                 owner_.reorder_from_item(item_index_, *reorder_target);
             } else {
@@ -65,6 +83,7 @@ class ItemsControlItemContainer final : public elements::UIElement {
         if (event.kind == elements::PointerEventKind::Cancel) {
             pressed_ = false;
             release_pointer_capture();
+            invalidate_paint();
             event.handled = true;
         }
     }
@@ -92,11 +111,26 @@ class ItemsControlItemContainer final : public elements::UIElement {
 
     void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override {
         const auto style = owner_.style();
-        if (selected_) {
-            context.fill_rounded_rect(absolute_frame, style.corner_radius, style.hover_background);
-        } else if (focused()) {
-            context.stroke_pixel_snapped_rect(absolute_frame, style.focus_border_color,
-                                              style.border_width);
+        const auto radius = rendering::CornerRadius::uniform(6.0F);
+        const auto hover_background = rendering::Color::rgba(style.hover_background.red,
+                                                             style.hover_background.green,
+                                                             style.hover_background.blue, 132);
+        const auto active_background = rendering::Color::rgba(style.active_background.red,
+                                                              style.active_background.green,
+                                                              style.active_background.blue, 188);
+        if (pressed_) {
+            context.fill_rounded_rect(absolute_frame, radius, active_background);
+        } else if (selected_) {
+            context.fill_rounded_rect(absolute_frame, radius, style.active_background);
+        } else if (hovered_) {
+            context.fill_rounded_rect(absolute_frame, radius, hover_background);
+        }
+
+        if (selected_ || focused() || hovered_) {
+            context.stroke_rounded_rect(
+                absolute_frame, radius, selected_ || focused() ? style.focus_border_color
+                                                               : style.border_color,
+                std::max(style.border_width, 1.0F));
         }
     }
 
@@ -116,6 +150,7 @@ class ItemsControlItemContainer final : public elements::UIElement {
     ItemsControl& owner_;
     std::size_t item_index_ = 0;
     bool selected_ = false;
+    bool hovered_ = false;
     bool pressed_ = false;
 };
 
@@ -124,7 +159,8 @@ namespace {
 void configure_items_layout(elements::UIElement& element) {
     element.configure_layout([](layout::LayoutElement& item) {
         item.set_flex_direction(layout::FlexDirection::Column)
-            .set_gap(layout::Gutter::Row, layout::Length::points(4.0F));
+            .set_gap(layout::Gutter::Row, layout::Length::points(6.0F))
+            .set_padding(layout::Edge::All, layout::Length::points(8.0F));
     });
 }
 
@@ -467,6 +503,8 @@ std::unique_ptr<elements::UIElement> ItemsControl::create_item_content(ItemConte
     auto item = make_child<Text>();
     item->set_text(context.item);
     item->set_style(style::default_text_style());
+    item->set_color(context.selected ? rendering::Color::rgba(48, 49, 51)
+                                     : rendering::Color::rgba(96, 98, 102));
     return item;
 }
 
