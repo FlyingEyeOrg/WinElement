@@ -22,8 +22,7 @@ class RenderThreadPoolService final {
   public:
     using WorkItem = std::function<void()>;
 
-    explicit RenderThreadPoolService(
-        std::size_t worker_count = std::thread::hardware_concurrency());
+    explicit RenderThreadPoolService(std::size_t worker_count = 0U);
     ~RenderThreadPoolService();
 
     RenderThreadPoolService(const RenderThreadPoolService&) = delete;

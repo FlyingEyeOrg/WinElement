@@ -402,10 +402,12 @@ class UIElement {
     void append_top_layer_commands(rendering::RenderCommandRecorder& recorder) const;
     void append_content_scene_subtree(
         rendering::RenderNode& parent, rendering::RenderCommandRecorder* parent_recorder,
-        const std::shared_ptr<rendering::PreparedRenderCache>& prepared_cache) const;
+        const std::shared_ptr<rendering::PreparedRenderCache>& prepared_cache,
+        const std::optional<layout::Rect>& clip_rect = std::nullopt) const;
     void append_overlay_scene_subtree(
         rendering::RenderNode& parent, rendering::RenderCommandRecorder* parent_recorder,
-        const std::shared_ptr<rendering::PreparedRenderCache>& prepared_cache) const;
+        const std::shared_ptr<rendering::PreparedRenderCache>& prepared_cache,
+        const std::optional<layout::Rect>& clip_rect = std::nullopt) const;
     void append_top_layer_scene_nodes(
         rendering::RenderNode& parent,
         const std::shared_ptr<rendering::PreparedRenderCache>& prepared_cache) const;

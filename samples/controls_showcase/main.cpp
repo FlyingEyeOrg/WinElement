@@ -570,7 +570,10 @@ void add_button_section(controls::StackPanel& root) {
     add_button(variant_row, "Small", controls::ButtonType::Default)
         .set_size(controls::ButtonSize::Small);
     add_button(variant_row, "Link", controls::ButtonType::Text).set_link_variant(true);
-    add_button(variant_row, "Loading", controls::ButtonType::Primary).set_loading(true);
+    auto& loading_button = add_button(variant_row, "Toggle loading", controls::ButtonType::Primary);
+    loading_button.set_on_click([&loading_button]() {
+        loading_button.set_loading(!loading_button.loading());
+    });
     add_button(variant_row, "Disabled", controls::ButtonType::Default).set_disabled(true);
     add_button(variant_row, "Disabled", controls::ButtonType::Primary).set_disabled(true);
     add_button(variant_row, "Dark", controls::ButtonType::Default).set_dark_mode(true);

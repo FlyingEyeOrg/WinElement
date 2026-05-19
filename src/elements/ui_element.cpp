@@ -236,7 +236,6 @@ struct UIElement::TextState {
                                     .color = rendering::Color::rgba(48, 49, 51),
                                     .wrapping = rendering::TextWrapping::NoWrap,
                                     .trimming = rendering::TextTrimming::CharacterEllipsis};
-    mutable std::unique_ptr<rendering::TextEngine> text_engine;
     std::unique_ptr<TextInputHandler> text_input_handler;
     std::size_t selection_anchor_byte_offset = 0;
     std::size_t selection_active_byte_offset = 0;
@@ -3221,8 +3220,12 @@ void UIElement::append_overlay_commands_subtree(rendering::RenderCommandRecorder
 
 void UIElement::append_content_scene_subtree(
     rendering::RenderNode& parent, rendering::RenderCommandRecorder* parent_recorder,
-    const std::shared_ptr<rendering::PreparedRenderCache>& prepared_cache) const {
+    const std::shared_ptr<rendering::PreparedRenderCache>& prepared_cache,
+    const std::optional<layout::Rect>& clip_rect) const {
     if (!visible_) {
+        return;
+    }
+    if (clip_rect.has_value() && !layout::rects_intersect(visible_subtree_bounds(), *clip_rect)) {
         return;
     }
 
@@ -3261,6 +3264,8 @@ void UIElement::append_content_scene_subtree(
     const auto clip_children = clips_children_to_viewport();
     const auto viewport_rect =
         clip_children ? effective_absolute_child_clip_rect() : layout::Rect{};
+    const auto child_clip_rect =
+        clip_children ? intersect_clip_rect(clip_rect, viewport_rect) : clip_rect;
     rendering::RenderNode clip_node{.kind = rendering::RenderNodeKind::Clip,
                                     .bounds = viewport_rect,
                                     .cache_policy = {.generation = layout_generation_}};
@@ -3271,11 +3276,12 @@ void UIElement::append_content_scene_subtree(
 
     const auto& sorted = sorted_children();
     for (const auto& child : sorted) {
-        if (clip_children &&
-            !layout::rects_intersect(child->visible_subtree_bounds(), viewport_rect)) {
+        if (child_clip_rect.has_value() &&
+            !layout::rects_intersect(child->visible_subtree_bounds(), *child_clip_rect)) {
             continue;
         }
-        child->append_content_scene_subtree(child_parent, &subtree_recorder, prepared_cache);
+        child->append_content_scene_subtree(child_parent, &subtree_recorder, prepared_cache,
+                                            child_clip_rect);
     }
 
     if (clip_children) {
@@ -3303,8 +3309,12 @@ void UIElement::append_content_scene_subtree(
 
 void UIElement::append_overlay_scene_subtree(
     rendering::RenderNode& parent, rendering::RenderCommandRecorder* parent_recorder,
-    const std::shared_ptr<rendering::PreparedRenderCache>& prepared_cache) const {
+    const std::shared_ptr<rendering::PreparedRenderCache>& prepared_cache,
+    const std::optional<layout::Rect>& clip_rect) const {
     if (!visible_) {
+        return;
+    }
+    if (clip_rect.has_value() && !layout::rects_intersect(visible_subtree_bounds(), *clip_rect)) {
         return;
     }
 
@@ -3332,6 +3342,8 @@ void UIElement::append_overlay_scene_subtree(
     const auto clip_children = clips_children_to_viewport();
     const auto viewport_rect =
         clip_children ? effective_absolute_child_clip_rect() : layout::Rect{};
+    const auto child_clip_rect =
+        clip_children ? intersect_clip_rect(clip_rect, viewport_rect) : clip_rect;
     rendering::RenderNode clip_node{.kind = rendering::RenderNodeKind::Clip,
                                     .bounds = viewport_rect,
                                     .cache_policy = {.generation = layout_generation_}};
@@ -3342,11 +3354,12 @@ void UIElement::append_overlay_scene_subtree(
 
     const auto& sorted = sorted_children();
     for (const auto& child : sorted) {
-        if (clip_children &&
-            !layout::rects_intersect(child->visible_subtree_bounds(), viewport_rect)) {
+        if (child_clip_rect.has_value() &&
+            !layout::rects_intersect(child->visible_subtree_bounds(), *child_clip_rect)) {
             continue;
         }
-        child->append_overlay_scene_subtree(child_parent, &subtree_recorder, prepared_cache);
+        child->append_overlay_scene_subtree(child_parent, &subtree_recorder, prepared_cache,
+                                            child_clip_rect);
     }
 
     if (clip_children) {
@@ -4094,11 +4107,13 @@ void UIElement::clear_layout_engine_binding() {
 }
 
 rendering::TextEngine& UIElement::text_engine() const {
-    auto& state = const_cast<UIElement*>(this)->ensure_text_state();
-    if (state.text_engine == nullptr) {
-        state.text_engine = std::make_unique<rendering::TextEngine>();
+    thread_local rendering::TextEngine engine;
+    thread_local bool configured = false;
+    if (!configured) {
+        engine.set_max_cached_layouts(24U);
+        configured = true;
     }
-    return *state.text_engine;
+    return engine;
 }
 
 void UIElement::note_layout_dirty_root(UIElement& dirty_root) noexcept {

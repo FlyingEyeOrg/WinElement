@@ -23,7 +23,8 @@ namespace {
     if (hardware <= 1U) {
         return 1U;
     }
-    return std::max<std::size_t>(hardware - 1U, 1U);
+    constexpr auto max_default_workers = 4U;
+    return std::clamp<std::size_t>(hardware - 1U, 1U, max_default_workers);
 }
 
 } // namespace

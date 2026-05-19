@@ -482,6 +482,11 @@ dirty_clips_for_layer(std::span<const D3D11RenderDirtyClip> parent_clips,
 
 [[nodiscard]] rendering::TextEngine& render_worker_text_engine() {
     thread_local rendering::TextEngine engine;
+    thread_local bool configured = false;
+    if (!configured) {
+        engine.set_max_cached_layouts(24U);
+        configured = true;
+    }
     return engine;
 }
 
@@ -2816,10 +2821,23 @@ D3D11DisplayListRenderer::RenderFrameAnalysis D3D11DisplayListRenderer::analyze_
     }
 
     constexpr auto min_parallel_work_items = 2U;
-    constexpr auto min_parallel_commands = 128U;
+    const auto pass_count =
+        analysis.frame_graph_snapshot != nullptr ? analysis.frame_graph_snapshot->graph.passes.size()
+                                                 : std::size_t{};
+    const auto dirty_area = std::accumulate(
+        analysis.dirty_clips.begin(), analysis.dirty_clips.end(), 0.0F,
+        [](float total, const D3D11RenderDirtyClip& clip) {
+            return total + rect_area(clip.cull_clip);
+        });
+    constexpr auto min_large_dirty_parallel_area = 16'384.0F;
+    const auto large_dirty_scene =
+        estimated_commands >= 128U && dirty_area >= min_large_dirty_parallel_area;
     analysis.use_parallel_recording =
         parallel_recording_enabled_ && resource_updates_allowed_ && recordable_items >= 2U &&
-        parallel_items >= min_parallel_work_items && estimated_commands >= min_parallel_commands &&
+        parallel_items >= min_parallel_work_items &&
+        (should_try_parallel_render_plan(estimated_commands, analysis.dirty_tiles.size(),
+                                         pass_count) ||
+         large_dirty_scene) &&
         shared_render_thread_pool().worker_count() > 1U;
     return analysis;
 }
