@@ -3932,6 +3932,7 @@ TEST(BasicControlsTests, ScrollbarCanWrapScrollableContent) {
 
     EXPECT_TRUE(scrollbar.container_mode());
     EXPECT_FLOAT_EQ(scrollbar.max_scroll_offset().y, 240.0F);
+    EXPECT_FLOAT_EQ(scrollbar.max_scroll_offset().x, 0.0F);
     scrollbar.set_scroll_top(80.0F);
     EXPECT_FLOAT_EQ(scrollbar.scroll_offset().y, 80.0F);
     EXPECT_FLOAT_EQ(scroll_data.scroll_top, 80.0F);
@@ -3958,6 +3959,57 @@ TEST(BasicControlsTests, ScrollbarCanWrapScrollableContent) {
     scrollbar.set_scroll_top(240.0F);
     ASSERT_FALSE(reached.empty());
     EXPECT_EQ(reached.back(), ScrollbarEndDirection::Bottom);
+}
+
+TEST(BasicControlsTests, ScrollbarContainerKeepsAxesFromOverlapping) {
+    auto engine = create_unrounded_engine();
+    Scrollbar scrollbar;
+    scrollbar.bind_layout_tree(engine);
+    scrollbar.set_container_mode(true).set_always_visible(true);
+    scrollbar.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(220.0F), Length::points(120.0F));
+    });
+
+    auto& content = scrollbar.append_new_child<StackPanel>();
+    content.configure_layout([](LayoutElement& layout) {
+        layout.set_width(Length::points(460.0F))
+            .set_height(Length::points(320.0F))
+            .set_flex_shrink(0.0F);
+    });
+    scrollbar.calculate_layout(LayoutConstraints{.width = 220.0F, .height = 120.0F});
+    ASSERT_GT(scrollbar.max_scroll_offset().x, 0.0F);
+    ASSERT_GT(scrollbar.max_scroll_offset().y, 0.0F);
+
+    EventRouter router(scrollbar);
+    const auto bounds = scrollbar.absolute_frame();
+    EXPECT_FALSE(router
+                     .route_pointer_event(PointerEvent{
+                         .kind = PointerEventKind::Down,
+                         .position = Point{bounds.x + bounds.width - 2.0F,
+                                           bounds.y + bounds.height - 2.0F},
+                         .button = PointerButton::Primary})
+                     .handled);
+
+    const auto vertical_x = bounds.x + bounds.width - 4.0F;
+    const auto vertical_y = bounds.y + bounds.height - scrollbar.thickness() - 12.0F;
+    EXPECT_TRUE(router
+                    .route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
+                                                      .position = Point{vertical_x, vertical_y},
+                                                      .button = PointerButton::Primary})
+                    .handled);
+    EXPECT_TRUE(router
+                    .route_pointer_event(PointerEvent{.kind = PointerEventKind::Up,
+                                                      .position = Point{vertical_x, vertical_y},
+                                                      .button = PointerButton::Primary})
+                    .handled);
+
+    const auto horizontal_x = bounds.x + bounds.width - scrollbar.thickness() - 12.0F;
+    const auto horizontal_y = bounds.y + bounds.height - 4.0F;
+    EXPECT_TRUE(router
+                    .route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
+                                                      .position = Point{horizontal_x, horizontal_y},
+                                                      .button = PointerButton::Primary})
+                    .handled);
 }
 
 TEST(BasicControlsTests, SelectUsesSvgIconArrowAndAnimatedDropdownLayer) {

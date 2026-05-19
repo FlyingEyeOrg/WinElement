@@ -844,7 +844,8 @@ void add_choice_scroll_section(controls::StackPanel& root) {
     container_content.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F))
             .set_min_height(layout::Length::points(420.0F))
-            .set_padding(layout::Edge::All, layout::Length::points(10.0F))
+            .set_padding(layout::Edge::Top, layout::Length::points(10.0F))
+            .set_padding(layout::Edge::Bottom, layout::Length::points(10.0F))
             .set_flex_shrink(0.0F);
     });
     for (auto index = 1; index <= 10; ++index) {

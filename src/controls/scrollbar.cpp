@@ -15,6 +15,10 @@ namespace {
 constexpr auto element_scrollbar_edge_inset = 2.0F;
 constexpr auto element_scrollbar_min_hit_cross_extent = 12.0F;
 
+[[nodiscard]] bool scroll_axis_visible(float maximum) noexcept {
+    return maximum > 0.0F;
+}
+
 [[nodiscard]] std::uint8_t scaled_alpha(std::uint8_t alpha, float opacity) noexcept {
     return static_cast<std::uint8_t>(std::clamp(
         std::round(static_cast<float>(alpha) * std::clamp(opacity, 0.0F, 1.0F)), 0.0F, 255.0F));
@@ -344,15 +348,15 @@ void Scrollbar::on_pointer_event(elements::PointerEvent& event) {
         }
         const auto local_frame = layout::Rect{0.0F, 0.0F, frame().width, frame().height};
         const auto max_scroll = max_scroll_offset();
-        const auto can_scroll_vertical = max_scroll.y > 0.0F;
-        const auto can_scroll_horizontal = max_scroll.x > 0.0F;
+        const auto can_scroll_vertical = scroll_axis_visible(max_scroll.y);
+        const auto can_scroll_horizontal = scroll_axis_visible(max_scroll.x);
         const auto axis_at_point = [&]() -> std::optional<ScrollbarOrientation> {
-            if ((can_scroll_vertical || visibility_ == ScrollbarVisibility::Always) &&
+            if (can_scroll_vertical &&
                 layout::rect_contains_point(thumb_hit_rect(local_frame, ScrollbarOrientation::Vertical),
                                             event.local_position)) {
                 return ScrollbarOrientation::Vertical;
             }
-            if ((can_scroll_horizontal || visibility_ == ScrollbarVisibility::Always) &&
+            if (can_scroll_horizontal &&
                 layout::rect_contains_point(
                     thumb_hit_rect(local_frame, ScrollbarOrientation::Horizontal),
                     event.local_position)) {
@@ -361,12 +365,12 @@ void Scrollbar::on_pointer_event(elements::PointerEvent& event) {
             if (!track_click_enabled_) {
                 return std::nullopt;
             }
-            if ((can_scroll_vertical || visibility_ == ScrollbarVisibility::Always) &&
+            if (can_scroll_vertical &&
                 layout::rect_contains_point(track_rect(local_frame, ScrollbarOrientation::Vertical),
                                             event.local_position)) {
                 return ScrollbarOrientation::Vertical;
             }
-            if ((can_scroll_horizontal || visibility_ == ScrollbarVisibility::Always) &&
+            if (can_scroll_horizontal &&
                 layout::rect_contains_point(track_rect(local_frame, ScrollbarOrientation::Horizontal),
                                             event.local_position)) {
                 return ScrollbarOrientation::Horizontal;
@@ -666,7 +670,7 @@ void Scrollbar::on_paint_overlay(rendering::RenderContext& context,
     const auto paint_axis = [&](ScrollbarOrientation orientation) {
         const auto axis_max = orientation == ScrollbarOrientation::Vertical ? max_scroll.y
                                                                             : max_scroll.x;
-        if (visibility_ == ScrollbarVisibility::Auto && axis_max <= 0.0F) {
+        if (!scroll_axis_visible(axis_max)) {
             return;
         }
         const auto track = track_rect(absolute_frame, orientation);
@@ -698,23 +702,29 @@ layout::Rect Scrollbar::track_rect(layout::Rect frame) const noexcept {
 
 layout::Rect Scrollbar::track_rect(layout::Rect frame,
                                    ScrollbarOrientation orientation) const noexcept {
+    const auto max_scroll = is_scroll_container() ? max_scroll_offset() : layout::Point{};
+    const auto vertical_visible = is_scroll_container() && scroll_axis_visible(max_scroll.y);
+    const auto horizontal_visible = is_scroll_container() && scroll_axis_visible(max_scroll.x);
+    const auto corner_reserve = thickness_ + element_scrollbar_edge_inset;
     const auto cross_extent =
         orientation == ScrollbarOrientation::Vertical ? frame.width : frame.height;
     const auto axis_length =
-        orientation == ScrollbarOrientation::Vertical ? frame.height : frame.width;
+        orientation == ScrollbarOrientation::Vertical
+            ? frame.height - (horizontal_visible ? corner_reserve : 0.0F)
+            : frame.width - (vertical_visible ? corner_reserve : 0.0F);
     const auto inset = std::min(element_scrollbar_edge_inset, std::max(axis_length, 0.0F) * 0.5F);
     if (orientation == ScrollbarOrientation::Vertical) {
         const auto width = std::min(std::max(cross_extent, 0.0F), thickness_);
         const auto x = is_scroll_container()
                            ? frame.x + std::max(0.0F, frame.width - width - element_scrollbar_edge_inset)
                            : frame.x + std::max(0.0F, frame.width - width) * 0.5F;
-        return layout::Rect{x, frame.y + inset, width, std::max(0.0F, frame.height - inset * 2.0F)};
+        return layout::Rect{x, frame.y + inset, width, std::max(0.0F, axis_length - inset * 2.0F)};
     }
     const auto height = std::min(std::max(cross_extent, 0.0F), thickness_);
     const auto y = is_scroll_container()
                        ? frame.y + std::max(0.0F, frame.height - height - element_scrollbar_edge_inset)
                        : frame.y + std::max(0.0F, frame.height - height) * 0.5F;
-    return layout::Rect{frame.x + inset, y, std::max(0.0F, frame.width - inset * 2.0F), height};
+    return layout::Rect{frame.x + inset, y, std::max(0.0F, axis_length - inset * 2.0F), height};
 }
 
 layout::Rect Scrollbar::thumb_rect(layout::Rect frame) const noexcept {
