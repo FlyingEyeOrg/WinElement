@@ -45,10 +45,7 @@ constexpr auto canvas_height = 4200.0F;
 [[nodiscard]] style::UIElementStyle showcase_surface_style() noexcept {
     auto surface = style::default_border_style();
     surface.border_color = rendering::Color::rgba(0, 0, 0, 0);
-    surface.shadow_visible = true;
-    surface.shadow = rendering::ShadowStyle{.color = rendering::Color::rgba(31, 35, 41, 16),
-                                            .offset = {0.0F, 4.0F},
-                                            .blur_radius = 12.0F};
+    surface.shadow_visible = false;
     return surface;
 }
 
