@@ -28,14 +28,19 @@ constexpr auto probe_height = 520U;
 constexpr auto probe_dpi = 96.0F;
 
 enum class ProbeKind { MessageBox, Dialog };
+enum class ProbeBackground { Clean, Blocks, PathOverflow, Seams };
 
 class ProbeSurface final : public controls::Panel {
   public:
-    explicit ProbeSurface(bool draw_seams) : draw_seams_(draw_seams) {}
+    explicit ProbeSurface(ProbeBackground background) : background_(background) {}
 
   protected:
     void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override {
         context.fill_rect(absolute_frame, rendering::Color::rgba(246, 248, 252));
+
+        if (background_ == ProbeBackground::Clean || background_ == ProbeBackground::PathOverflow) {
+            return;
+        }
 
         const auto card = layout::Rect{48.0F, 44.0F, probe_width - 96.0F, probe_height - 88.0F};
         context.fill_rounded_rect(card, rendering::CornerRadius::uniform(6.0F),
@@ -45,7 +50,7 @@ class ProbeSurface final : public controls::Panel {
         context.fill_rounded_rect(inner, rendering::CornerRadius::uniform(4.0F),
                                   rendering::Color::rgba(250, 251, 253));
 
-        if (!draw_seams_) {
+        if (background_ == ProbeBackground::Blocks) {
             return;
         }
 
@@ -59,20 +64,40 @@ class ProbeSurface final : public controls::Panel {
     }
 
   private:
-    bool draw_seams_ = true;
+    ProbeBackground background_ = ProbeBackground::Seams;
 };
 
-[[nodiscard]] rendering::RenderScene build_probe_scene(ProbeKind kind, bool draw_seams) {
+[[nodiscard]] rendering::RenderScene build_probe_scene(ProbeKind kind,
+                                                       ProbeBackground background) {
     winelement::layout::LayoutEngineOptions layout_options;
     layout_options.point_scale_factor = 0.0F;
     winelement::layout::LayoutEngine engine(layout_options);
 
-    ProbeSurface root(draw_seams);
+    ProbeSurface root(background);
     root.bind_layout_tree(engine);
     root.configure_layout([](winelement::layout::LayoutElement& item) {
         item.set_size(winelement::layout::Length::points(static_cast<float>(probe_width)),
                       winelement::layout::Length::points(static_cast<float>(probe_height)));
     });
+
+    if (background == ProbeBackground::PathOverflow) {
+        auto& path = root.append_new_child<controls::Path>();
+        path.set_data("M -900 0 L 900 0")
+            .clear_fill()
+            .set_stroke(rendering::Color::rgba(0, 0, 0, 220))
+            .set_stroke_width(2.0F)
+            .set_stretch(controls::PathStretch::None);
+        path.configure_layout([](winelement::layout::LayoutElement& item) {
+            item.set_position_type(winelement::layout::PositionType::Absolute)
+                .set_position(winelement::layout::Edge::Left,
+                              winelement::layout::Length::points(438.0F))
+                .set_position(winelement::layout::Edge::Top,
+                              winelement::layout::Length::points(104.0F))
+                .set_size(winelement::layout::Length::points(24.0F),
+                          winelement::layout::Length::points(24.0F));
+        });
+    }
+
     root.calculate_layout(
         winelement::layout::LayoutConstraints{.width = static_cast<float>(probe_width),
                                               .height = static_cast<float>(probe_height)});
@@ -102,9 +127,9 @@ class ProbeSurface final : public controls::Panel {
     return scene;
 }
 
-[[nodiscard]] std::vector<std::byte> render_probe(ProbeKind kind, bool draw_seams,
+[[nodiscard]] std::vector<std::byte> render_probe(ProbeKind kind, ProbeBackground background,
                                                   std::uint32_t& stride) {
-    const auto scene = build_probe_scene(kind, draw_seams);
+    const auto scene = build_probe_scene(kind, background);
     auto frame_graph = rendering::build_render_frame_graph(scene);
     rendering::DirtyRegion dirty;
     dirty.add(layout::Rect{0.0F, 0.0F, static_cast<float>(probe_width),
@@ -155,26 +180,41 @@ class ProbeSurface final : public controls::Panel {
     return std::abs(line - ((before + after) * 0.5F));
 }
 
-void write_report(const fs::path& output_path, ProbeKind kind, bool draw_seams,
+[[nodiscard]] std::string_view background_label(ProbeBackground background) noexcept {
+    switch (background) {
+    case ProbeBackground::Clean:
+        return "clean";
+    case ProbeBackground::Blocks:
+        return "blocks";
+    case ProbeBackground::PathOverflow:
+        return "path_overflow";
+    case ProbeBackground::Seams:
+    default:
+        return "seams";
+    }
+}
+
+void write_report(const fs::path& output_path, ProbeKind kind, ProbeBackground background,
                   const fs::path& png_path, const std::vector<std::byte>& pixels,
                   std::uint32_t stride) {
     std::ofstream report(output_path, std::ios::app);
     report << (kind == ProbeKind::MessageBox ? "messagebox" : "dialog")
-           << (draw_seams ? "_seams" : "_clean") << "\n";
+           << "_" << background_label(background) << "\n";
     report << "  png: " << png_path.string() << "\n";
     for (const auto y : {104U, 156U, 364U}) {
         report << "  line_y_" << y << "_contrast: " << line_contrast(pixels, stride, y) << "\n";
     }
 }
 
-void render_probe_file(ProbeKind kind, bool draw_seams, const fs::path& output_dir) {
+void render_probe_file(ProbeKind kind, ProbeBackground background, const fs::path& output_dir) {
     auto stem = std::string{kind == ProbeKind::MessageBox ? "messagebox" : "dialog"};
-    stem += draw_seams ? "_seams" : "_clean";
+    stem += "_";
+    stem += background_label(background);
     const auto png_path = output_dir / (std::string{stem} + ".png");
     std::uint32_t stride = 0U;
-    const auto pixels = render_probe(kind, draw_seams, stride);
+    const auto pixels = render_probe(kind, background, stride);
     save_png(png_path, probe_width, probe_height, stride, pixels);
-    write_report(output_dir / "report.txt", kind, draw_seams, png_path, pixels, stride);
+    write_report(output_dir / "report.txt", kind, background, png_path, pixels, stride);
 }
 
 } // namespace
@@ -185,10 +225,12 @@ int main(int argc, char** argv) {
             argc > 1 ? fs::path(argv[1]) : fs::current_path() / "modal_mask_probe";
         fs::create_directories(output_dir);
         std::ofstream(output_dir / "report.txt", std::ios::trunc);
-        render_probe_file(ProbeKind::MessageBox, true, output_dir);
-        render_probe_file(ProbeKind::MessageBox, false, output_dir);
-        render_probe_file(ProbeKind::Dialog, true, output_dir);
-        render_probe_file(ProbeKind::Dialog, false, output_dir);
+        for (const auto background :
+             {ProbeBackground::Clean, ProbeBackground::Blocks, ProbeBackground::PathOverflow,
+              ProbeBackground::Seams}) {
+            render_probe_file(ProbeKind::MessageBox, background, output_dir);
+            render_probe_file(ProbeKind::Dialog, background, output_dir);
+        }
         fmt::print("modal_mask_probe output: {}\n", output_dir.string());
         return 0;
     } catch (const std::exception& exception) {

@@ -581,12 +581,14 @@ void Path::on_paint(rendering::RenderContext& context, layout::Rect absolute_fra
     }
 
     const auto geometry = transform_geometry(geometry_, absolute_frame, stretch_);
+    context.push_clip(absolute_frame);
     if (fill_ && fill_->alpha != 0U) {
         context.fill_geometry(geometry, *fill_);
     }
     if (stroke_ && stroke_->alpha != 0U && stroke_style_.width > 0.0F) {
         context.stroke_geometry(geometry, *stroke_, stroke_style_);
     }
+    context.pop_clip();
 }
 
 } // namespace winelement::controls

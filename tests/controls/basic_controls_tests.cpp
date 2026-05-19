@@ -3649,6 +3649,35 @@ TEST(BasicControlsTests, BorderRadioSwitchScrollbarSelectAndItemsControlExposeCo
     EXPECT_THROW(static_cast<void>(Path::parse_path_data("M 0")), std::invalid_argument);
 }
 
+TEST(BasicControlsTests, PathClipsGeometryToLayoutFrame) {
+    auto engine = create_unrounded_engine();
+    Path path;
+    path.bind_layout_tree(engine);
+    path.set_data("M -200 8 L 320 8")
+        .clear_fill()
+        .set_stroke(Color::rgba(64, 158, 255))
+        .set_stroke_width(2.0F)
+        .set_stretch(PathStretch::None);
+    path.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(32.0F), Length::points(16.0F));
+    });
+
+    path.calculate_layout(LayoutConstraints{.width = 32.0F, .height = 16.0F});
+
+    RenderCommandRecorder context;
+    path.paint(context);
+
+    ASSERT_EQ(context.commands().size(), 3U);
+    EXPECT_EQ(context.commands()[0].type(), RenderCommandType::PushClip);
+    EXPECT_EQ(context.commands()[1].type(), RenderCommandType::StrokeGeometry);
+    EXPECT_EQ(context.commands()[2].type(), RenderCommandType::PopClip);
+    const auto& clip = context.commands()[0].payload<PushClipCommand>().rect;
+    EXPECT_FLOAT_EQ(clip.x, 0.0F);
+    EXPECT_FLOAT_EQ(clip.y, 0.0F);
+    EXPECT_FLOAT_EQ(clip.width, 32.0F);
+    EXPECT_FLOAT_EQ(clip.height, 24.0F);
+}
+
 TEST(BasicControlsTests, VerticalScrollbarDragSynchronizesViewportScrollOffset) {
     auto engine = create_unrounded_engine();
     StackPanel root;
