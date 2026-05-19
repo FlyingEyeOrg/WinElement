@@ -40,6 +40,8 @@ constexpr auto dialog_padding = 16.0F;
 constexpr auto dialog_header_min_height = 24.0F;
 constexpr auto dialog_header_body_gap = 24.0F;
 constexpr auto dialog_drag_height = dialog_padding + dialog_header_min_height;
+constexpr auto overlay_cascade_offset = 24.0F;
+constexpr auto overlay_cascade_max_depth = std::size_t{6U};
 constexpr auto pi = 3.14159265358979323846F;
 constexpr auto loading_icon_size = 42.0F;
 constexpr auto loading_fullscreen_icon_size = 50.0F;
@@ -139,6 +141,19 @@ void apply_entry_animation(elements::UIElement& element, float progress, float y
     return layout::Rect{viewport.x + std::max((viewport.width - size.width) * 0.5F, 0.0F),
                         viewport.y + std::max((viewport.height - size.height) * 0.5F, 0.0F),
                         size.width, size.height};
+}
+
+[[nodiscard]] layout::Rect cascaded_bounds(layout::Rect viewport, layout::Rect bounds,
+                                           std::size_t stack_depth) noexcept {
+    const auto depth = static_cast<float>(std::min(stack_depth, overlay_cascade_max_depth));
+    bounds.x += depth * overlay_cascade_offset;
+    bounds.y += depth * overlay_cascade_offset;
+
+    const auto max_x = viewport.x + std::max(viewport.width - bounds.width, 0.0F);
+    const auto max_y = viewport.y + std::max(viewport.height - bounds.height, 0.0F);
+    bounds.x = std::clamp(bounds.x, viewport.x, max_x);
+    bounds.y = std::clamp(bounds.y, viewport.y, max_y);
+    return bounds;
 }
 
 [[nodiscard]] float message_box_height_for(const MessageBoxOptions& options, float width,
@@ -279,6 +294,10 @@ template <typename ControlType>
         }
     }
     return count;
+}
+
+[[nodiscard]] std::size_t floating_overlay_count(elements::UIElement& host) {
+    return top_layer_count_of<MessageBox>(host) + top_layer_count_of<Dialog>(host);
 }
 
 void configure_footer_button(Button& button, std::string_view text, ButtonType type,
@@ -997,7 +1016,8 @@ MessageBox& MessageBox::show(elements::UIElement& host, MessageBoxOptions option
     configure_feedback_surface(*box, size);
     auto& box_ref = *box;
     auto top_layer_options = elements::TopLayerOptions{};
-    top_layer_options.bounds = centered_bounds(viewport, size);
+    top_layer_options.bounds =
+        cascaded_bounds(viewport, centered_bounds(viewport, size), floating_overlay_count(host));
     top_layer_options.light_dismiss = options.close_on_click_modal;
     top_layer_options.close_on_escape = options.close_on_press_escape;
     top_layer_options.modal = options.modal;
@@ -1618,10 +1638,12 @@ Dialog& Dialog::show(elements::UIElement& host, DialogOptions options) {
     const auto size = options.fullscreen
                           ? layout::Size{viewport.width, viewport.height}
                           : layout::Size{width, dialog_height_for(options, width, viewport)};
-    const auto bounds = options.fullscreen ? layout::Rect{viewport.x, viewport.y,
-                                                          std::numeric_limits<float>::quiet_NaN(),
-                                                          std::numeric_limits<float>::quiet_NaN()}
-                                           : centered_bounds(viewport, size);
+    const auto bounds = options.fullscreen
+                            ? layout::Rect{viewport.x, viewport.y,
+                                           std::numeric_limits<float>::quiet_NaN(),
+                                           std::numeric_limits<float>::quiet_NaN()}
+                            : cascaded_bounds(viewport, centered_bounds(viewport, size),
+                                              floating_overlay_count(host));
     auto dialog = std::make_unique<Dialog>();
     dialog->modal_ = options.modal;
     dialog->set_title(options.title)

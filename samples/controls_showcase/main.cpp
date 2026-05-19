@@ -1485,6 +1485,12 @@ build_showcase_content(elements::UIElement& feedback_host) {
     return tree;
 }
 
+void sync_showcase_window_scrollbar(ShowcaseWindowTree& tree) {
+    if (tree.scrollbar != nullptr) {
+        tree.scrollbar->update();
+    }
+}
+
 [[nodiscard]] std::size_t count_nodes(const rendering::RenderNode& node) noexcept {
     auto total = std::size_t{1U};
     for (const auto& child : node.children) {
@@ -1547,6 +1553,11 @@ int run_window_showcase() {
         .title = L"WinElement Controls Showcase", .width = 1320, .height = 920});
     auto tree = build_showcase_window_tree();
     window.set_content(std::move(tree.root));
+    if (auto* content = window.content()) {
+        content->calculate_layout(layout::LayoutConstraints{.width = showcase_window_width,
+                                                            .height = showcase_window_height});
+    }
+    sync_showcase_window_scrollbar(tree);
     window.show();
     return application.run();
 }

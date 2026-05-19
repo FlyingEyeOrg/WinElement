@@ -445,6 +445,40 @@ TEST(BasicControlsTests, MessageBoxModalOptionsMatchElementPlusShortcuts) {
     EXPECT_EQ(root.top_layer_count(), 0U);
 }
 
+TEST(BasicControlsTests, MessageBoxAndDialogCascadeWhenStacked) {
+    auto engine = create_unrounded_engine();
+    Panel root;
+    root.bind_layout_tree(engine);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(640.0F), Length::points(360.0F));
+    });
+    root.calculate_layout();
+
+    auto& first_box =
+        MessageBox::show(root, MessageBoxOptions{.title = "First", .message = "One"});
+    auto& second_box =
+        MessageBox::show(root, MessageBoxOptions{.title = "Second", .message = "Two"});
+    const auto first_box_bounds = root.top_layer_bounds(first_box);
+    const auto second_box_bounds = root.top_layer_bounds(second_box);
+    EXPECT_NEAR(second_box_bounds.x, first_box_bounds.x + 24.0F, 0.5F);
+    EXPECT_NEAR(second_box_bounds.y, first_box_bounds.y + 24.0F, 0.5F);
+
+    auto& dialog = Dialog::show(root, DialogOptions{.title = "Dialog", .body = "Three"});
+    const auto dialog_bounds = root.top_layer_bounds(dialog);
+
+    Panel baseline_root;
+    baseline_root.bind_layout_tree(engine);
+    baseline_root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(640.0F), Length::points(360.0F));
+    });
+    baseline_root.calculate_layout();
+    auto& baseline_dialog =
+        Dialog::show(baseline_root, DialogOptions{.title = "Dialog", .body = "Three"});
+    const auto baseline_dialog_bounds = baseline_root.top_layer_bounds(baseline_dialog);
+    EXPECT_NEAR(dialog_bounds.x, baseline_dialog_bounds.x + 48.0F, 0.5F);
+    EXPECT_NEAR(dialog_bounds.y, baseline_dialog_bounds.y + 48.0F, 0.5F);
+}
+
 TEST(BasicControlsTests, MessageBoxModalBackdropFullyCoversUnderlyingContent) {
     auto engine = create_unrounded_engine();
     Panel root;
@@ -554,6 +588,10 @@ TEST(BasicControlsTests, DialogShowCanStackTopLayers) {
     EXPECT_EQ(first.title(), "First");
     EXPECT_EQ(second.title(), "Second");
     EXPECT_EQ(second.body(), "Two");
+    const auto first_bounds = root.top_layer_bounds(first);
+    const auto second_bounds = root.top_layer_bounds(second);
+    EXPECT_NEAR(second_bounds.x, first_bounds.x + 24.0F, 0.5F);
+    EXPECT_NEAR(second_bounds.y, first_bounds.y + 24.0F, 0.5F);
 }
 
 TEST(BasicControlsTests, DialogCanBeNonModalAndKeepBackdropClickOpen) {
