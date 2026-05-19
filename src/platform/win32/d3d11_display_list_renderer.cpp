@@ -551,15 +551,24 @@ build_render_tiles(std::span<const D3D11RenderDirtyClip> dirty_clips, float targ
             }
         }
 
-        const auto tile_width = rect.width / static_cast<float>(columns);
-        const auto tile_height = rect.height / static_cast<float>(rows);
+        const auto tile_width = std::ceil(rect.width / static_cast<float>(columns));
+        const auto tile_height = std::ceil(rect.height / static_cast<float>(rows));
         for (std::uint32_t row = 0U; row < rows; ++row) {
             for (std::uint32_t column = 0U; column < columns; ++column) {
-                const auto x = rect.x + tile_width * static_cast<float>(column);
-                const auto y = rect.y + tile_height * static_cast<float>(row);
-                const auto tile_right =
-                    column + 1U == columns ? rect.x + rect.width : x + tile_width;
-                const auto tile_bottom = row + 1U == rows ? rect.y + rect.height : y + tile_height;
+                const auto x = column == 0U
+                                   ? rect.x
+                                   : std::min(rect.x + rect.width,
+                                              rect.x + tile_width * static_cast<float>(column));
+                const auto y = row == 0U
+                                   ? rect.y
+                                   : std::min(rect.y + rect.height,
+                                              rect.y + tile_height * static_cast<float>(row));
+                const auto tile_right = column + 1U == columns
+                                            ? rect.x + rect.width
+                                            : std::min(rect.x + rect.width, x + tile_width);
+                const auto tile_bottom = row + 1U == rows
+                                             ? rect.y + rect.height
+                                             : std::min(rect.y + rect.height, y + tile_height);
                 const auto device_tile =
                     rendering::layout::Rect{x, y, tile_right - x, tile_bottom - y};
                 const auto cull_tile = dirty_clip.device_clip == dirty_clip.cull_clip

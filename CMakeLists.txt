@@ -35,6 +35,7 @@ if(WINELEMENT_BUILD_SAMPLES)
     add_subdirectory(samples/render_pipeline_perf)
     add_subdirectory(samples/controls_showcase)
     add_subdirectory(samples/modal_mask_probe)
+    add_subdirectory(samples/controls_showcase_mask_probe)
 endif()
 
 if(WINELEMENT_BUILD_TESTS)

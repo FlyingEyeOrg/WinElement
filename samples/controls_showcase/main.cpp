@@ -1304,6 +1304,7 @@ int run_window_showcase() {
     return application.run();
 }
 
+#ifndef WINELEMENT_CONTROLS_SHOWCASE_AS_LIBRARY
 int main(int argc, char** argv) {
     for (auto index = 1; index < argc; ++index) {
         if (std::string_view{argv[index]} == "--headless") {
@@ -1312,3 +1313,4 @@ int main(int argc, char** argv) {
     }
     return run_window_showcase();
 }
+#endif

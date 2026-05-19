@@ -235,6 +235,72 @@ struct RenderTargetBundle {
     return read_region(device, *target.texture.Get(), 0U, 0U, 160U, 160U);
 }
 
+[[nodiscard]] rendering::RenderScene build_translucent_tile_boundary_scene() {
+    rendering::RenderNode root;
+    root.kind = rendering::RenderNodeKind::Picture;
+    root.bounds = layout::Rect{0.0F, 0.0F, 677.0F, 398.0F};
+    root.debug_name = "parallel.translucent.tile.root";
+    root.fingerprint = 0xCAFE2000ULL;
+    root.children.reserve(2U);
+
+    rendering::RenderCommandRecorder background_recorder;
+    background_recorder.fill_rect(layout::Rect{0.0F, 0.0F, 677.0F, 398.0F},
+                                  core::Color::rgba(245, 247, 250));
+    for (std::uint32_t index = 0U; index < 144U; ++index) {
+        const auto column = index % 12U;
+        const auto row = index / 12U;
+        background_recorder.fill_rect(
+            layout::Rect{16.0F + static_cast<float>(column) * 52.0F,
+                         12.0F + static_cast<float>(row) * 30.0F, 38.0F, 18.0F},
+            core::Color::rgba(static_cast<std::uint8_t>(90U + column * 8U),
+                              static_cast<std::uint8_t>(120U + row * 6U), 210));
+    }
+    auto background_commands = background_recorder.take_command_list();
+    root.children.push_back(rendering::RenderNode{
+        .kind = rendering::RenderNodeKind::Picture,
+        .bounds = background_commands.bounds(),
+        .debug_name = "parallel.translucent.tile.background",
+        .fingerprint = background_commands.fingerprint(),
+        .commands = std::move(background_commands)});
+
+    rendering::RenderCommandRecorder overlay_recorder;
+    overlay_recorder.fill_rect(layout::Rect{0.0F, 0.0F, 677.0F, 398.0F},
+                               core::Color::rgba(0, 0, 0, 36));
+    auto overlay_commands = overlay_recorder.take_command_list();
+    root.children.push_back(rendering::RenderNode{
+        .kind = rendering::RenderNodeKind::Picture,
+        .bounds = overlay_commands.bounds(),
+        .debug_name = "parallel.translucent.tile.overlay",
+        .fingerprint = overlay_commands.fingerprint(),
+        .commands = std::move(overlay_commands)});
+
+    rendering::RenderScene scene;
+    scene.set_root(std::move(root));
+    return scene;
+}
+
+[[nodiscard]] std::vector<std::uint8_t> render_translucent_tile_boundary_scene(
+    bool parallel_enabled,
+    win32::D3D11DisplayListRenderer::RenderTimingMetrics* metrics = nullptr) {
+    win32::D3D11RenderDevice device;
+    auto target = create_render_target(device.d3d_device(), 677U, 398U);
+    win32::D3D11RenderResourceCache resource_cache;
+    win32::D3D11DisplayListRenderer renderer(device.d3d_device());
+    renderer.set_parallel_recording_enabled(parallel_enabled);
+
+    auto scene = build_translucent_tile_boundary_scene();
+    const auto frame_graph = rendering::build_render_frame_graph(scene);
+    rendering::DirtyRegion dirty_region;
+    dirty_region.add(layout::Rect{0.0F, 0.0F, 677.0F, 398.0F});
+
+    renderer.render(device.d3d_context(), *target.target_view.Get(), core::Color::rgba(255, 255, 255),
+                    &scene, dirty_region, 96.0F, 677U, 398U, resource_cache, &frame_graph);
+    if (metrics != nullptr) {
+        *metrics = renderer.last_timing_metrics();
+    }
+    return read_region(device, *target.texture.Get(), 0U, 0U, 677U, 398U);
+}
+
 TEST(DeferredContextTests, RendererExecutesDeferredClearOnImmediateContext) {
     win32::D3D11RenderDevice device;
     auto target = create_render_target(device.d3d_device(), 64U, 64U);
@@ -318,6 +384,20 @@ TEST(DeferredContextTests, ParallelRecordingMatchesSerialPixelsAndReportsWorkIte
     ASSERT_EQ(serial.size(), parallel.size());
     EXPECT_EQ(serial, parallel);
     EXPECT_GT(parallel_metrics.work_item_count, 1U);
+    if (winelement::platform::shared_render_thread_pool().worker_count() > 1U) {
+        EXPECT_TRUE(parallel_metrics.parallel_recording);
+        EXPECT_GT(parallel_metrics.command_list_count, 1U);
+    }
+}
+
+TEST(DeferredContextTests, ParallelRecordingDoesNotDoubleBlendTranslucentTileBoundaries) {
+    auto parallel_metrics = win32::D3D11DisplayListRenderer::RenderTimingMetrics{};
+    const auto serial = render_translucent_tile_boundary_scene(false);
+    const auto parallel =
+        render_translucent_tile_boundary_scene(true, &parallel_metrics);
+
+    ASSERT_EQ(serial.size(), parallel.size());
+    EXPECT_EQ(serial, parallel);
     if (winelement::platform::shared_render_thread_pool().worker_count() > 1U) {
         EXPECT_TRUE(parallel_metrics.parallel_recording);
         EXPECT_GT(parallel_metrics.command_list_count, 1U);
