@@ -20,14 +20,10 @@ constexpr auto overlay_shadow = rendering::ShadowStyle{
     .color = rendering::Color::rgba(0, 0, 0, 20), .offset = {0.0F, 6.0F}, .blur_radius = 12.0F};
 constexpr auto message_shadow = rendering::ShadowStyle{
     .color = rendering::Color::rgba(0, 0, 0, 14), .offset = {0.0F, 10.0F}, .blur_radius = 22.0F};
-constexpr auto modal_overlay_shadow =
-    rendering::ShadowStyle{.color = rendering::Color::rgba(0, 0, 0, 18),
-                           .offset = {0.0F, 12.0F},
-                           .blur_radius = 32.0F};
-constexpr auto floating_overlay_shadow =
-    rendering::ShadowStyle{.color = rendering::Color::rgba(0, 0, 0, 26),
-                           .offset = {0.0F, 12.0F},
-                           .blur_radius = 24.0F};
+constexpr auto modal_overlay_shadow = rendering::ShadowStyle{
+    .color = rendering::Color::rgba(0, 0, 0, 31), .offset = {0.0F, 0.0F}, .blur_radius = 12.0F};
+constexpr auto floating_overlay_shadow = rendering::ShadowStyle{
+    .color = rendering::Color::rgba(0, 0, 0, 31), .offset = {0.0F, 0.0F}, .blur_radius = 12.0F};
 constexpr auto close_icon_size = 16.0F;
 constexpr auto message_status_icon_size = 16.0F;
 constexpr auto message_stack_spacing = 16.0F;
@@ -145,7 +141,8 @@ void apply_entry_animation(elements::UIElement& element, float progress, float y
                         size.width, size.height};
 }
 
-[[nodiscard]] float message_box_height_for(const MessageBoxOptions& options, float width) noexcept {
+[[nodiscard]] float message_box_height_for(const MessageBoxOptions& options, float width,
+                                           layout::Rect viewport) noexcept {
     width = std::max(width, 320.0F);
     const auto content_width =
         std::max(120.0F, width - message_box_padding * 2.0F - message_box_status_size - 12.0F);
@@ -155,7 +152,7 @@ void apply_entry_animation(elements::UIElement& element, float progress, float y
                                 ? 1.0F
                                 : std::clamp(std::ceil(static_cast<float>(options.message.size()) /
                                                        estimated_chars_per_line),
-                                             1.0F, 4.0F);
+                                             1.0F, 10.0F);
 
     auto content_height =
         options.message.empty() ? 0.0F : std::max(message_box_status_size, line_count * 22.0F);
@@ -170,7 +167,8 @@ void apply_entry_animation(elements::UIElement& element, float progress, float y
         height += message_box_prompt_gap + 32.0F + 22.0F;
     }
     const auto minimum_height = options.kind == MessageBoxKind::Prompt ? 194.0F : 128.0F;
-    return std::ceil(std::max(height, minimum_height));
+    return std::min(std::ceil(std::max(height, minimum_height)),
+                    std::max(viewport.height - 48.0F, minimum_height));
 }
 
 [[nodiscard]] float dialog_height_for(const DialogOptions& options, float width,
@@ -187,7 +185,7 @@ void apply_entry_animation(elements::UIElement& element, float progress, float y
                                 ? 1.0F
                                 : std::clamp(std::ceil(static_cast<float>(options.body.size()) /
                                                        estimated_chars_per_line),
-                                             1.0F, 8.0F);
+                                             1.0F, 14.0F);
     const auto body_height = std::max(22.0F, line_count * 22.0F);
     const auto height = dialog_padding * 2.0F + dialog_header_min_height + dialog_header_body_gap +
                         body_height + 16.0F + 32.0F;
@@ -478,8 +476,7 @@ Message& Message::show(elements::UIElement& host, MessageOptions options) {
         std::min(std::max(options.width, 240.0F), std::max(viewport.width - 32.0F, 240.0F));
     const auto size = layout::Size{width, 40.0F};
     const auto bounds = layout::Rect{viewport.x + std::max((viewport.width - width) * 0.5F, 0.0F),
-                                     viewport.y + std::max(options.top, 0.0F), width,
-                                     size.height};
+                                     viewport.y + std::max(options.top, 0.0F), width, size.height};
 
     auto message = std::make_unique<Message>();
     message->set_text(options.text)
@@ -678,8 +675,9 @@ MessageBox::MessageBox() : Control() {
     });
 
     auto& content = body.append_new_child<StackPanel>();
-    content.set_orientation(Orientation::Horizontal).set_align_items(layout::Align::FlexStart).set_gap(
-        12.0F);
+    content.set_orientation(Orientation::Horizontal)
+        .set_align_items(layout::Align::FlexStart)
+        .set_gap(12.0F);
     content.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F)).set_flex_shrink(1.0F);
     });
@@ -701,7 +699,7 @@ MessageBox::MessageBox() : Control() {
     });
 
     auto& message = text_stack.append_new_child<Text>();
-    message.set_font_size(14.0F).set_color(rendering::Color::rgba(96, 98, 102)).set_max_lines(4U);
+    message.set_font_size(14.0F).set_color(rendering::Color::rgba(96, 98, 102)).set_max_lines(10U);
     message.configure_layout([](layout::LayoutElement& item) { item.set_flex_shrink(1.0F); });
     message_label_ = &message;
 
@@ -968,7 +966,7 @@ MessageBox& MessageBox::show(elements::UIElement& host, MessageBoxOptions option
     const auto viewport = viewport_for(host);
     const auto width =
         std::min(std::max(options.width, 320.0F), std::max(viewport.width - 48.0F, 320.0F));
-    const auto height = message_box_height_for(options, width);
+    const auto height = message_box_height_for(options, width, viewport);
     auto box = std::make_unique<MessageBox>();
     box->modal_ = options.modal;
     box->set_title(options.title)
@@ -1455,11 +1453,9 @@ Dialog::Dialog() : Control() {
     title_label_ = &title;
 
     auto& body = append_new_child<Text>();
-    body.set_font_size(14.0F).set_color(rendering::Color::rgba(96, 98, 102)).set_max_lines(8U);
+    body.set_font_size(14.0F).set_color(rendering::Color::rgba(96, 98, 102)).set_max_lines(14U);
     body.configure_layout([](layout::LayoutElement& item) {
-        item.set_width(layout::Length::percent(100.0F))
-            .set_flex_grow(1.0F)
-            .set_flex_shrink(1.0F);
+        item.set_width(layout::Length::percent(100.0F)).set_flex_grow(1.0F).set_flex_shrink(1.0F);
     });
     body_label_ = &body;
 
@@ -1605,12 +1601,10 @@ Dialog& Dialog::show(elements::UIElement& host, DialogOptions options) {
     const auto size = options.fullscreen
                           ? layout::Size{viewport.width, viewport.height}
                           : layout::Size{width, dialog_height_for(options, width, viewport)};
-    const auto bounds =
-        options.fullscreen
-            ? layout::Rect{viewport.x, viewport.y,
-                           std::numeric_limits<float>::quiet_NaN(),
-                           std::numeric_limits<float>::quiet_NaN()}
-            : centered_bounds(viewport, size);
+    const auto bounds = options.fullscreen ? layout::Rect{viewport.x, viewport.y,
+                                                          std::numeric_limits<float>::quiet_NaN(),
+                                                          std::numeric_limits<float>::quiet_NaN()}
+                                           : centered_bounds(viewport, size);
     if (auto* existing = find_top_layer<Dialog>(host)) {
         existing->modal_ = options.modal;
         existing->set_title(options.title)

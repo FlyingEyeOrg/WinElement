@@ -40,7 +40,8 @@ constexpr auto showcase_page_gap = 8.0F;
     return surface;
 }
 
-[[nodiscard]] float loop_progress(animation::AnimationTimePoint now, float cycles_per_second) noexcept {
+[[nodiscard]] float loop_progress(animation::AnimationTimePoint now,
+                                  float cycles_per_second) noexcept {
     const auto seconds = std::chrono::duration<float>(now.time_since_epoch()).count();
     return std::fmod(std::max(seconds * cycles_per_second, 0.0F), 1.0F);
 }
@@ -68,9 +69,9 @@ class MotionDemoPanel final : public controls::Panel {
     void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override {
         controls::Panel::on_paint(context, absolute_frame);
 
-        const auto track = layout::Rect{absolute_frame.x + 16.0F,
-                                        absolute_frame.y + absolute_frame.height - 28.0F,
-                                        std::max(0.0F, absolute_frame.width - 32.0F), 8.0F};
+        const auto track =
+            layout::Rect{absolute_frame.x + 16.0F, absolute_frame.y + absolute_frame.height - 28.0F,
+                         std::max(0.0F, absolute_frame.width - 32.0F), 8.0F};
         context.fill_rounded_rect(track, rendering::CornerRadius::uniform(999.0F),
                                   rendering::Color::rgba(179, 216, 255));
 
@@ -257,9 +258,8 @@ class LiveSampleCard final : public controls::Panel {
 };
 
 [[nodiscard]] const core::PropertyMetadata& implicit_demo_progress_property() {
-    static const auto metadata =
-        core::make_property_metadata<float>("showcase.implicit_demo_progress",
-                                            core::PropertyInvalidation::Paint);
+    static const auto metadata = core::make_property_metadata<float>(
+        "showcase.implicit_demo_progress", core::PropertyInvalidation::Paint);
     return metadata;
 }
 
@@ -280,7 +280,8 @@ class ImplicitPropertyDemoPanel final : public controls::Panel {
         title.set_size(controls::TextSize::Large);
 
         auto& desc = append_new_child<controls::Text>();
-        desc.set_text("Click replay to drive a custom property and mirror it into a live fill track.")
+        desc.set_text(
+                "Click replay to drive a custom property and mirror it into a live fill track.")
             .set_type(controls::TextType::Info)
             .set_size(controls::TextSize::Small);
         desc.configure_layout([](layout::LayoutElement& item) {
@@ -299,7 +300,8 @@ class ImplicitPropertyDemoPanel final : public controls::Panel {
         fill_ = &track;
 
         auto& replay = append_new_child<controls::Button>();
-        replay.set_text("Restart implicit property animation").set_type(controls::ButtonType::Primary);
+        replay.set_text("Restart implicit property animation")
+            .set_type(controls::ButtonType::Primary);
         replay.configure_layout([](layout::LayoutElement& item) {
             item.set_width(layout::Length::points(280.0F)).set_flex_shrink(0.0F);
         });
@@ -330,8 +332,8 @@ class ImplicitPropertyDemoPanel final : public controls::Panel {
 
   private:
     void sync_visuals() {
-        const auto progress =
-            std::clamp(properties().value<float>(implicit_demo_progress_property(), 0.0F), 0.0F, 1.0F);
+        const auto progress = std::clamp(
+            properties().value<float>(implicit_demo_progress_property(), 0.0F), 0.0F, 1.0F);
         if (fill_ != nullptr && std::abs(progress - fill_progress_) >= 0.0025F) {
             fill_progress_ = progress;
             fill_->set_progress(fill_progress_);
@@ -447,6 +449,17 @@ controls::StackPanel& add_demo_group(controls::StackPanel& parent, std::string_v
         return "close";
     }
     return "close";
+}
+
+[[nodiscard]] std::string long_feedback_copy(std::string_view component_name) {
+    return std::string(component_name) +
+           " can carry longer descriptive content when a workflow needs extra context. "
+           "This sample intentionally uses several sentences so spacing, wrapping, and the "
+           "footer distance can be inspected without switching to a separate page. "
+           "Use it to compare the Element Plus style surface rhythm: title, body, and actions "
+           "should still feel calm even when the content becomes dense. "
+           "The body should wrap naturally, preserve readable line height, and avoid pushing "
+           "the action row into an awkward cramped position.";
 }
 
 [[nodiscard]] std::string easing_curve_label(animation::EasingCurve curve) {
@@ -588,9 +601,8 @@ void add_button_section(controls::StackPanel& root) {
         .set_size(controls::ButtonSize::Small);
     add_button(variant_row, "Link", controls::ButtonType::Text).set_link_variant(true);
     auto& loading_button = add_button(variant_row, "Toggle loading", controls::ButtonType::Primary);
-    loading_button.set_on_click([&loading_button]() {
-        loading_button.set_loading(!loading_button.loading());
-    });
+    loading_button.set_on_click(
+        [&loading_button]() { loading_button.set_loading(!loading_button.loading()); });
     add_button(variant_row, "Disabled", controls::ButtonType::Default).set_disabled(true);
     add_button(variant_row, "Disabled", controls::ButtonType::Primary).set_disabled(true);
     add_button(variant_row, "Dark", controls::ButtonType::Default).set_dark_mode(true);
@@ -746,9 +758,8 @@ void add_choice_scroll_section(controls::StackPanel& root) {
         .set_on_scroll([&vertical_viewport](float value) {
             vertical_viewport.set_scroll_offset(layout::Point{0.0F, value});
         });
-    vertical_viewport.set_on_scroll_changed([&vertical](layout::Point offset) {
-        vertical.set_value(offset.y);
-    });
+    vertical_viewport.set_on_scroll_changed(
+        [&vertical](layout::Point offset) { vertical.set_value(offset.y); });
     vertical.configure_layout([](layout::LayoutElement& item) {
         item.set_size(layout::Length::points(14.0F), layout::Length::points(156.0F))
             .set_flex_shrink(0.0F);
@@ -801,9 +812,8 @@ void add_choice_scroll_section(controls::StackPanel& root) {
         .set_on_scroll([&horizontal_viewport](float value) {
             horizontal_viewport.set_scroll_offset(layout::Point{value, 0.0F});
         });
-    horizontal_viewport.set_on_scroll_changed([&horizontal](layout::Point offset) {
-        horizontal.set_value(offset.x);
-    });
+    horizontal_viewport.set_on_scroll_changed(
+        [&horizontal](layout::Point offset) { horizontal.set_value(offset.x); });
     horizontal.configure_layout([](layout::LayoutElement& item) {
         item.set_size(layout::Length::points(540.0F), layout::Length::points(14.0F))
             .set_flex_shrink(0.0F);
@@ -817,7 +827,8 @@ void add_choice_scroll_section(controls::StackPanel& root) {
 
             auto& title = item->append_new_child<controls::Text>();
             title.set_text(std::string(context.item))
-                .set_type(context.selected ? controls::TextType::Primary : controls::TextType::Primary);
+                .set_type(context.selected ? controls::TextType::Primary
+                                           : controls::TextType::Primary);
 
             auto& meta = item->append_new_child<controls::Text>();
             meta.set_text("Item " + std::to_string(context.index + 1U) +
@@ -906,19 +917,18 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
         const auto label = message_type_label(type);
         auto& button = add_button(message_row, "Show " + label, controls::ButtonType::Default);
         button.set_on_click([&feedback_host, type, label]() {
-            controls::Message::show(feedback_host,
-                                    controls::MessageOptions{.text = label + " message",
-                                                             .type = type,
-                                                             .duration_ms = 3000});
+            controls::Message::show(
+                feedback_host, controls::MessageOptions{
+                                   .text = label + " message", .type = type, .duration_ms = 3000});
         });
     }
     add_button(message_row, "Manual close", controls::ButtonType::Info)
         .set_on_click([&feedback_host]() {
-            controls::Message::show(
-                feedback_host, controls::MessageOptions{.text = "Manual close message",
-                                                        .type = controls::MessageType::Info,
-                                                        .show_close = true,
-                                                        .duration_ms = 0});
+            controls::Message::show(feedback_host,
+                                    controls::MessageOptions{.text = "Manual close message",
+                                                             .type = controls::MessageType::Info,
+                                                             .show_close = true,
+                                                             .duration_ms = 0});
         });
 
     auto& message_boxes = add_demo_group(section, "MessageBox");
@@ -938,74 +948,132 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
     add_button(box_row, "Confirm", controls::ButtonType::Warning).set_on_click([&feedback_host]() {
         controls::MessageBox::show(
             feedback_host, controls::MessageBoxOptions{
-                      .title = "Confirm",
-                      .message = "Confirm and cancel actions with close distinction.",
-                      .kind = controls::MessageBoxKind::Confirm,
-                      .type = controls::MessageType::Warning,
-                      .distinguish_cancel_and_close = true,
-                      .draggable = true,
-                      .modal = true,
-                      .close_on_click_modal = false,
-                      .close_on_press_escape = false,
-                      .on_action =
-                          [&feedback_host](controls::MessageBoxAction action, std::string value) {
-                          static_cast<void>(value);
-                          controls::Message::show(
-                              feedback_host,
-                              controls::MessageOptions{.text = "MessageBox " +
-                                                               message_box_action_label(action),
-                                                       .type = controls::MessageType::Info,
-                                                       .show_close = true});
-                      }});
+                               .title = "Confirm",
+                               .message = "Confirm and cancel actions with close distinction.",
+                               .kind = controls::MessageBoxKind::Confirm,
+                               .type = controls::MessageType::Warning,
+                               .distinguish_cancel_and_close = true,
+                               .draggable = true,
+                               .modal = true,
+                               .close_on_click_modal = false,
+                               .close_on_press_escape = false,
+                               .on_action = [&feedback_host](controls::MessageBoxAction action,
+                                                             std::string value) {
+                                   static_cast<void>(value);
+                                   controls::Message::show(
+                                       feedback_host,
+                                       controls::MessageOptions{
+                                           .text = "MessageBox " + message_box_action_label(action),
+                                           .type = controls::MessageType::Info,
+                                           .show_close = true});
+                               }});
     });
     add_button(box_row, "Prompt", controls::ButtonType::Success).set_on_click([&feedback_host]() {
         controls::MessageBox::show(
-            feedback_host, controls::MessageBoxOptions{
-                      .title = "Prompt",
-                      .message = "Input validation, loading confirm and centered layout.",
-                      .kind = controls::MessageBoxKind::Prompt,
-                      .type = controls::MessageType::Success,
-                      .input_placeholder = "Project name",
-                      .input_text = "WinElement",
-                      .confirm_loading = false,
-                      .center = true,
-                      .close_on_click_modal = false,
-                      .close_on_press_escape = false,
-                      .content_builder =
-                          [](controls::StackPanel& content) {
-                              content.append_new_child<controls::Text>()
-                                  .set_text("Custom content builder")
-                                  .set_type(controls::TextType::Info)
-                                  .set_size(controls::TextSize::Small);
-                          },
-                      .input_error_message = "Project name is required",
-                      .input_validator = [](std::string_view value) -> std::optional<std::string> {
-                          return value.empty()
-                                     ? std::optional<std::string>{"Project name is required"}
-                                     : std::nullopt;
-                      },
-                      .on_action = [&feedback_host](controls::MessageBoxAction action,
-                                                    std::string value) {
-                              controls::Message::show(
-                                  feedback_host,
-                                  controls::MessageOptions{
-                                      .text = "Prompt " + message_box_action_label(action) + ": " +
-                                              value,
-                                      .type = controls::MessageType::Success,
-                                      .show_close = true});
-                          }});
+            feedback_host,
+            controls::MessageBoxOptions{
+                .title = "Prompt",
+                .message = "Input validation, loading confirm and centered layout.",
+                .kind = controls::MessageBoxKind::Prompt,
+                .type = controls::MessageType::Success,
+                .input_placeholder = "Project name",
+                .input_text = "WinElement",
+                .confirm_loading = false,
+                .center = true,
+                .close_on_click_modal = false,
+                .close_on_press_escape = false,
+                .content_builder =
+                    [](controls::StackPanel& content) {
+                        content.append_new_child<controls::Text>()
+                            .set_text("Custom content builder")
+                            .set_type(controls::TextType::Info)
+                            .set_size(controls::TextSize::Small);
+                    },
+                .input_error_message = "Project name is required",
+                .input_validator = [](std::string_view value) -> std::optional<std::string> {
+                    return value.empty() ? std::optional<std::string>{"Project name is required"}
+                                         : std::nullopt;
+                },
+                .on_action =
+                    [&feedback_host](controls::MessageBoxAction action, std::string value) {
+                        controls::Message::show(
+                            feedback_host,
+                            controls::MessageOptions{
+                                .text = "Prompt " + message_box_action_label(action) + ": " + value,
+                                .type = controls::MessageType::Success,
+                                .show_close = true});
+                    }});
     });
     add_button(box_row, "Non-modal", controls::ButtonType::Default)
         .set_on_click([&feedback_host]() {
-        controls::MessageBox::show(
-            feedback_host,
-            controls::MessageBoxOptions{.title = "Non-modal MessageBox",
-                                        .message = "No backdrop mask; the page remains visible.",
-                                        .kind = controls::MessageBoxKind::Confirm,
-                                        .type = controls::MessageType::Primary,
-                                        .draggable = true,
-                                        .modal = false,
-                                        .close_on_click_modal = false});
+            controls::MessageBox::show(feedback_host,
+                                       controls::MessageBoxOptions{
+                                           .title = "Non-modal MessageBox",
+                                           .message = "No backdrop mask; the page remains visible.",
+                                           .kind = controls::MessageBoxKind::Confirm,
+                                           .type = controls::MessageType::Primary,
+                                           .draggable = true,
+                                           .modal = false,
+                                           .close_on_click_modal = false});
+        });
+    add_button(box_row, "Large content", controls::ButtonType::Info)
+        .set_on_click([&feedback_host]() {
+            controls::MessageBox::show(
+                feedback_host,
+                controls::MessageBoxOptions{
+                    .title = "Large content",
+                    .message = long_feedback_copy("MessageBox"),
+                    .kind = controls::MessageBoxKind::Confirm,
+                    .type = controls::MessageType::Info,
+                    .confirm_button_text = "I understand",
+                    .cancel_button_text = "Cancel",
+                    .show_cancel_button = true,
+                    .modal = true,
+                    .close_on_click_modal = false,
+                    .close_on_press_escape = false,
+                    .width = 520.0F,
+                    .content_builder = [](controls::StackPanel& content) {
+                        content.append_new_child<controls::Text>()
+                            .set_text("Additional note: this row is built through the custom "
+                                      "content slot.")
+                            .set_type(controls::TextType::Info)
+                            .set_size(controls::TextSize::Small);
+                    }});
+        });
+    add_button(box_row, "Nested box", controls::ButtonType::Success)
+        .set_on_click([&feedback_host]() {
+            controls::MessageBox::show(
+                feedback_host,
+                controls::MessageBoxOptions{
+                    .title = "First MessageBox",
+                    .message = "Confirm this MessageBox to open another MessageBox on top.",
+                    .kind = controls::MessageBoxKind::Confirm,
+                    .type = controls::MessageType::Success,
+                    .confirm_button_text = "Open next",
+                    .cancel_button_text = "Cancel",
+                    .distinguish_cancel_and_close = true,
+                    .modal = true,
+                    .close_on_click_modal = false,
+                    .close_on_press_escape = false,
+                    .on_action = [&feedback_host](controls::MessageBoxAction action,
+                                                  std::string value) {
+                        static_cast<void>(value);
+                        if (action != controls::MessageBoxAction::Confirm) {
+                            return;
+                        }
+                        controls::MessageBox::show(
+                            feedback_host,
+                            controls::MessageBoxOptions{
+                                .title = "Second MessageBox",
+                                .message = "Nested MessageBox content. This verifies stacked "
+                                           "modal feedback, focus, and backdrop behavior.",
+                                .kind = controls::MessageBoxKind::Alert,
+                                .type = controls::MessageType::Primary,
+                                .show_cancel_button = false,
+                                .modal = true,
+                                .close_on_click_modal = false,
+                                .close_on_press_escape = false});
+                    }});
         });
 
     auto& dialogs = add_demo_group(section, "Dialog");
@@ -1013,50 +1081,50 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
     configure_row(dialog_row);
     add_button(dialog_row, "Open dialog", controls::ButtonType::Primary)
         .set_on_click([&feedback_host]() {
-        controls::Dialog::show(
-            feedback_host, controls::DialogOptions{
-                      .title = "Dialog",
-                      .body = "Modal surface with header, body, footer, close and confirm actions.",
-                      .show_cancel_button = true,
-                      .modal = true,
-                      .close_on_click_modal = false,
-                      .close_on_press_escape = false,
-                      .draggable = true,
-                      .on_action = [&feedback_host](controls::DialogAction action) {
-                          controls::Message::show(
-                              feedback_host,
-                              controls::MessageOptions{
-                                  .text = "Dialog " + dialog_action_label(action),
-                                  .type = controls::MessageType::Primary,
-                                  .show_close = true});
-                      }});
-    });
+            controls::Dialog::show(
+                feedback_host,
+                controls::DialogOptions{
+                    .title = "Dialog",
+                    .body = "Modal surface with header, body, footer, close and confirm actions.",
+                    .show_cancel_button = true,
+                    .modal = true,
+                    .close_on_click_modal = false,
+                    .close_on_press_escape = false,
+                    .draggable = true,
+                    .on_action = [&feedback_host](controls::DialogAction action) {
+                        controls::Message::show(feedback_host,
+                                                controls::MessageOptions{
+                                                    .text = "Dialog " + dialog_action_label(action),
+                                                    .type = controls::MessageType::Primary,
+                                                    .show_close = true});
+                    }});
+        });
     add_button(dialog_row, "Fullscreen dialog", controls::ButtonType::Warning)
         .set_on_click([&feedback_host]() {
-        controls::Dialog::show(
-            feedback_host, controls::DialogOptions{
-                               .title = "Fullscreen dialog",
-                               .body = "Element Plus style fullscreen dialog sample in the "
-                                       "showcase. The dialog expands to the viewport and keeps "
-                                       "the close affordance available.",
-                               .show_cancel_button = true,
-                               .modal = true,
-                               .close_on_click_modal = false,
-                               .close_on_press_escape = false,
-                               .fullscreen = true,
-                               .draggable = false});
-    });
-    add_button(dialog_row, "No cancel", controls::ButtonType::Default).set_on_click(
-        [&feedback_host]() {
-        controls::Dialog::show(
-            feedback_host,
-            controls::DialogOptions{.title = "Compact dialog",
-                                    .body = "A compact dialog variant without a cancel button.",
-                                    .show_cancel_button = false,
-                                    .close_on_click_modal = false,
-                                    .close_on_press_escape = false,
-                                    .draggable = false,
-                                    .width = 420.0F});
+            controls::Dialog::show(
+                feedback_host, controls::DialogOptions{
+                                   .title = "Fullscreen dialog",
+                                   .body = "Element Plus style fullscreen dialog sample in the "
+                                           "showcase. The dialog expands to the viewport and keeps "
+                                           "the close affordance available.",
+                                   .show_cancel_button = true,
+                                   .modal = true,
+                                   .close_on_click_modal = false,
+                                   .close_on_press_escape = false,
+                                   .fullscreen = true,
+                                   .draggable = false});
+        });
+    add_button(dialog_row, "No cancel", controls::ButtonType::Default)
+        .set_on_click([&feedback_host]() {
+            controls::Dialog::show(
+                feedback_host,
+                controls::DialogOptions{.title = "Compact dialog",
+                                        .body = "A compact dialog variant without a cancel button.",
+                                        .show_cancel_button = false,
+                                        .close_on_click_modal = false,
+                                        .close_on_press_escape = false,
+                                        .draggable = false,
+                                        .width = 420.0F});
         });
     add_button(dialog_row, "Non-modal dialog", controls::ButtonType::Info)
         .set_on_click([&feedback_host]() {
@@ -1069,6 +1137,20 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                                                        .close_on_click_modal = false,
                                                        .draggable = true,
                                                        .width = 520.0F});
+        });
+    add_button(dialog_row, "Large content", controls::ButtonType::Success)
+        .set_on_click([&feedback_host]() {
+            controls::Dialog::show(
+                feedback_host, controls::DialogOptions{.title = "Large content dialog",
+                                                       .body = long_feedback_copy("Dialog") + " " +
+                                                               long_feedback_copy("Dialog"),
+                                                       .show_cancel_button = true,
+                                                       .modal = true,
+                                                       .close_on_click_modal = false,
+                                                       .close_on_press_escape = false,
+                                                       .draggable = true,
+                                                       .width = 640.0F,
+                                                       .height = 420.0F});
         });
 
     auto& loading_group = add_demo_group(section, "Loading");
@@ -1125,8 +1207,7 @@ void add_animation_section(controls::StackPanel& root) {
               "Loading controls are demonstrated from the Loading buttons above to avoid an "
               "always-on spinner in the baseline showcase.");
     auto& loading_preview_button = live_controls.append_new_child<controls::Button>();
-    loading_preview_button
-        .set_text("Loading")
+    loading_preview_button.set_text("Loading")
         .set_type(controls::ButtonType::Primary)
         .set_loading(true)
         .set_on_click([&loading_preview_button]() {
@@ -1186,17 +1267,17 @@ void add_animation_section(controls::StackPanel& root) {
           animation::PlaybackDirection::Alternate,
           animation::PlaybackDirection::AlternateReverse}) {
         auto& badge = timing_row.append_new_child<LiveSampleCard>();
-        const auto timing = animation::AnimationTiming{
-            .duration = animation::AnimationDuration{1.0F},
-            .iteration_count = 2.0F,
-            .direction = direction,
-            .fill_mode = animation::FillMode::Both,
-            .easing = animation::EasingFunction::ease_out_cubic()};
+        const auto timing =
+            animation::AnimationTiming{.duration = animation::AnimationDuration{1.0F},
+                                       .iteration_count = 2.0F,
+                                       .direction = direction,
+                                       .fill_mode = animation::FillMode::Both,
+                                       .easing = animation::EasingFunction::ease_out_cubic()};
         const auto timeline = animation::Timeline(timing);
         badge.set_label(playback_direction_label(direction))
             .set_sample_function([timeline](animation::AnimationTimePoint now) {
-                const auto sample = timeline.sample(animation::AnimationDuration{
-                    loop_progress(now, 0.45F) * 2.0F});
+                const auto sample =
+                    timeline.sample(animation::AnimationDuration{loop_progress(now, 0.45F) * 2.0F});
                 return LiveSample{
                     .progress = sample.progress,
                 };
@@ -1208,8 +1289,7 @@ void add_animation_section(controls::StackPanel& root) {
     auto& keyframe_row = timeline_group.append_new_child<controls::StackPanel>();
     configure_row(keyframe_row);
     auto& keyframe_card = keyframe_row.append_new_child<LiveSampleCard>();
-    keyframe_card
-        .set_label("Keyframe sample")
+    keyframe_card.set_label("Keyframe sample")
         .set_sample_function([](animation::AnimationTimePoint now) {
             static const auto opacity_track = animation::KeyframeTrack<float>({
                 animation::Keyframe<float>{.offset = 0.0F, .value = 0.0F},
@@ -1218,7 +1298,8 @@ void add_animation_section(controls::StackPanel& root) {
                                            .easing = animation::EasingFunction::ease_out_cubic()},
                 animation::Keyframe<float>{.offset = 1.0F,
                                            .value = 0.35F,
-                                           .easing = animation::EasingFunction::ease_in_out_cubic()},
+                                           .easing =
+                                               animation::EasingFunction::ease_in_out_cubic()},
             });
             const auto value = opacity_track.sample(loop_progress(now, 0.4F));
             return LiveSample{
@@ -1229,8 +1310,7 @@ void add_animation_section(controls::StackPanel& root) {
     configure_card(keyframe_card, 300.0F);
 
     auto& spring_card = keyframe_row.append_new_child<LiveSampleCard>();
-    spring_card
-        .set_label("Spring response")
+    spring_card.set_label("Spring response")
         .set_sample_function([](animation::AnimationTimePoint now) {
             static const auto spring = animation::SpringSimulation(0.0F, 1.0F);
             const auto value =
@@ -1243,12 +1323,11 @@ void add_animation_section(controls::StackPanel& root) {
     configure_card(spring_card, 260.0F);
 
     auto& friction_card = keyframe_row.append_new_child<LiveSampleCard>();
-    friction_card
-        .set_label("Friction decay")
+    friction_card.set_label("Friction decay")
         .set_sample_function([](animation::AnimationTimePoint now) {
             static const auto friction = animation::FrictionSimulation(0.0F, 720.0F);
-            const auto value = friction.sample(
-                animation::AnimationDuration{loop_progress(now, 0.35F) * 1.4F});
+            const auto value =
+                friction.sample(animation::AnimationDuration{loop_progress(now, 0.35F) * 1.4F});
             return LiveSample{
                 .progress = std::clamp(value.value / 720.0F, 0.0F, 1.0F),
             };
@@ -1350,18 +1429,15 @@ build_showcase_content(elements::UIElement& feedback_host) {
         .set_visibility_mode(controls::ScrollbarVisibility::Always)
         .set_value(0.0F)
         .bind_range([&viewport]() {
-            return controls::ScrollbarRange{
-                .minimum = 0.0F,
-                .maximum = viewport.max_scroll_offset().y,
-                .page_size = viewport.viewport_rect().height,
-                .value = viewport.scroll_offset().y};
+            return controls::ScrollbarRange{.minimum = 0.0F,
+                                            .maximum = viewport.max_scroll_offset().y,
+                                            .page_size = viewport.viewport_rect().height,
+                                            .value = viewport.scroll_offset().y};
         })
-        .set_on_scroll([&viewport](float value) {
-            viewport.set_scroll_offset(layout::Point{0.0F, value});
-        });
-    viewport.set_on_scroll_changed([&scrollbar](layout::Point offset) {
-        scrollbar.set_value(offset.y);
-    });
+        .set_on_scroll(
+            [&viewport](float value) { viewport.set_scroll_offset(layout::Point{0.0F, value}); });
+    viewport.set_on_scroll_changed(
+        [&scrollbar](layout::Point offset) { scrollbar.set_value(offset.y); });
     scrollbar.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::points(showcase_page_scrollbar_width))
             .set_height(layout::Length::percent(100.0F))
