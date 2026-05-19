@@ -1055,6 +1055,7 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                     .modal = true,
                     .close_on_click_modal = false,
                     .close_on_press_escape = false,
+                    .close_on_confirm = false,
                     .on_action = [&feedback_host](controls::MessageBoxAction action,
                                                   std::string value) {
                         static_cast<void>(value);
@@ -1151,6 +1152,39 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                                                        .draggable = true,
                                                        .width = 640.0F,
                                                        .height = 420.0F});
+        });
+    add_button(dialog_row, "Nested dialog", controls::ButtonType::Warning)
+        .set_on_click([&feedback_host]() {
+            controls::Dialog::show(
+                feedback_host,
+                controls::DialogOptions{
+                    .title = "First dialog",
+                    .body = "Confirm this dialog to open another dialog while keeping this one "
+                            "underneath.",
+                    .confirm_button_text = "Open next",
+                    .show_cancel_button = true,
+                    .modal = true,
+                    .close_on_click_modal = false,
+                    .close_on_press_escape = false,
+                    .close_on_confirm = false,
+                    .draggable = true,
+                    .on_action = [&feedback_host](controls::DialogAction action) {
+                        if (action != controls::DialogAction::Confirm) {
+                            return;
+                        }
+                        controls::Dialog::show(
+                            feedback_host,
+                            controls::DialogOptions{
+                                .title = "Second dialog",
+                                .body = "Nested dialog content. This verifies stacked modal "
+                                        "surfaces, focus, and shadow composition.",
+                                .show_cancel_button = true,
+                                .modal = true,
+                                .close_on_click_modal = false,
+                                .close_on_press_escape = false,
+                                .draggable = true,
+                                .width = 460.0F});
+                    }});
         });
 
     auto& loading_group = add_demo_group(section, "Loading");
@@ -1349,6 +1383,7 @@ build_showcase_content(elements::UIElement& feedback_host) {
     root->set_background(rendering::Color::rgba(245, 247, 250));
     root->configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F))
+            .set_flex_shrink(0.0F)
             .set_padding(layout::Edge::All, layout::Length::points(24.0F));
     });
 

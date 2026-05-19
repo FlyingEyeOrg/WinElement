@@ -537,7 +537,7 @@ TEST(BasicControlsTests, DialogPaintsBodyAndFooterActions) {
     EXPECT_GE(command_count(context, RenderCommandType::DrawBoxShadow), 1U);
 }
 
-TEST(BasicControlsTests, DialogShowReusesExistingTopLayer) {
+TEST(BasicControlsTests, DialogShowCanStackTopLayers) {
     auto engine = create_unrounded_engine();
     Panel root;
     root.bind_layout_tree(engine);
@@ -549,8 +549,9 @@ TEST(BasicControlsTests, DialogShowReusesExistingTopLayer) {
     auto& first = Dialog::show(root, DialogOptions{.title = "First", .body = "One"});
     auto& second = Dialog::show(root, DialogOptions{.title = "Second", .body = "Two"});
 
-    EXPECT_EQ(root.top_layer_count(), 1U);
-    EXPECT_EQ(&first, &second);
+    EXPECT_EQ(root.top_layer_count(), 2U);
+    EXPECT_NE(&first, &second);
+    EXPECT_EQ(first.title(), "First");
     EXPECT_EQ(second.title(), "Second");
     EXPECT_EQ(second.body(), "Two");
 }

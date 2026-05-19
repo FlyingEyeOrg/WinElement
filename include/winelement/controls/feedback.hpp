@@ -104,6 +104,7 @@ struct MessageBoxOptions {
     bool modal = true;
     bool close_on_click_modal = true;
     bool close_on_press_escape = true;
+    bool close_on_confirm = true;
     float width = 420.0F;
     MessageBoxContentBuilder content_builder;
     std::string input_error_message = "Invalid input";
@@ -130,6 +131,7 @@ class MessageBox final : public Control {
     MessageBox& set_confirm_loading(bool loading);
     MessageBox& set_center(bool center) noexcept;
     MessageBox& set_distinguish_cancel_and_close(bool distinguish) noexcept;
+    MessageBox& set_close_on_confirm(bool close_on_confirm) noexcept;
     MessageBox& set_content_builder(MessageBoxContentBuilder builder);
     MessageBox& set_input_error_message(std::string_view text);
     MessageBox& set_input_validator(MessageBoxInputValidator validator);
@@ -189,6 +191,7 @@ class MessageBox final : public Control {
     bool confirm_loading_ = false;
     bool center_ = false;
     bool distinguish_cancel_and_close_ = false;
+    bool close_on_confirm_ = true;
     bool draggable_ = true;
     bool modal_ = true;
     bool input_error_visible_ = false;
@@ -259,6 +262,7 @@ struct DialogOptions {
     bool modal = true;
     bool close_on_click_modal = true;
     bool close_on_press_escape = true;
+    bool close_on_confirm = true;
     bool fullscreen = false;
     bool draggable = true;
     float width = 520.0F;
@@ -278,6 +282,7 @@ class Dialog final : public Control {
     Dialog& set_cancel_button_text(std::string_view text);
     Dialog& set_show_close(bool show_close);
     Dialog& set_show_cancel_button(bool show_cancel_button);
+    Dialog& set_close_on_confirm(bool close_on_confirm) noexcept;
     Dialog& set_draggable(bool draggable) noexcept;
     Dialog& set_on_action(ActionHandler handler);
     [[nodiscard]] const std::string& title() const noexcept;
@@ -313,6 +318,7 @@ class Dialog final : public Control {
     bool show_close_ = true;
     bool show_cancel_button_ = true;
     bool draggable_ = true;
+    bool close_on_confirm_ = true;
     bool modal_ = true;
     bool dragging_ = false;
     layout::Point drag_start_pointer_{};

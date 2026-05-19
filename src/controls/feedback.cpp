@@ -19,7 +19,7 @@ constexpr auto transparent = rendering::Color::rgba(0, 0, 0, 0);
 constexpr auto overlay_shadow = rendering::ShadowStyle{
     .color = rendering::Color::rgba(0, 0, 0, 20), .offset = {0.0F, 6.0F}, .blur_radius = 12.0F};
 constexpr auto message_shadow = rendering::ShadowStyle{
-    .color = rendering::Color::rgba(0, 0, 0, 14), .offset = {0.0F, 10.0F}, .blur_radius = 22.0F};
+    .color = rendering::Color::rgba(0, 0, 0, 22), .offset = {0.0F, 0.0F}, .blur_radius = 12.0F};
 constexpr auto modal_overlay_shadow = rendering::ShadowStyle{
     .color = rendering::Color::rgba(0, 0, 0, 31), .offset = {0.0F, 0.0F}, .blur_radius = 12.0F};
 constexpr auto floating_overlay_shadow = rendering::ShadowStyle{
@@ -671,7 +671,7 @@ MessageBox::MessageBox() : Control() {
 
     auto& body = append_new_child<StackPanel>();
     body.configure_layout([](layout::LayoutElement& item) {
-        item.set_width(layout::Length::percent(100.0F)).set_flex_shrink(0.0F);
+        item.set_width(layout::Length::percent(100.0F)).set_flex_grow(1.0F).set_flex_shrink(1.0F);
     });
 
     auto& content = body.append_new_child<StackPanel>();
@@ -888,6 +888,11 @@ MessageBox& MessageBox::set_distinguish_cancel_and_close(bool distinguish) noexc
     return *this;
 }
 
+MessageBox& MessageBox::set_close_on_confirm(bool close_on_confirm) noexcept {
+    close_on_confirm_ = close_on_confirm;
+    return *this;
+}
+
 MessageBox& MessageBox::set_content_builder(MessageBoxContentBuilder builder) {
     content_builder_ = std::move(builder);
     if (custom_content_panel_ != nullptr) {
@@ -982,6 +987,7 @@ MessageBox& MessageBox::show(elements::UIElement& host, MessageBoxOptions option
         .set_confirm_loading(options.confirm_loading)
         .set_center(options.center)
         .set_distinguish_cancel_and_close(options.distinguish_cancel_and_close)
+        .set_close_on_confirm(options.close_on_confirm)
         .set_content_builder(std::move(options.content_builder))
         .set_input_error_message(options.input_error_message)
         .set_input_validator(std::move(options.input_validator))
@@ -1173,6 +1179,12 @@ void MessageBox::close_with_action(MessageBoxAction action) {
     const auto reported_action = !distinguish_cancel_and_close_ && action == MessageBoxAction::Close
                                      ? MessageBoxAction::Cancel
                                      : action;
+    if (action == MessageBoxAction::Confirm && !close_on_confirm_) {
+        if (handler) {
+            handler(reported_action, std::move(value));
+        }
+        return;
+    }
     dismiss_own_top_layer();
     if (handler) {
         handler(reported_action, std::move(value));
@@ -1554,6 +1566,11 @@ Dialog& Dialog::set_show_cancel_button(bool show_cancel_button) {
     return *this;
 }
 
+Dialog& Dialog::set_close_on_confirm(bool close_on_confirm) noexcept {
+    close_on_confirm_ = close_on_confirm;
+    return *this;
+}
+
 Dialog& Dialog::set_draggable(bool draggable) noexcept {
     draggable_ = draggable;
     return *this;
@@ -1605,30 +1622,6 @@ Dialog& Dialog::show(elements::UIElement& host, DialogOptions options) {
                                                           std::numeric_limits<float>::quiet_NaN(),
                                                           std::numeric_limits<float>::quiet_NaN()}
                                            : centered_bounds(viewport, size);
-    if (auto* existing = find_top_layer<Dialog>(host)) {
-        existing->modal_ = options.modal;
-        existing->set_title(options.title)
-            .set_body(options.body)
-            .set_confirm_button_text(options.confirm_button_text)
-            .set_cancel_button_text(options.cancel_button_text)
-            .set_show_close(options.show_close)
-            .set_show_cancel_button(options.show_cancel_button)
-            .set_draggable(options.draggable)
-            .set_on_action(std::move(options.on_action));
-        existing->apply_visual_state();
-        if (options.fullscreen) {
-            existing->configure_layout([](layout::LayoutElement& item) {
-                item.set_size(layout::Length::percent(100.0F), layout::Length::percent(100.0F))
-                    .set_flex_direction(layout::FlexDirection::Column);
-            });
-        } else {
-            configure_feedback_surface(*existing, size);
-        }
-        host.set_top_layer_bounds(*existing, bounds).bring_top_layer_to_front(*existing);
-        existing->restart_open_animation();
-        return *existing;
-    }
-
     auto dialog = std::make_unique<Dialog>();
     dialog->modal_ = options.modal;
     dialog->set_title(options.title)
@@ -1637,6 +1630,7 @@ Dialog& Dialog::show(elements::UIElement& host, DialogOptions options) {
         .set_cancel_button_text(options.cancel_button_text)
         .set_show_close(options.show_close)
         .set_show_cancel_button(options.show_cancel_button)
+        .set_close_on_confirm(options.close_on_confirm)
         .set_draggable(options.draggable)
         .set_on_action(std::move(options.on_action));
     dialog->apply_visual_state();
@@ -1697,6 +1691,12 @@ Dialog::cursor_for_local_point(layout::Point local_position) const noexcept {
 
 void Dialog::close_with_action(DialogAction action) {
     auto handler = action_handler_;
+    if (action == DialogAction::Confirm && !close_on_confirm_) {
+        if (handler) {
+            handler(action);
+        }
+        return;
+    }
     dismiss_own_top_layer();
     if (handler) {
         handler(action);
