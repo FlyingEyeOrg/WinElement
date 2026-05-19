@@ -31,6 +31,7 @@ constexpr auto floating_overlay_shadow =
 constexpr auto close_icon_size = 16.0F;
 constexpr auto message_status_icon_size = 16.0F;
 constexpr auto message_stack_spacing = 16.0F;
+constexpr auto modal_backdrop_color = rendering::Color::rgba(0, 0, 0, 128);
 constexpr auto message_box_padding = 16.0F;
 constexpr auto message_box_header_height = 18.0F;
 constexpr auto message_box_gap = 12.0F;
@@ -991,8 +992,7 @@ MessageBox& MessageBox::show(elements::UIElement& host, MessageBoxOptions option
     top_layer_options.light_dismiss = options.close_on_click_modal;
     top_layer_options.close_on_escape = options.close_on_press_escape;
     top_layer_options.modal = options.modal;
-    top_layer_options.backdrop_color =
-        options.modal ? rendering::Color::rgba(0, 0, 0, 80) : transparent;
+    top_layer_options.backdrop_color = options.modal ? modal_backdrop_color : transparent;
     host.push_top_layer(std::move(box), std::move(top_layer_options));
     return box_ref;
 }
@@ -1623,8 +1623,7 @@ Dialog& Dialog::show(elements::UIElement& host, DialogOptions options) {
     top_layer_options.light_dismiss = options.close_on_click_modal;
     top_layer_options.close_on_escape = options.close_on_press_escape;
     top_layer_options.modal = options.modal;
-    top_layer_options.backdrop_color =
-        options.modal ? rendering::Color::rgba(0, 0, 0, 80) : transparent;
+    top_layer_options.backdrop_color = options.modal ? modal_backdrop_color : transparent;
     host.push_top_layer(std::move(dialog), std::move(top_layer_options));
     return dialog_ref;
 }
