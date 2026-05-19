@@ -30,7 +30,6 @@ constexpr auto showcase_window_width = 1320.0F;
 constexpr auto showcase_window_height = 920.0F;
 constexpr auto showcase_page_scrollbar_width = 14.0F;
 constexpr auto showcase_page_gap = 8.0F;
-constexpr auto showcase_animation_preview_duration = std::chrono::milliseconds(2200);
 
 [[nodiscard]] rendering::Transform2D scale_x_transform(float scale) noexcept {
     return rendering::Transform2D{.m11 = scale, .m22 = 1.0F};
@@ -61,17 +60,13 @@ class MotionDemoPanel final : public controls::Panel {
 
   protected:
     bool on_animation_frame(animation::AnimationTimePoint now) override {
-        if (preview_until_ == animation::AnimationTimePoint{}) {
-            preview_until_ = now + showcase_animation_preview_duration;
-        }
-
         const auto seconds = std::chrono::duration<float>(now.time_since_epoch()).count();
         const auto phase = std::sin(seconds * 3.0F);
         if (std::abs(phase - phase_) >= 0.01F) {
             phase_ = phase;
             invalidate_paint();
         }
-        return now < preview_until_;
+        return true;
     }
 
     void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override {
@@ -112,7 +107,6 @@ class MotionDemoPanel final : public controls::Panel {
 
   private:
     MotionDemoKind kind_ = MotionDemoKind::Translate;
-    animation::AnimationTimePoint preview_until_{};
     float phase_ = 0.0F;
 };
 
@@ -214,9 +208,6 @@ class LiveSampleCard final : public controls::Panel {
         if (!sample_function_) {
             return false;
         }
-        if (preview_until_ == animation::AnimationTimePoint{}) {
-            preview_until_ = now + showcase_animation_preview_duration;
-        }
 
         const auto sample = sample_function_(now);
         const auto progress = std::clamp(sample.progress, 0.0F, 1.0F);
@@ -224,7 +215,7 @@ class LiveSampleCard final : public controls::Panel {
             fill_progress_ = progress;
             fill_->set_render_transform(scale_x_transform(fill_progress_));
         }
-        return now < preview_until_;
+        return true;
     }
 
   private:
@@ -232,7 +223,6 @@ class LiveSampleCard final : public controls::Panel {
     controls::Panel* fill_ = nullptr;
     SampleFunction sample_function_;
     rendering::Color fill_color_ = rendering::Color::rgba(64, 158, 255);
-    animation::AnimationTimePoint preview_until_{};
     float fill_progress_ = -1.0F;
 };
 
