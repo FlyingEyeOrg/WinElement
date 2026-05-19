@@ -321,11 +321,11 @@ bool handle_overlay_drag(elements::UIElement& element, bool draggable, bool& dra
     if (event.kind == elements::PointerEventKind::Move && dragging) {
         if (!event.primary_button_down) {
             dragging = false;
+            element.set_render_transform(rendering::Transform2D::identity());
             element.set_top_layer_bounds(
                 element, layout::Rect{drag_start_bounds.x + drag_current_delta.x,
                                       drag_start_bounds.y + drag_current_delta.y,
                                       drag_start_bounds.width, drag_start_bounds.height});
-            element.set_render_transform(rendering::Transform2D::identity());
             event.handled = true;
             return true;
         }
@@ -352,11 +352,11 @@ bool handle_overlay_drag(elements::UIElement& element, bool draggable, bool& dra
 
     if (event.kind == elements::PointerEventKind::Up && dragging) {
         dragging = false;
+        element.set_render_transform(rendering::Transform2D::identity());
         element.set_top_layer_bounds(
             element, layout::Rect{drag_start_bounds.x + drag_current_delta.x,
                                   drag_start_bounds.y + drag_current_delta.y,
                                   drag_start_bounds.width, drag_start_bounds.height});
-        element.set_render_transform(rendering::Transform2D::identity());
         drag_current_delta = {};
         event.handled = true;
         return true;

@@ -187,7 +187,9 @@ bool WindowRenderWorker::post(Job job) noexcept {
             }
 
             if (job.kind == JobKind::Render && pending_render_job_.has_value()) {
-                complete_job(**pending_render_job_, RenderJobResult::Canceled);
+                auto& pending = **pending_render_job_;
+                job.frame.dirty_region.add(pending.frame.dirty_region);
+                complete_job(pending, RenderJobResult::Canceled);
                 jobs_.erase(*pending_render_job_);
                 pending_render_job_.reset();
             }
