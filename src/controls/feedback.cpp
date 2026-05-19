@@ -1427,7 +1427,6 @@ Dialog::Dialog() : Control() {
     configure_surface_layer(surface);
     apply_surface_style(surface, 4.0F, rendering::Color::rgba(255, 255, 255),
                         rendering::Color::rgba(235, 238, 245), true);
-    surface.set_shadow(modal_overlay_shadow);
     surface_ = &surface;
 
     configure_layout([](layout::LayoutElement& item) {
@@ -1493,6 +1492,7 @@ Dialog::Dialog() : Control() {
     close.set_on_click([this]() { close_with_action(DialogAction::Close); });
     close_button_ = &close;
     set_title("Dialog");
+    apply_visual_state();
     restart_open_animation();
 }
 
@@ -1560,6 +1560,16 @@ Dialog& Dialog::set_draggable(bool draggable) noexcept {
     return *this;
 }
 
+void Dialog::apply_visual_state() {
+    if (surface_ != nullptr) {
+        const auto border =
+            modal_ ? rendering::Color::rgba(235, 238, 245) : rendering::Color::rgba(220, 223, 230);
+        apply_surface_style(*surface_, 4.0F, rendering::Color::rgba(255, 255, 255), border, true);
+        surface_->set_shadow(modal_ ? modal_overlay_shadow : floating_overlay_shadow);
+    }
+    invalidate_paint();
+}
+
 Dialog& Dialog::set_on_action(ActionHandler handler) {
     action_handler_ = std::move(handler);
     return *this;
@@ -1594,6 +1604,7 @@ Dialog& Dialog::show(elements::UIElement& host, DialogOptions options) {
                           : layout::Size{width, dialog_height_for(options, width, viewport)};
     const auto bounds = options.fullscreen ? viewport : centered_bounds(viewport, size);
     if (auto* existing = find_top_layer<Dialog>(host)) {
+        existing->modal_ = options.modal;
         existing->set_title(options.title)
             .set_body(options.body)
             .set_confirm_button_text(options.confirm_button_text)
@@ -1602,6 +1613,7 @@ Dialog& Dialog::show(elements::UIElement& host, DialogOptions options) {
             .set_show_cancel_button(options.show_cancel_button)
             .set_draggable(options.draggable)
             .set_on_action(std::move(options.on_action));
+        existing->apply_visual_state();
         configure_feedback_surface(*existing, size);
         host.set_top_layer_bounds(*existing, bounds).bring_top_layer_to_front(*existing);
         existing->restart_open_animation();
@@ -1609,6 +1621,7 @@ Dialog& Dialog::show(elements::UIElement& host, DialogOptions options) {
     }
 
     auto dialog = std::make_unique<Dialog>();
+    dialog->modal_ = options.modal;
     dialog->set_title(options.title)
         .set_body(options.body)
         .set_confirm_button_text(options.confirm_button_text)
@@ -1617,6 +1630,7 @@ Dialog& Dialog::show(elements::UIElement& host, DialogOptions options) {
         .set_show_cancel_button(options.show_cancel_button)
         .set_draggable(options.draggable)
         .set_on_action(std::move(options.on_action));
+    dialog->apply_visual_state();
     configure_feedback_surface(*dialog, size);
     auto& dialog_ref = *dialog;
     auto top_layer_options = elements::TopLayerOptions{};

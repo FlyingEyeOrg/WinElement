@@ -296,6 +296,7 @@ class Dialog final : public Control {
     cursor_for_local_point(layout::Point local_position) const noexcept override;
 
   private:
+    void apply_visual_state();
     void restart_open_animation() noexcept;
     void apply_open_animation() noexcept;
     void close_with_action(DialogAction action);
@@ -312,6 +313,7 @@ class Dialog final : public Control {
     bool show_close_ = true;
     bool show_cancel_button_ = true;
     bool draggable_ = true;
+    bool modal_ = true;
     bool dragging_ = false;
     layout::Point drag_start_pointer_{};
     layout::Point drag_current_delta_{};
