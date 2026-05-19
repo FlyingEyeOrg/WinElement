@@ -18,6 +18,10 @@ constexpr auto fallback_viewport = layout::Rect{0.0F, 0.0F, 960.0F, 640.0F};
 constexpr auto transparent = rendering::Color::rgba(0, 0, 0, 0);
 constexpr auto overlay_shadow = rendering::ShadowStyle{
     .color = rendering::Color::rgba(0, 0, 0, 20), .offset = {0.0F, 6.0F}, .blur_radius = 12.0F};
+constexpr auto floating_overlay_shadow =
+    rendering::ShadowStyle{.color = rendering::Color::rgba(0, 0, 0, 26),
+                           .offset = {0.0F, 12.0F},
+                           .blur_radius = 24.0F};
 constexpr auto close_icon_size = 16.0F;
 constexpr auto message_status_icon_size = 16.0F;
 constexpr auto message_stack_spacing = 16.0F;
@@ -959,6 +963,7 @@ MessageBox& MessageBox::show(elements::UIElement& host, MessageBoxOptions option
         std::min(std::max(options.width, 320.0F), std::max(viewport.width - 48.0F, 320.0F));
     const auto height = message_box_height_for(options, width);
     auto box = std::make_unique<MessageBox>();
+    box->modal_ = options.modal;
     box->set_title(options.title)
         .set_message(options.message)
         .set_kind(options.kind)
@@ -1037,8 +1042,10 @@ void MessageBox::apply_visual_state() {
     const auto palette = palette_for(type_);
     const auto has_message = !message_.empty();
     if (surface_ != nullptr) {
-        apply_surface_style(*surface_, 4.0F, rendering::Color::rgba(255, 255, 255), transparent,
-                            true);
+        const auto border =
+            modal_ ? rendering::Color::rgba(235, 238, 245) : rendering::Color::rgba(220, 223, 230);
+        apply_surface_style(*surface_, 4.0F, rendering::Color::rgba(255, 255, 255), border, true);
+        surface_->set_shadow(modal_ ? overlay_shadow : floating_overlay_shadow);
     }
     if (header_panel_ != nullptr) {
         header_panel_->set_justify_content(center_ ? layout::JustifyContent::Center

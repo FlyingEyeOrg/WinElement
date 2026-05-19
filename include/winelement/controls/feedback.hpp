@@ -190,6 +190,7 @@ class MessageBox final : public Control {
     bool center_ = false;
     bool distinguish_cancel_and_close_ = false;
     bool draggable_ = true;
+    bool modal_ = true;
     bool input_error_visible_ = false;
     std::string input_error_message_ = "Invalid input";
     MessageBoxContentBuilder content_builder_;

@@ -901,6 +901,8 @@ void add_feedback_section(controls::StackPanel& root) {
                       .distinguish_cancel_and_close = true,
                       .draggable = true,
                       .modal = true,
+                      .close_on_click_modal = false,
+                      .close_on_press_escape = false,
                       .on_action = [&root](controls::MessageBoxAction action, std::string value) {
                           static_cast<void>(value);
                           controls::Message::show(
@@ -921,6 +923,8 @@ void add_feedback_section(controls::StackPanel& root) {
                       .input_text = "WinElement",
                       .confirm_loading = false,
                       .center = true,
+                      .close_on_click_modal = false,
+                      .close_on_press_escape = false,
                       .content_builder =
                           [](controls::StackPanel& content) {
                               content.append_new_child<controls::Text>()
@@ -966,6 +970,8 @@ void add_feedback_section(controls::StackPanel& root) {
                       .body = "Modal surface with header, body, footer, close and confirm actions.",
                       .show_cancel_button = true,
                       .modal = true,
+                      .close_on_click_modal = false,
+                      .close_on_press_escape = false,
                       .draggable = true,
                       .on_action = [&root](controls::DialogAction action) {
                           controls::Message::show(
@@ -981,6 +987,8 @@ void add_feedback_section(controls::StackPanel& root) {
             controls::DialogOptions{.title = "Compact dialog",
                                     .body = "A compact dialog variant without a cancel button.",
                                     .show_cancel_button = false,
+                                    .close_on_click_modal = false,
+                                    .close_on_press_escape = false,
                                     .draggable = false,
                                     .width = 420.0F});
     });
