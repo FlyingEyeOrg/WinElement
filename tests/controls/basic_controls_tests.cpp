@@ -3815,6 +3815,7 @@ TEST(BasicControlsTests, VerticalScrollbarDragSynchronizesViewportScrollOffset) 
     EventRouter router(root);
     const auto bar = scrollbar.absolute_frame();
     const auto x = bar.x + bar.width * 0.5F;
+    EXPECT_EQ(router.cursor_for_point(Point{x, bar.y + 48.0F}), PointerCursor::Hand);
     EXPECT_TRUE(router
                     .route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
                                                       .position = Point{x, bar.y + 6.0F},
@@ -3881,6 +3882,7 @@ TEST(BasicControlsTests, HorizontalScrollbarDragSynchronizesViewportScrollOffset
     EventRouter router(root);
     const auto bar = scrollbar.absolute_frame();
     const auto y = bar.y + bar.height * 0.5F;
+    EXPECT_EQ(router.cursor_for_point(Point{bar.x + 48.0F, y}), PointerCursor::Hand);
     EXPECT_TRUE(router
                     .route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
                                                       .position = Point{bar.x + 8.0F, y},
@@ -3940,6 +3942,8 @@ TEST(BasicControlsTests, ScrollbarCanWrapScrollableContent) {
     EventRouter router(scrollbar);
     const auto bar = scrollbar.absolute_frame();
     const auto x = bar.x + bar.width - 4.0F;
+    EXPECT_EQ(router.cursor_for_point(Point{x, bar.y + 48.0F}), PointerCursor::Hand);
+    EXPECT_EQ(router.cursor_for_point(Point{bar.x + 24.0F, bar.y + 24.0F}), PointerCursor::Arrow);
     EXPECT_TRUE(router
                     .route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
                                                       .position = Point{x, bar.y + 8.0F},
@@ -3992,6 +3996,7 @@ TEST(BasicControlsTests, ScrollbarContainerKeepsAxesFromOverlapping) {
 
     const auto vertical_x = bounds.x + bounds.width - 4.0F;
     const auto vertical_y = bounds.y + bounds.height - scrollbar.thickness() - 12.0F;
+    EXPECT_EQ(router.cursor_for_point(Point{vertical_x, vertical_y}), PointerCursor::Hand);
     EXPECT_TRUE(router
                     .route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
                                                       .position = Point{vertical_x, vertical_y},
@@ -4005,6 +4010,7 @@ TEST(BasicControlsTests, ScrollbarContainerKeepsAxesFromOverlapping) {
 
     const auto horizontal_x = bounds.x + bounds.width - scrollbar.thickness() - 12.0F;
     const auto horizontal_y = bounds.y + bounds.height - 4.0F;
+    EXPECT_EQ(router.cursor_for_point(Point{horizontal_x, horizontal_y}), PointerCursor::Hand);
     EXPECT_TRUE(router
                     .route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
                                                       .position = Point{horizontal_x, horizontal_y},

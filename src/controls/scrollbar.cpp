@@ -604,6 +604,36 @@ void Scrollbar::on_key_event(elements::KeyEvent& event) {
     event.handled = true;
 }
 
+elements::PointerCursor
+Scrollbar::cursor_for_local_point(layout::Point local_position) const noexcept {
+    if (disabled_ || visibility_ == ScrollbarVisibility::Never) {
+        return elements::PointerCursor::Default;
+    }
+
+    const auto local_frame = layout::Rect{0.0F, 0.0F, frame().width, frame().height};
+    if (is_scroll_container()) {
+        const auto max_scroll = max_scroll_offset();
+        if (scroll_axis_visible(max_scroll.y) &&
+            layout::rect_contains_point(track_rect(local_frame, ScrollbarOrientation::Vertical),
+                                        local_position)) {
+            return elements::PointerCursor::Hand;
+        }
+        if (scroll_axis_visible(max_scroll.x) &&
+            layout::rect_contains_point(track_rect(local_frame, ScrollbarOrientation::Horizontal),
+                                        local_position)) {
+            return elements::PointerCursor::Hand;
+        }
+        return elements::PointerCursor::Default;
+    }
+
+    if (visibility_ == ScrollbarVisibility::Auto && maximum_ <= minimum_) {
+        return elements::PointerCursor::Default;
+    }
+    return layout::rect_contains_point(track_rect(local_frame), local_position)
+               ? elements::PointerCursor::Hand
+               : elements::PointerCursor::Default;
+}
+
 void Scrollbar::on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const {
     const_cast<Scrollbar*>(this)->sync_bound_range_if_needed();
     if (is_scroll_container()) {

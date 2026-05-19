@@ -77,6 +77,8 @@ class Scrollbar final : public Control {
   protected:
     void on_pointer_event(elements::PointerEvent& event) override;
     void on_key_event(elements::KeyEvent& event) override;
+    [[nodiscard]] elements::PointerCursor
+    cursor_for_local_point(layout::Point local_position) const noexcept override;
     [[nodiscard]] bool on_animation_frame(animation::AnimationTimePoint now) override;
     void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override;
     void on_paint_overlay(rendering::RenderContext& context, layout::Rect absolute_frame) const override;
