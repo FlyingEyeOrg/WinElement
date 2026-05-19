@@ -469,7 +469,7 @@ TEST(BasicControlsTests, MessageBoxModalBackdropFullyCoversUnderlyingContent) {
                                                       Rect{0.0F, 0.0F, 640.0F, 360.0F};
                                        });
     ASSERT_NE(iterator, context.commands().end());
-    EXPECT_EQ(command_fill_color(*iterator), Color::rgba(96, 98, 102));
+    EXPECT_EQ(command_fill_color(*iterator), Color::rgba(0, 0, 0, 128));
 }
 
 TEST(BasicControlsTests, DialogPaintsBodyAndFooterActions) {

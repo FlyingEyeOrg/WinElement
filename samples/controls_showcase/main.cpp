@@ -42,6 +42,16 @@ constexpr auto canvas_height = 4200.0F;
     return rendering::Transform2D{.m11 = 1.0F, .m21 = x_shear, .m22 = 1.0F};
 }
 
+[[nodiscard]] style::UIElementStyle showcase_surface_style() noexcept {
+    auto surface = style::default_border_style();
+    surface.border_color = rendering::Color::rgba(0, 0, 0, 0);
+    surface.shadow_visible = true;
+    surface.shadow = rendering::ShadowStyle{.color = rendering::Color::rgba(31, 35, 41, 16),
+                                            .offset = {0.0F, 4.0F},
+                                            .blur_radius = 12.0F};
+    return surface;
+}
+
 [[nodiscard]] float loop_progress(animation::AnimationTimePoint now, float cycles_per_second) noexcept {
     const auto seconds = std::chrono::duration<float>(now.time_since_epoch()).count();
     return std::fmod(std::max(seconds * cycles_per_second, 0.0F), 1.0F);
@@ -326,7 +336,7 @@ void configure_row(controls::StackPanel& row) {
 
 controls::StackPanel& add_section(controls::StackPanel& root, std::string_view title) {
     auto& frame = root.append_new_child<controls::Border>();
-    frame.set_title(title).set_shadow_preset(controls::BorderShadow::Light);
+    frame.set_title(title).set_style(showcase_surface_style());
     frame.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F))
             .set_flex_shrink(0.0F)
@@ -354,7 +364,7 @@ controls::Text& add_label(controls::StackPanel& parent, std::string_view text) {
 
 controls::StackPanel& add_demo_group(controls::StackPanel& parent, std::string_view title) {
     auto& group = parent.append_new_child<controls::Border>();
-    group.set_title(title).set_shadow_preset(controls::BorderShadow::Light);
+    group.set_title(title).set_style(showcase_surface_style());
     group.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F))
             .set_flex_shrink(0.0F)
