@@ -717,6 +717,9 @@ UIElement& UIElement::push_top_layer_entry(std::unique_ptr<UIElement> element,
         host.focus_manager_->invalidate_focusable_cache();
     }
     host.invalidate_layout();
+    if (entry.options.modal || entry.options.backdrop_color.alpha != 0) {
+        host.invalidate_paint();
+    }
     return element_ref;
 }
 
@@ -737,6 +740,8 @@ std::unique_ptr<UIElement> UIElement::remove_top_layer_entry(std::size_t index) 
         throw std::logic_error("top layer entry disappeared while removing logical descendants");
     }
     host.clear_top_layer_logical_owner_references(*iterator->element);
+    const auto affects_backdrop =
+        iterator->options.modal || iterator->options.backdrop_color.alpha != 0;
     auto on_dismissed = std::move(iterator->options.on_dismissed);
     auto removed = std::move(iterator->element);
     if (host.layout_dirty_root_ != nullptr && removed->contains(*host.layout_dirty_root_)) {
@@ -758,6 +763,9 @@ std::unique_ptr<UIElement> UIElement::remove_top_layer_entry(std::size_t index) 
         host.focus_manager_->invalidate_focusable_cache();
     }
     host.invalidate_layout();
+    if (affects_backdrop) {
+        host.invalidate_paint();
+    }
     if (on_dismissed) {
         on_dismissed();
     }
@@ -790,6 +798,9 @@ bool UIElement::mark_top_layer_entry_pending_removal(std::uint64_t entry_id) {
     iterator->element->visible_ = false;
     host.mark_logical_descendant_top_layer_entries_pending_removal(*iterator->element, entry_id);
     host.invalidate_layout();
+    if (iterator->options.modal || iterator->options.backdrop_color.alpha != 0) {
+        host.invalidate_paint();
+    }
     return true;
 }
 

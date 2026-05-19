@@ -2553,6 +2553,36 @@ TEST(UIElementTests, CommitsRenderCommandsAndCollectsLocalDirtyRegion) {
     EXPECT_FLOAT_EQ(dirty_region.rects()[0].height, 20.0F);
 }
 
+TEST(UIElementTests, BackdropTopLayerInvalidatesWholeHostForRepaint) {
+    auto engine = create_unrounded_engine();
+    RecordingElement root;
+    root.bind_layout_tree(engine);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(100.0F), Length::points(60.0F));
+    });
+    root.calculate_layout(LayoutConstraints{.width = 100.0F, .height = 60.0F});
+
+    RenderCommandList first_commit;
+    root.commit_render_commands(first_commit, nullptr);
+    root.clear_paint_dirty_subtree();
+
+    auto layer = std::make_unique<RecordingElement>();
+    root.push_top_layer(std::move(layer),
+                        TopLayerOptions{.bounds = Rect{20.0F, 10.0F, 30.0F, 20.0F},
+                                        .light_dismiss = false,
+                                        .backdrop_color = Color::rgba(0, 0, 0, 64)});
+
+    RenderCommandList command_list;
+    DirtyRegion dirty_region;
+    root.commit_render_commands(command_list, &dirty_region);
+
+    ASSERT_EQ(dirty_region.rects().size(), 1U);
+    EXPECT_FLOAT_EQ(dirty_region.rects()[0].x, 0.0F);
+    EXPECT_FLOAT_EQ(dirty_region.rects()[0].y, 0.0F);
+    EXPECT_FLOAT_EQ(dirty_region.rects()[0].width, 100.0F);
+    EXPECT_FLOAT_EQ(dirty_region.rects()[0].height, 60.0F);
+}
+
 TEST(UIElementTests, ReusesCleanSubtreeCommandCacheOnCommit) {
     auto engine = create_unrounded_engine();
     UIElement root;
