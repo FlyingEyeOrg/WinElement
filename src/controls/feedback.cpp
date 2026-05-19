@@ -41,9 +41,9 @@ constexpr auto message_box_status_size = 24.0F;
 constexpr auto message_box_footer_height = 32.0F;
 constexpr auto message_box_drag_height = message_box_padding + message_box_header_height;
 constexpr auto dialog_padding = 16.0F;
-constexpr auto dialog_header_height = 24.0F;
+constexpr auto dialog_header_min_height = 24.0F;
 constexpr auto dialog_header_body_gap = 16.0F;
-constexpr auto dialog_drag_height = dialog_padding + dialog_header_height;
+constexpr auto dialog_drag_height = dialog_padding + dialog_header_min_height;
 constexpr auto pi = 3.14159265358979323846F;
 constexpr auto loading_icon_size = 42.0F;
 constexpr auto loading_fullscreen_icon_size = 50.0F;
@@ -189,7 +189,7 @@ void apply_entry_animation(elements::UIElement& element, float progress, float y
                                                        estimated_chars_per_line),
                                              1.0F, 8.0F);
     const auto body_height = std::max(22.0F, line_count * 22.0F);
-    const auto height = dialog_padding * 2.0F + dialog_header_height + dialog_header_body_gap +
+    const auto height = dialog_padding * 2.0F + dialog_header_min_height + dialog_header_body_gap +
                         body_height + 16.0F + 32.0F;
     return std::min(std::max(std::ceil(height), 128.0F), std::max(viewport.height - 48.0F, 128.0F));
 }
@@ -1441,7 +1441,7 @@ Dialog::Dialog() : Control() {
         .set_justify_content(layout::JustifyContent::FlexStart);
     header.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F))
-            .set_height(layout::Length::points(dialog_header_height))
+            .set_min_height(layout::Length::points(dialog_header_min_height))
             .set_margin(layout::Edge::Bottom, layout::Length::points(dialog_header_body_gap))
             .set_margin(layout::Edge::Right, layout::Length::points(32.0F))
             .set_flex_shrink(0.0F);

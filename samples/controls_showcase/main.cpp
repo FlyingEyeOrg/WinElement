@@ -689,7 +689,6 @@ void add_choice_scroll_section(controls::StackPanel& root) {
     vertical_viewport.set_corner_radius(rendering::CornerRadius::uniform(4.0F));
     vertical_viewport.set_overflow(layout::Overflow::Hidden);
     vertical_viewport.set_viewport(layout::Rect{0.0F, 0.0F, 342.0F, 156.0F});
-    vertical_viewport.set_scroll_offset(layout::Point{0.0F, 96.0F});
     vertical_viewport.configure_layout([](layout::LayoutElement& item) {
         item.set_size(layout::Length::points(342.0F), layout::Length::points(156.0F))
             .set_flex_shrink(0.0F)
@@ -719,7 +718,7 @@ void add_choice_scroll_section(controls::StackPanel& root) {
     vertical.set_orientation(controls::ScrollbarOrientation::Vertical)
         .set_visibility_mode(controls::ScrollbarVisibility::Always)
         .set_range(0.0F, 302.0F, 156.0F)
-        .set_value(96.0F)
+        .set_value(0.0F)
         .set_on_scroll([&vertical_viewport](float value) {
             vertical_viewport.set_scroll_offset(layout::Point{0.0F, value});
         });
@@ -744,7 +743,6 @@ void add_choice_scroll_section(controls::StackPanel& root) {
     horizontal_viewport.set_corner_radius(rendering::CornerRadius::uniform(4.0F));
     horizontal_viewport.set_overflow(layout::Overflow::Hidden);
     horizontal_viewport.set_viewport(layout::Rect{0.0F, 0.0F, 540.0F, 120.0F});
-    horizontal_viewport.set_scroll_offset(layout::Point{180.0F, 0.0F});
     horizontal_viewport.configure_layout([](layout::LayoutElement& item) {
         item.set_size(layout::Length::points(540.0F), layout::Length::points(120.0F))
             .set_flex_shrink(0.0F)
@@ -775,7 +773,7 @@ void add_choice_scroll_section(controls::StackPanel& root) {
     horizontal.set_orientation(controls::ScrollbarOrientation::Horizontal)
         .set_visibility_mode(controls::ScrollbarVisibility::Always)
         .set_range(0.0F, 328.0F, 540.0F)
-        .set_value(180.0F)
+        .set_value(0.0F)
         .set_on_scroll([&horizontal_viewport](float value) {
             horizontal_viewport.set_scroll_offset(layout::Point{value, 0.0F});
         });
