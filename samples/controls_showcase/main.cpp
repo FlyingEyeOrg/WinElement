@@ -31,10 +31,6 @@ constexpr auto showcase_window_height = 920.0F;
 constexpr auto showcase_page_scrollbar_width = 14.0F;
 constexpr auto showcase_page_gap = 8.0F;
 
-[[nodiscard]] rendering::Transform2D scale_x_transform(float scale) noexcept {
-    return rendering::Transform2D{.m11 = scale, .m22 = 1.0F};
-}
-
 [[nodiscard]] style::UIElementStyle showcase_surface_style() noexcept {
     auto surface = style::default_panel_style();
     surface.background = rendering::Color::rgba(0, 0, 0, 0);
@@ -114,6 +110,51 @@ struct LiveSample {
     float progress = 0.0F;
 };
 
+class ProgressTrackPanel final : public controls::Panel {
+  public:
+    ProgressTrackPanel& set_progress(float progress) {
+        const auto normalized = std::clamp(progress, 0.0F, 1.0F);
+        if (std::abs(normalized - progress_) < 0.0025F) {
+            return *this;
+        }
+        progress_ = normalized;
+        invalidate_paint();
+        return *this;
+    }
+
+    ProgressTrackPanel& set_fill_color(rendering::Color color) {
+        if (fill_color_ == color) {
+            return *this;
+        }
+        fill_color_ = color;
+        invalidate_paint();
+        return *this;
+    }
+
+    ProgressTrackPanel& set_radius(float radius) noexcept {
+        radius_ = std::max(radius, 0.0F);
+        return *this;
+    }
+
+  protected:
+    void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override {
+        const auto radius = rendering::CornerRadius::uniform(radius_);
+        context.fill_rounded_rect(absolute_frame, radius, rendering::Color::rgba(245, 247, 250));
+        const auto fill_width = std::max(0.0F, absolute_frame.width * progress_);
+        if (fill_width <= 0.0F) {
+            return;
+        }
+        context.fill_rounded_rect(
+            layout::Rect{absolute_frame.x, absolute_frame.y, fill_width, absolute_frame.height},
+            radius, fill_color_);
+    }
+
+  private:
+    float progress_ = 0.0F;
+    float radius_ = 4.0F;
+    rendering::Color fill_color_ = rendering::Color::rgba(64, 158, 255);
+};
+
 class SyncedViewportPanel final : public controls::Panel {
   public:
     using ScrollChangedHandler = std::function<void(layout::Point)>;
@@ -164,23 +205,12 @@ class LiveSampleCard final : public controls::Panel {
         });
         label_ = &label;
 
-        auto& track = append_new_child<controls::Panel>();
-        track.set_background(rendering::Color::rgba(245, 247, 250));
-        track.set_corner_radius(rendering::CornerRadius::uniform(4.0F));
+        auto& track = append_new_child<ProgressTrackPanel>();
         track.configure_layout([](layout::LayoutElement& item) {
             item.set_size(layout::Length::points(220.0F), layout::Length::points(8.0F))
                 .set_flex_shrink(0.0F);
         });
-
-        auto& fill = track.append_new_child<controls::Panel>();
-        fill.set_background(fill_color_);
-        fill.set_corner_radius(rendering::CornerRadius::uniform(4.0F));
-        fill.configure_layout([](layout::LayoutElement& item) {
-            item.set_size(layout::Length::points(220.0F), layout::Length::points(8.0F))
-                .set_flex_shrink(0.0F);
-        });
-        fill.set_render_transform(scale_x_transform(0.0F));
-        fill_ = &fill;
+        track_ = &track;
     }
 
     LiveSampleCard& set_sample_function(SampleFunction sample_function) {
@@ -197,8 +227,8 @@ class LiveSampleCard final : public controls::Panel {
 
     LiveSampleCard& set_fill_color(rendering::Color color) {
         fill_color_ = color;
-        if (fill_ != nullptr) {
-            fill_->set_background(color);
+        if (track_ != nullptr) {
+            track_->set_fill_color(color);
         }
         return *this;
     }
@@ -211,16 +241,16 @@ class LiveSampleCard final : public controls::Panel {
 
         const auto sample = sample_function_(now);
         const auto progress = std::clamp(sample.progress, 0.0F, 1.0F);
-        if (fill_ != nullptr && std::abs(progress - fill_progress_) >= 0.0025F) {
+        if (track_ != nullptr && std::abs(progress - fill_progress_) >= 0.0025F) {
             fill_progress_ = progress;
-            fill_->set_render_transform(scale_x_transform(fill_progress_));
+            track_->set_progress(fill_progress_);
         }
         return true;
     }
 
   private:
     controls::Text* label_ = nullptr;
-    controls::Panel* fill_ = nullptr;
+    ProgressTrackPanel* track_ = nullptr;
     SampleFunction sample_function_;
     rendering::Color fill_color_ = rendering::Color::rgba(64, 158, 255);
     float fill_progress_ = -1.0F;
@@ -260,23 +290,13 @@ class ImplicitPropertyDemoPanel final : public controls::Panel {
         auto& value = append_new_child<controls::Text>();
         value.set_text("Progress preview");
 
-        auto& track = append_new_child<controls::Panel>();
-        track.set_background(rendering::Color::rgba(245, 247, 250));
-        track.set_corner_radius(rendering::CornerRadius::uniform(999.0F));
+        auto& track = append_new_child<ProgressTrackPanel>();
+        track.set_radius(999.0F);
         track.configure_layout([](layout::LayoutElement& item) {
             item.set_size(layout::Length::points(track_width_), layout::Length::points(10.0F))
                 .set_flex_shrink(0.0F);
         });
-
-        auto& fill = track.append_new_child<controls::Panel>();
-        fill.set_background(rendering::Color::rgba(64, 158, 255));
-        fill.set_corner_radius(rendering::CornerRadius::uniform(999.0F));
-        fill.configure_layout([](layout::LayoutElement& item) {
-            item.set_size(layout::Length::points(320.0F), layout::Length::points(10.0F))
-                .set_flex_shrink(0.0F);
-        });
-        fill.set_render_transform(scale_x_transform(0.0F));
-        fill_ = &fill;
+        fill_ = &track;
 
         auto& replay = append_new_child<controls::Button>();
         replay.set_text("Restart implicit property animation").set_type(controls::ButtonType::Primary);
@@ -314,11 +334,11 @@ class ImplicitPropertyDemoPanel final : public controls::Panel {
             std::clamp(properties().value<float>(implicit_demo_progress_property(), 0.0F), 0.0F, 1.0F);
         if (fill_ != nullptr && std::abs(progress - fill_progress_) >= 0.0025F) {
             fill_progress_ = progress;
-            fill_->set_render_transform(scale_x_transform(fill_progress_));
+            fill_->set_progress(fill_progress_);
         }
     }
 
-    controls::Panel* fill_ = nullptr;
+    ProgressTrackPanel* fill_ = nullptr;
     float fill_progress_ = -1.0F;
     static constexpr auto track_width_ = 320.0F;
 };

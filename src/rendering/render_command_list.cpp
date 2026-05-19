@@ -40,8 +40,24 @@ constexpr auto geometry_epsilon = 0.0001F;
 constexpr auto contour_cleanup_epsilon = 0.001F;
 constexpr auto geometry_flattening_tolerance = 0.01F;
 constexpr auto max_curve_flattening_depth = 12U;
+constexpr auto max_prepared_geometry_cache_entries = 128U;
+constexpr auto max_prepared_text_glyph_cache_entries = 384U;
 
 template <typename T> void hash_combine(std::size_t& seed, const T& value) noexcept;
+
+template <typename Cache> [[nodiscard]] std::size_t cache_entry_count(const Cache& cache) {
+    auto count = std::size_t{};
+    for (const auto& [_, entries] : cache) {
+        count += entries.size();
+    }
+    return count;
+}
+
+template <typename Cache> void trim_cache_entries(Cache& cache, std::size_t max_entries) {
+    while (max_entries > 0U && cache_entry_count(cache) > max_entries && !cache.empty()) {
+        cache.erase(cache.begin());
+    }
+}
 
 class BoundsBuilder final {
   public:
@@ -1337,6 +1353,7 @@ struct PreparedTextGlyphCoveragePtrEqual {
                 prepared_coverage =
                     std::make_shared<PreparedTextGlyphCoverage>(std::move(coverage));
                 cache[key_hash].push_back(prepared_coverage);
+                trim_cache_entries(cache, max_prepared_text_glyph_cache_entries);
             }
         }
 
@@ -2032,6 +2049,7 @@ PreparedRenderCache::prepared_geometry_flatten(const Geometry& geometry) {
     auto prepared = std::make_shared<PreparedGeometryFlatten>(prepare_geometry_flatten(geometry));
     prepared_geometry_flatten_cache_[seed].push_back(PreparedGeometryFlattenEntry{
         .canonical_key = std::move(canonical_key), .geometry = geometry, .prepared = prepared});
+    trim_cache_entries(prepared_geometry_flatten_cache_, max_prepared_geometry_cache_entries);
     return prepared;
 }
 
@@ -2053,6 +2071,7 @@ PreparedRenderCache::prepared_geometry_fill(const Geometry& geometry) {
         prepare_geometry_fill(geometry, prepared_geometry_flatten(geometry)));
     prepared_geometry_fill_cache_[seed].push_back(PreparedGeometryFillEntry{
         .canonical_key = std::move(canonical_key), .geometry = geometry, .prepared = prepared});
+    trim_cache_entries(prepared_geometry_fill_cache_, max_prepared_geometry_cache_entries);
     return prepared;
 }
 
@@ -2074,6 +2093,7 @@ PreparedRenderCache::prepared_geometry_stroke(const Geometry& geometry) {
         prepare_geometry_stroke(prepared_geometry_flatten(geometry)));
     prepared_geometry_stroke_cache_[seed].push_back(PreparedGeometryStrokeEntry{
         .canonical_key = std::move(canonical_key), .geometry = geometry, .prepared = prepared});
+    trim_cache_entries(prepared_geometry_stroke_cache_, max_prepared_geometry_cache_entries);
     return prepared;
 }
 
@@ -2120,6 +2140,9 @@ void PreparedRenderCache::merge(const PreparedRenderCache& other) {
     merge_geometry_cache(prepared_geometry_flatten_cache_, other.prepared_geometry_flatten_cache_);
     merge_geometry_cache(prepared_geometry_fill_cache_, other.prepared_geometry_fill_cache_);
     merge_geometry_cache(prepared_geometry_stroke_cache_, other.prepared_geometry_stroke_cache_);
+    trim_cache_entries(prepared_geometry_flatten_cache_, max_prepared_geometry_cache_entries);
+    trim_cache_entries(prepared_geometry_fill_cache_, max_prepared_geometry_cache_entries);
+    trim_cache_entries(prepared_geometry_stroke_cache_, max_prepared_geometry_cache_entries);
 
     for (const auto& [hash, entries] : other.prepared_text_glyph_cache_) {
         auto& target_entries = prepared_text_glyph_cache_[hash];
@@ -2162,6 +2185,7 @@ void PreparedRenderCache::merge(const PreparedRenderCache& other) {
             }
         }
     }
+    trim_cache_entries(prepared_text_glyph_cache_, max_prepared_text_glyph_cache_entries);
 }
 
 RenderCommandList::RenderCommandList() = default;

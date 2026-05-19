@@ -2603,6 +2603,20 @@ void D3D11DisplayListRenderer::render(ID3D11DeviceContext& context, ID3D11Render
     prune_frame_caches_if_needed();
     last_timing_metrics_ = {};
 
+    if (!parallel_recording_enabled_) {
+        const auto record_start = Clock::now();
+        const auto resource_snapshot = resource_cache.snapshot();
+        render_to_context(context, target, clear_color, scene, dirty_region, dpi,
+                          target_pixel_width, target_pixel_height, resource_snapshot,
+                          frame_graph);
+        const auto record_finish = Clock::now();
+        last_timing_metrics_.worker_record_ms = elapsed_ms(record_start, record_finish);
+        last_timing_metrics_.work_item_count = 1U;
+        last_timing_metrics_.command_list_count = 0U;
+        last_timing_metrics_.parallel_recording = false;
+        return;
+    }
+
     // Architecture boundary: parallelism here is CPU recording of D3D11 deferred command lists.
     // The immediate context remains the only GPU submission path and ExecuteCommandList is always
     // called later on this caller thread in a stable sort order.
@@ -3267,6 +3281,43 @@ void D3D11DisplayListRenderer::ensure_stencil_target() {
         "failed to create display-list stencil view");
 }
 
+bool D3D11DisplayListRenderer::activate_stencil_target() {
+    if (context_ == nullptr || render_target_ == nullptr) {
+        return false;
+    }
+
+    ensure_stencil_target();
+    if (stencil_view_ == nullptr) {
+        return false;
+    }
+
+    ID3D11RenderTargetView* targets[] = {render_target_};
+    context_->OMSetRenderTargets(1, targets, stencil_view_.Get());
+    if (!stencil_used_this_frame_) {
+        context_->ClearDepthStencilView(stencil_view_.Get(),
+                                        D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0F, 0U);
+        stencil_used_this_frame_ = true;
+        stencil_idle_frame_count_ = 0U;
+    }
+    return true;
+}
+
+void D3D11DisplayListRenderer::release_stale_stencil_target() noexcept {
+    if (stencil_texture_ == nullptr) {
+        stencil_idle_frame_count_ = 0U;
+        return;
+    }
+
+    D3D11_TEXTURE2D_DESC current_description{};
+    stencil_texture_->GetDesc(&current_description);
+    if (current_description.Width != target_pixel_width_ ||
+        current_description.Height != target_pixel_height_) {
+        stencil_view_.Reset();
+        stencil_texture_.Reset();
+        stencil_idle_frame_count_ = 0U;
+    }
+}
+
 void D3D11DisplayListRenderer::begin_frame(ID3D11DeviceContext& context,
                                            ID3D11RenderTargetView& target, float dpi,
                                            std::uint32_t target_pixel_width,
@@ -3279,7 +3330,8 @@ void D3D11DisplayListRenderer::begin_frame(ID3D11DeviceContext& context,
     const auto dip_scale = default_dpi / dpi_;
     target_dip_width_ = static_cast<float>(target_pixel_width_) * dip_scale;
     target_dip_height_ = static_cast<float>(target_pixel_height_) * dip_scale;
-    ensure_stencil_target();
+    stencil_used_this_frame_ = false;
+    release_stale_stencil_target();
 
     D3D11_VIEWPORT viewport{};
     viewport.TopLeftX = 0.0F;
@@ -3290,11 +3342,7 @@ void D3D11DisplayListRenderer::begin_frame(ID3D11DeviceContext& context,
     viewport.MaxDepth = 1.0F;
     context.RSSetViewports(1, &viewport);
     ID3D11RenderTargetView* targets[] = {&target};
-    context.OMSetRenderTargets(1, targets, stencil_view_.Get());
-    if (stencil_view_ != nullptr) {
-        context.ClearDepthStencilView(stencil_view_.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL,
-                                      1.0F, 0U);
-    }
+    context.OMSetRenderTargets(1, targets, nullptr);
     context.IASetInputLayout(input_layout_.Get());
     context.IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     context.VSSetShader(vertex_shader_.Get(), nullptr, 0);
@@ -3336,6 +3384,14 @@ void D3D11DisplayListRenderer::end_frame() {
     if (context_ != nullptr) {
         bind_shader_resource(nullptr);
         bind_depth_stencil_state(stencil_disabled_state_.Get(), 0U);
+    }
+    if (!stencil_used_this_frame_ && stencil_texture_ != nullptr) {
+        constexpr auto max_stencil_idle_frames = 120U;
+        if (++stencil_idle_frame_count_ > max_stencil_idle_frames) {
+            stencil_view_.Reset();
+            stencil_texture_.Reset();
+            stencil_idle_frame_count_ = 0U;
+        }
     }
     recorder_state_.state_stack.clear();
     recorder_state_.active_frame_graph = nullptr;
@@ -5382,7 +5438,7 @@ void D3D11DisplayListRenderer::push_geometry_clip(const rendering::Geometry& geo
 
     flush_batch();
     const auto& current = recorder_state_.state_stack.back();
-    if (current.stencil_depth == 0xFFU || stencil_view_ == nullptr) {
+    if (current.stencil_depth == 0xFFU || !activate_stencil_target()) {
         push_device_clip(rendering::transform_rect(geometry_bounds(geometry), current.transform));
         return;
     }
@@ -5416,7 +5472,7 @@ void D3D11DisplayListRenderer::push_geometry_clip(
         prepared_fill != nullptr && rendering::layout::is_visible_rect(prepared_fill->bounds)
             ? prepared_fill->bounds
             : geometry_bounds(command.geometry);
-    if (current.stencil_depth == 0xFFU || stencil_view_ == nullptr) {
+    if (current.stencil_depth == 0xFFU || !activate_stencil_target()) {
         push_device_clip(rendering::transform_rect(bounds, current.transform));
         return;
     }
@@ -5452,7 +5508,7 @@ void D3D11DisplayListRenderer::render_stencil_clip(const rendering::Geometry& ge
 void D3D11DisplayListRenderer::render_stencil_clip(
     const rendering::PreparedGeometryFill& prepared_fill, std::uint8_t reference,
     StencilUpdateOp op) {
-    if (context_ == nullptr || stencil_view_ == nullptr || recorder_state_.state_stack.empty()) {
+    if (context_ == nullptr || recorder_state_.state_stack.empty() || !activate_stencil_target()) {
         return;
     }
 

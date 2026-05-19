@@ -369,6 +369,8 @@ class D3D11DisplayListRenderer final {
                         std::uint8_t stencil_depth) const noexcept;
     void apply_frame_graph_plan(const rendering::RenderFrameGraph* frame_graph);
     void ensure_stencil_target();
+    [[nodiscard]] bool activate_stencil_target();
+    void release_stale_stencil_target() noexcept;
     void begin_frame(ID3D11DeviceContext& context, ID3D11RenderTargetView& target, float dpi,
                      std::uint32_t target_pixel_width, std::uint32_t target_pixel_height);
     void end_frame();
@@ -503,6 +505,8 @@ class D3D11DisplayListRenderer final {
     float target_dip_height_ = 1.0F;
     std::uint32_t target_pixel_width_ = 1U;
     std::uint32_t target_pixel_height_ = 1U;
+    bool stencil_used_this_frame_ = false;
+    std::uint32_t stencil_idle_frame_count_ = 0U;
     RecorderState recorder_state_{};
     std::uint64_t frame_sequence_ = 0U;
     std::uint64_t next_cache_prune_frame_ = 32U;

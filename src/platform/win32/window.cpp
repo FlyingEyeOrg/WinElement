@@ -77,8 +77,8 @@ constexpr UINT animation_frame_message = WM_APP + 0x514U;
 constexpr UINT_PTR caret_blink_timer_id = 0x574DU;
 constexpr UINT_PTR animation_frame_timer_id = 0x574EU;
 constexpr UINT caret_blink_timer_interval_ms = 500U;
-constexpr UINT animation_frame_interval_ms = 16U;
-constexpr auto animation_frame_interval = std::chrono::milliseconds(animation_frame_interval_ms);
+constexpr UINT animation_timer_resolution_ms = 1U;
+constexpr auto animation_frame_interval = std::chrono::nanoseconds{16'666'667};
 constexpr UINT native_text_command_cut_id = 0x7310U;
 constexpr UINT native_text_command_copy_id = 0x7311U;
 constexpr UINT native_text_command_paste_id = 0x7312U;
@@ -485,6 +485,12 @@ class Window::Impl final {
 
     ~Impl() {
         destroy_native_window();
+        if (winmm_module_ != nullptr) {
+            FreeLibrary(winmm_module_);
+            winmm_module_ = nullptr;
+            time_begin_period_ = nullptr;
+            time_end_period_ = nullptr;
+        }
     }
 
     Impl(const Impl&) = delete;
@@ -762,6 +768,8 @@ class Window::Impl final {
     }
 
   private:
+    using TimePeriodProc = UINT(WINAPI*)(UINT);
+
     void request_repaint_from_any_thread() noexcept {
         const auto hwnd = async_hwnd_.load(std::memory_order_acquire);
         if (hwnd == nullptr || repaint_requested_.exchange(true, std::memory_order_acq_rel)) {
@@ -797,9 +805,11 @@ class Window::Impl final {
     void arm_animation_repaint_timer() noexcept {
         if (hwnd_ == nullptr) {
             animation_repaint_pending_.store(false, std::memory_order_release);
+            release_animation_timer_resolution();
             return;
         }
 
+        ensure_animation_timer_resolution();
         const auto now = std::chrono::steady_clock::now();
         if (next_animation_repaint_at_ == std::chrono::steady_clock::time_point{}) {
             next_animation_repaint_at_ = now + animation_frame_interval;
@@ -827,6 +837,34 @@ class Window::Impl final {
             } while (next_animation_repaint_at_ <= now);
         }
         request_animation_ui_frame();
+    }
+
+    void ensure_animation_timer_resolution() noexcept {
+        if (animation_timer_resolution_active_) {
+            return;
+        }
+
+        if (winmm_module_ == nullptr) {
+            winmm_module_ = LoadLibraryW(L"winmm.dll");
+            if (winmm_module_ != nullptr) {
+                time_begin_period_ = reinterpret_cast<TimePeriodProc>(
+                    GetProcAddress(winmm_module_, "timeBeginPeriod"));
+                time_end_period_ = reinterpret_cast<TimePeriodProc>(
+                    GetProcAddress(winmm_module_, "timeEndPeriod"));
+            }
+        }
+
+        if (time_begin_period_ != nullptr &&
+            time_begin_period_(animation_timer_resolution_ms) == 0U) {
+            animation_timer_resolution_active_ = true;
+        }
+    }
+
+    void release_animation_timer_resolution() noexcept {
+        if (animation_timer_resolution_active_ && time_end_period_ != nullptr) {
+            static_cast<void>(time_end_period_(animation_timer_resolution_ms));
+        }
+        animation_timer_resolution_active_ = false;
     }
 
     void request_animation_ui_frame() noexcept {
@@ -991,6 +1029,8 @@ class Window::Impl final {
 
         if (animations_active) {
             request_animation_repaint_from_any_thread();
+        } else {
+            release_animation_timer_resolution();
         }
     }
 
@@ -1021,6 +1061,7 @@ class Window::Impl final {
     void destroy_native_window_on_owner_thread() noexcept {
         stop_ui_frame_worker();
         render_worker_.reset();
+        release_animation_timer_resolution();
         if (hwnd_ != nullptr) {
             DestroyWindow(hwnd_);
         }
@@ -1077,6 +1118,7 @@ class Window::Impl final {
         }
         animation_repaint_pending_.store(false, std::memory_order_release);
         next_animation_repaint_at_ = {};
+        release_animation_timer_resolution();
         tracking_mouse_leave_ = false;
         render_worker_.reset();
     }
@@ -1600,6 +1642,10 @@ class Window::Impl final {
     std::atomic_bool repaint_requested_ = false;
     std::atomic_bool animation_repaint_pending_ = false;
     std::chrono::steady_clock::time_point next_animation_repaint_at_{};
+    HMODULE winmm_module_ = nullptr;
+    TimePeriodProc time_begin_period_ = nullptr;
+    TimePeriodProc time_end_period_ = nullptr;
+    bool animation_timer_resolution_active_ = false;
     bool interactive_resize_ = false;
     WindowImeState ime_state_{};
     wchar_t pending_high_surrogate_ = 0;
