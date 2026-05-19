@@ -36,13 +36,13 @@ constexpr auto message_box_padding = 16.0F;
 constexpr auto message_box_header_height = 18.0F;
 constexpr auto message_box_footer_gap = 16.0F;
 constexpr auto message_box_prompt_gap = 12.0F;
-constexpr auto message_box_header_body_gap = 20.0F;
+constexpr auto message_box_header_body_gap = 24.0F;
 constexpr auto message_box_status_size = 24.0F;
 constexpr auto message_box_footer_height = 32.0F;
 constexpr auto message_box_drag_height = message_box_padding + message_box_header_height;
 constexpr auto dialog_padding = 16.0F;
 constexpr auto dialog_header_min_height = 24.0F;
-constexpr auto dialog_header_body_gap = 20.0F;
+constexpr auto dialog_header_body_gap = 24.0F;
 constexpr auto dialog_drag_height = dialog_padding + dialog_header_min_height;
 constexpr auto pi = 3.14159265358979323846F;
 constexpr auto loading_icon_size = 42.0F;
@@ -653,7 +653,7 @@ MessageBox::MessageBox() : Control() {
     header.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F))
             .set_margin(layout::Edge::Right, layout::Length::points(32.0F))
-            .set_margin(layout::Edge::Bottom, layout::Length::points(message_box_header_body_gap))
+            .set_padding(layout::Edge::Bottom, layout::Length::points(message_box_header_body_gap))
             .set_flex_shrink(0.0F);
     });
     header_panel_ = &header;
@@ -1441,7 +1441,7 @@ Dialog::Dialog() : Control() {
     header.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F))
             .set_min_height(layout::Length::points(dialog_header_min_height))
-            .set_margin(layout::Edge::Bottom, layout::Length::points(dialog_header_body_gap))
+            .set_padding(layout::Edge::Bottom, layout::Length::points(dialog_header_body_gap))
             .set_margin(layout::Edge::Right, layout::Length::points(32.0F))
             .set_flex_shrink(0.0F);
     });
@@ -1602,7 +1602,12 @@ Dialog& Dialog::show(elements::UIElement& host, DialogOptions options) {
     const auto size = options.fullscreen
                           ? layout::Size{viewport.width, viewport.height}
                           : layout::Size{width, dialog_height_for(options, width, viewport)};
-    const auto bounds = options.fullscreen ? viewport : centered_bounds(viewport, size);
+    const auto bounds =
+        options.fullscreen
+            ? layout::Rect{viewport.x, viewport.y,
+                           std::numeric_limits<float>::quiet_NaN(),
+                           std::numeric_limits<float>::quiet_NaN()}
+            : centered_bounds(viewport, size);
     if (auto* existing = find_top_layer<Dialog>(host)) {
         existing->modal_ = options.modal;
         existing->set_title(options.title)
@@ -1614,7 +1619,14 @@ Dialog& Dialog::show(elements::UIElement& host, DialogOptions options) {
             .set_draggable(options.draggable)
             .set_on_action(std::move(options.on_action));
         existing->apply_visual_state();
-        configure_feedback_surface(*existing, size);
+        if (options.fullscreen) {
+            existing->configure_layout([](layout::LayoutElement& item) {
+                item.set_size(layout::Length::percent(100.0F), layout::Length::percent(100.0F))
+                    .set_flex_direction(layout::FlexDirection::Column);
+            });
+        } else {
+            configure_feedback_surface(*existing, size);
+        }
         host.set_top_layer_bounds(*existing, bounds).bring_top_layer_to_front(*existing);
         existing->restart_open_animation();
         return *existing;
@@ -1631,7 +1643,14 @@ Dialog& Dialog::show(elements::UIElement& host, DialogOptions options) {
         .set_draggable(options.draggable)
         .set_on_action(std::move(options.on_action));
     dialog->apply_visual_state();
-    configure_feedback_surface(*dialog, size);
+    if (options.fullscreen) {
+        dialog->configure_layout([](layout::LayoutElement& item) {
+            item.set_size(layout::Length::percent(100.0F), layout::Length::percent(100.0F))
+                .set_flex_direction(layout::FlexDirection::Column);
+        });
+    } else {
+        configure_feedback_surface(*dialog, size);
+    }
     auto& dialog_ref = *dialog;
     auto top_layer_options = elements::TopLayerOptions{};
     top_layer_options.bounds = bounds;

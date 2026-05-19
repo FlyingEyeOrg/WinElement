@@ -361,8 +361,8 @@ TEST(BasicControlsTests, MessageBoxPromptKeepsInputAndPaintsActions) {
     const auto message_rect = command_rect(*message_command);
     const auto create_rect = command_rect(*create_command);
     const auto cancel_rect = command_rect(*cancel_command);
-    EXPECT_GT(message_rect.y - (title_rect.y + title_rect.height), 10.0F);
-    EXPECT_LT(message_rect.y - (title_rect.y + title_rect.height), 24.0F);
+    EXPECT_GT(message_rect.y - (title_rect.y + title_rect.height), 18.0F);
+    EXPECT_LT(message_rect.y - (title_rect.y + title_rect.height), 32.0F);
     EXPECT_GT(create_rect.y - (message_rect.y + message_rect.height), 56.0F);
     EXPECT_LT(create_rect.y, 208.0F);
     EXPECT_NEAR(cancel_rect.y, create_rect.y, 1.0F);
@@ -398,8 +398,8 @@ TEST(BasicControlsTests, MessageBoxAlertKeepsHeaderContentGapAtDefaultHeight) {
     const auto title_rect = command_rect(*title_command);
     const auto message_rect = command_rect(*message_command);
     const auto confirm_rect = command_rect(*confirm_command);
-    EXPECT_GT(message_rect.y - (title_rect.y + title_rect.height), 10.0F);
-    EXPECT_LT(message_rect.y - (title_rect.y + title_rect.height), 24.0F);
+    EXPECT_GT(message_rect.y - (title_rect.y + title_rect.height), 18.0F);
+    EXPECT_LT(message_rect.y - (title_rect.y + title_rect.height), 32.0F);
     EXPECT_GT(confirm_rect.y - (message_rect.y + message_rect.height), 8.0F);
     EXPECT_LT(confirm_rect.y, 104.0F);
 }
@@ -579,6 +579,28 @@ TEST(BasicControlsTests, DialogCanBeNonModalAndKeepBackdropClickOpen) {
     static_cast<void>(
         router.route_key_event(KeyEvent{.kind = KeyEventKind::Down, .key = Key::Escape}));
     EXPECT_EQ(root.top_layer_count(), 1U);
+}
+
+TEST(BasicControlsTests, FullscreenDialogTracksHostResize) {
+    auto engine = create_unrounded_engine();
+    Panel root;
+    root.bind_layout_tree(engine);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::percent(100.0F), Length::percent(100.0F));
+    });
+    root.calculate_layout(LayoutConstraints{.width = 800.0F, .height = 600.0F});
+
+    auto& dialog = Dialog::show(root, DialogOptions{.title = "Fullscreen",
+                                                    .body = "Resize with the host.",
+                                                    .fullscreen = true});
+    auto bounds = root.top_layer_bounds(dialog);
+    EXPECT_FLOAT_EQ(bounds.width, 800.0F);
+    EXPECT_FLOAT_EQ(bounds.height, 600.0F);
+
+    root.calculate_layout(LayoutConstraints{.width = 1024.0F, .height = 768.0F});
+    bounds = root.top_layer_bounds(dialog);
+    EXPECT_FLOAT_EQ(bounds.width, 1024.0F);
+    EXPECT_FLOAT_EQ(bounds.height, 768.0F);
 }
 
 TEST(BasicControlsTests, LoadingAnimatesAndPaintsSpinner) {
