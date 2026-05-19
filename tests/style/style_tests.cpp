@@ -112,9 +112,9 @@ TEST(StyleTests, DefaultInputStyleExposesSemanticDesignTokens) {
 TEST(StyleTests, DefaultControlStylesUseElementSizingAndStateTokens) {
     const auto& button = default_button_style();
     EXPECT_FLOAT_EQ(button.padding.left, 15.0F);
-    EXPECT_FLOAT_EQ(button.padding.top, 6.0F);
+    EXPECT_FLOAT_EQ(button.padding.top, 8.0F);
     EXPECT_FLOAT_EQ(button.padding.right, 15.0F);
-    EXPECT_FLOAT_EQ(button.padding.bottom, 6.0F);
+    EXPECT_FLOAT_EQ(button.padding.bottom, 8.0F);
     EXPECT_EQ(button.border_color, Color::rgba(220, 223, 230));
     EXPECT_EQ(button.semantic.hover_border, Color::rgba(198, 226, 255));
     EXPECT_EQ(button.text_color, Color::rgba(96, 98, 102));
