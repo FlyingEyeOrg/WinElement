@@ -214,7 +214,8 @@ void configure_feedback_surface(elements::UIElement& element, layout::Size size)
 }
 
 void configure_surface_layer(elements::UIElement& surface) {
-    surface.set_hit_test_visible(false).set_repaint_boundary(true);
+    // Shadows must be allowed to bleed outside the dialog surface like Element Plus overlays.
+    surface.set_hit_test_visible(false).set_repaint_boundary(false);
     surface.configure_layout([](layout::LayoutElement& item) {
         item.set_position_type(layout::PositionType::Absolute)
             .set_position(layout::Edge::Left, layout::Length::points(0.0F))
