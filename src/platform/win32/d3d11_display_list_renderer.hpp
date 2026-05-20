@@ -95,6 +95,7 @@ class D3D11DisplayListRenderer final {
     void set_parallel_recording_enabled(bool enabled) noexcept;
     [[nodiscard]] bool parallel_recording_enabled() const noexcept;
     [[nodiscard]] RenderTimingMetrics last_timing_metrics() const noexcept;
+    void trim_parallel_recording_resources() noexcept;
 
   private:
     enum class StateKind : std::uint8_t { Base, Save, RectClip, GeometryClip, Layer };
@@ -362,6 +363,7 @@ class D3D11DisplayListRenderer final {
     void ensure_worker_recorder_pool(std::size_t recorder_count);
     void adopt_glyph_atlas_snapshot(const GlyphAtlasSnapshot& snapshot);
 
+    void ensure_primary_deferred_context();
     void create_pipeline(ID3D11Device& device);
     void rebuild_pipeline_cache() noexcept;
     [[nodiscard]] const CachedDrawPipeline&

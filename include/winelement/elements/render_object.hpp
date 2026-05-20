@@ -71,6 +71,11 @@ class RenderObject final {
         overlay_commands_.invalidate();
     }
 
+    void discard_commands() noexcept {
+        content_commands_.clear();
+        overlay_commands_.clear();
+    }
+
   private:
     CommandCache content_commands_;
     CommandCache overlay_commands_;

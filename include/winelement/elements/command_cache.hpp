@@ -32,6 +32,12 @@ class CommandCache final {
         valid_ = false;
     }
 
+    void clear() noexcept {
+        commands_.reset();
+        generation_ = 0;
+        valid_ = false;
+    }
+
   private:
     std::optional<rendering::RenderCommandList> commands_;
     std::uint64_t generation_ = 0;

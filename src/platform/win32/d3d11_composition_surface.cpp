@@ -396,6 +396,7 @@ class D3D11CompositionSurface::Impl final {
         if (display_list_renderer_ == nullptr) {
             display_list_renderer_ =
                 std::make_unique<D3D11DisplayListRenderer>(device_->d3d_device());
+            display_list_renderer_->trim_parallel_recording_resources();
         }
         target_pixel_size_ = pixel_size;
         return true;

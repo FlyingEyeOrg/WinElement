@@ -2359,8 +2359,7 @@ D3D11DisplayListRenderer::D3D11DisplayListRenderer(ID3D11Device& device,
       render_plan_cache_(std::make_unique<RenderPlanCacheState>()),
       resource_updates_allowed_(instance_kind == RendererInstanceKind::Primary) {
     create_pipeline(device);
-    throw_if_failed(device.CreateDeferredContext(0U, &primary_deferred_context_),
-                    "failed to create display-list deferred context");
+    ensure_primary_deferred_context();
 }
 
 D3D11DisplayListRenderer::~D3D11DisplayListRenderer() = default;
@@ -2376,6 +2375,16 @@ bool D3D11DisplayListRenderer::parallel_recording_enabled() const noexcept {
 D3D11DisplayListRenderer::RenderTimingMetrics
 D3D11DisplayListRenderer::last_timing_metrics() const noexcept {
     return last_timing_metrics_;
+}
+
+void D3D11DisplayListRenderer::trim_parallel_recording_resources() noexcept {
+    if (parallel_recording_enabled_) {
+        return;
+    }
+
+    primary_deferred_context_.Reset();
+    const std::scoped_lock lock(worker_recorder_mutex_);
+    worker_recorders_.clear();
 }
 
 void D3D11DisplayListRenderer::prune_frame_caches_if_needed() {
@@ -2590,10 +2599,6 @@ void D3D11DisplayListRenderer::render(ID3D11DeviceContext& context, ID3D11Render
                                       std::uint32_t target_pixel_height,
                                       const D3D11RenderResourceCache& resource_cache,
                                       const rendering::RenderFrameGraph* frame_graph) {
-    if (primary_deferred_context_ == nullptr) {
-        throw std::runtime_error("display-list deferred context is not available");
-    }
-
     using Clock = std::chrono::steady_clock;
     const auto elapsed_ms = [](Clock::time_point first, Clock::time_point last) {
         return std::chrono::duration<double, std::milli>(last - first).count();
@@ -2639,6 +2644,7 @@ void D3D11DisplayListRenderer::render(ID3D11DeviceContext& context, ID3D11Render
     if (analysis.use_parallel_recording) {
         record_render_work_items(analysis, target);
     } else {
+        ensure_primary_deferred_context();
         render_to_context(*primary_deferred_context_.Get(), target, clear_color, scene,
                           dirty_region, dpi, target_pixel_width, target_pixel_height,
                           *analysis.resource_snapshot, frame_graph);
@@ -2994,15 +3000,25 @@ void D3D11DisplayListRenderer::record_render_work_items(RenderFrameAnalysis& ana
 
 void D3D11DisplayListRenderer::record_work_item_to_command_list(
     RenderWorkItem& work_item, ID3D11RenderTargetView& target) {
-    if (primary_deferred_context_ == nullptr) {
-        return;
-    }
+    ensure_primary_deferred_context();
 
     render_work_item_to_context(*primary_deferred_context_.Get(), target, work_item,
                                 work_item.dpi, work_item.target_pixel_width,
                                 work_item.target_pixel_height);
     throw_if_failed(primary_deferred_context_->FinishCommandList(FALSE, &work_item.command_list),
                     "failed to finish display-list work item command list");
+}
+
+void D3D11DisplayListRenderer::ensure_primary_deferred_context() {
+    if (primary_deferred_context_ != nullptr) {
+        return;
+    }
+    if (device_ == nullptr) {
+        throw std::runtime_error("display-list device is not available");
+    }
+
+    throw_if_failed(device_->CreateDeferredContext(0U, &primary_deferred_context_),
+                    "failed to create display-list deferred context");
 }
 
 void D3D11DisplayListRenderer::render_work_item_to_context(

@@ -31,8 +31,12 @@ constexpr auto showcase_window_height = 920.0F;
 constexpr auto showcase_page_scrollbar_width = 14.0F;
 constexpr auto showcase_page_gap = 8.0F;
 
+[[nodiscard]] float showcase_window_viewport_width(float window_width) noexcept {
+    return std::max(window_width - showcase_page_gap - showcase_page_scrollbar_width, 1.0F);
+}
+
 [[nodiscard]] float showcase_window_viewport_width() noexcept {
-    return std::max(showcase_window_width - showcase_page_gap - showcase_page_scrollbar_width, 1.0F);
+    return showcase_window_viewport_width(showcase_window_width);
 }
 
 [[nodiscard]] style::UIElementStyle showcase_surface_style() noexcept {
@@ -195,6 +199,14 @@ struct ShowcaseWindowTree {
     std::unique_ptr<elements::UIElement> root;
     SyncedViewportPanel* viewport = nullptr;
     controls::Scrollbar* scrollbar = nullptr;
+};
+
+struct ShowcaseWindowMetrics {
+    float scroll_max = 0.0F;
+    float scrollbar_max = 0.0F;
+    layout::Rect viewport_rect{};
+    layout::Rect content_rect{};
+    float measured_content_height = 0.0F;
 };
 
 class LiveSampleCard final : public controls::Panel {
@@ -1434,6 +1446,7 @@ build_showcase_content(elements::UIElement& feedback_host) {
     root->set_background(rendering::Color::rgba(245, 247, 250));
     root->configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F))
+            .set_align_self(layout::Align::FlexStart)
             .set_flex_shrink(0.0F)
             .set_padding(layout::Edge::All, layout::Length::points(24.0F));
     });
@@ -1517,12 +1530,7 @@ build_showcase_content(elements::UIElement& feedback_host) {
             .set_flex_shrink(1.0F)
             .set_min_width(layout::Length::points(0.0F));
     });
-    auto content = build_showcase_content(*root);
-    const auto content_min_height = measure_showcase_content_height(showcase_window_viewport_width());
-    content->configure_layout([content_min_height](layout::LayoutElement& item) {
-        item.set_min_height(layout::Length::points(content_min_height));
-    });
-    viewport.append_child(std::move(content));
+    viewport.append_child(build_showcase_content(*root));
 
     auto& scrollbar = row.append_new_child<controls::Scrollbar>();
     scrollbar.set_orientation(controls::ScrollbarOrientation::Vertical)
@@ -1556,6 +1564,24 @@ void sync_showcase_window_scrollbar(ShowcaseWindowTree& tree) {
     }
 }
 
+[[nodiscard]] ShowcaseWindowMetrics measure_showcase_window(float width, float height) {
+    auto engine = layout::LayoutEngine{};
+    auto tree = build_showcase_window_tree();
+    tree.root->bind_layout_tree(engine);
+    tree.root->calculate_layout(layout::LayoutConstraints{.width = width, .height = height});
+    sync_showcase_window_scrollbar(tree);
+
+    auto metrics = ShowcaseWindowMetrics{};
+    metrics.scroll_max = tree.viewport != nullptr ? tree.viewport->max_scroll_offset().y : 0.0F;
+    metrics.scrollbar_max = tree.scrollbar != nullptr ? tree.scrollbar->maximum() : 0.0F;
+    metrics.content_rect =
+        tree.viewport != nullptr ? tree.viewport->scrollable_content_rect() : layout::Rect{};
+    metrics.viewport_rect = tree.viewport != nullptr ? tree.viewport->viewport_rect() : layout::Rect{};
+    metrics.measured_content_height =
+        measure_showcase_content_height(std::max(metrics.viewport_rect.width, 1.0F));
+    return metrics;
+}
+
 [[nodiscard]] std::size_t count_nodes(const rendering::RenderNode& node) noexcept {
     auto total = std::size_t{1U};
     for (const auto& child : node.children) {
@@ -1581,22 +1607,12 @@ int run_headless_showcase() {
     root->calculate_layout(
         layout::LayoutConstraints{.width = canvas_width, .height = canvas_height});
 
-    auto window_tree = build_showcase_window_tree();
-    window_tree.root->bind_layout_tree(engine);
-    window_tree.root->calculate_layout(layout::LayoutConstraints{.width = showcase_window_width,
-                                                                 .height = showcase_window_height});
-    sync_showcase_window_scrollbar(window_tree);
-    const auto showcase_scroll_max =
-        window_tree.viewport != nullptr ? window_tree.viewport->max_scroll_offset().y : 0.0F;
-    const auto showcase_scrollbar_max =
-        window_tree.scrollbar != nullptr ? window_tree.scrollbar->maximum() : 0.0F;
-    const auto showcase_content_rect = window_tree.viewport != nullptr
-                                           ? window_tree.viewport->scrollable_content_rect()
-                                           : layout::Rect{};
-    const auto showcase_viewport_rect =
-        window_tree.viewport != nullptr ? window_tree.viewport->viewport_rect() : layout::Rect{};
-    const auto measured_content_height =
-        measure_showcase_content_height(showcase_window_viewport_width());
+    const auto showcase_metrics =
+        measure_showcase_window(showcase_window_width, showcase_window_height);
+    constexpr auto wide_showcase_window_width = 1918.0F;
+    constexpr auto wide_showcase_window_height = 1034.0F;
+    const auto wide_showcase_metrics =
+        measure_showcase_window(wide_showcase_window_width, wide_showcase_window_height);
 
     const auto now = animation::AnimationClockType::now();
     auto animation_active = false;
@@ -1624,15 +1640,28 @@ int run_headless_showcase() {
                  "implicit property\n";
     std::cout << "  render nodes: " << node_count << '\n';
     std::cout << "  render commands: " << command_count << '\n';
-    std::cout << "  window scroll max: " << showcase_scroll_max << '\n';
-    std::cout << "  window scrollbar max: " << showcase_scrollbar_max << '\n';
-    std::cout << "  window viewport height: " << showcase_viewport_rect.height << '\n';
-    std::cout << "  window content height: " << showcase_content_rect.height << '\n';
-    std::cout << "  measured content height: " << measured_content_height << '\n';
+    std::cout << "  window scroll max: " << showcase_metrics.scroll_max << '\n';
+    std::cout << "  window scrollbar max: " << showcase_metrics.scrollbar_max << '\n';
+    std::cout << "  window viewport height: " << showcase_metrics.viewport_rect.height << '\n';
+    std::cout << "  window content height: " << showcase_metrics.content_rect.height << '\n';
+    std::cout << "  measured content height: " << showcase_metrics.measured_content_height << '\n';
+    std::cout << "  wide window scroll max: " << wide_showcase_metrics.scroll_max << '\n';
+    std::cout << "  wide window content height: " << wide_showcase_metrics.content_rect.height
+              << '\n';
+    std::cout << "  wide measured content height: "
+              << wide_showcase_metrics.measured_content_height << '\n';
     std::cout << "  animation active during warmup: " << (animation_active ? "yes" : "no") << '\n';
     std::cout << "  dirty empty: " << (dirty.empty() ? "yes" : "no") << '\n';
-    return command_count > 0U && showcase_scroll_max > 0.0F && showcase_scrollbar_max > 0.0F ? 0
-                                                                                               : 1;
+    const auto content_height_matches_width =
+        std::abs(showcase_metrics.content_rect.height - showcase_metrics.measured_content_height) <
+            1.0F &&
+        std::abs(wide_showcase_metrics.content_rect.height -
+                 wide_showcase_metrics.measured_content_height) < 1.0F;
+    return command_count > 0U && showcase_metrics.scroll_max > 0.0F &&
+                   showcase_metrics.scrollbar_max > 0.0F &&
+                   wide_showcase_metrics.scroll_max > 0.0F && content_height_matches_width
+               ? 0
+               : 1;
 }
 
 int run_window_showcase() {

@@ -3226,6 +3226,7 @@ void UIElement::append_content_scene_subtree(
         return;
     }
     if (clip_rect.has_value() && !layout::rects_intersect(visible_subtree_bounds(), *clip_rect)) {
+        discard_cached_render_commands_subtree();
         return;
     }
 
@@ -3278,6 +3279,7 @@ void UIElement::append_content_scene_subtree(
     for (const auto& child : sorted) {
         if (child_clip_rect.has_value() &&
             !layout::rects_intersect(child->visible_subtree_bounds(), *child_clip_rect)) {
+            child->discard_cached_render_commands_subtree();
             continue;
         }
         child->append_content_scene_subtree(child_parent, &subtree_recorder, prepared_cache,
@@ -3315,6 +3317,7 @@ void UIElement::append_overlay_scene_subtree(
         return;
     }
     if (clip_rect.has_value() && !layout::rects_intersect(visible_subtree_bounds(), *clip_rect)) {
+        discard_cached_render_commands_subtree();
         return;
     }
 
@@ -3356,6 +3359,7 @@ void UIElement::append_overlay_scene_subtree(
     for (const auto& child : sorted) {
         if (child_clip_rect.has_value() &&
             !layout::rects_intersect(child->visible_subtree_bounds(), *child_clip_rect)) {
+            child->discard_cached_render_commands_subtree();
             continue;
         }
         child->append_overlay_scene_subtree(child_parent, &subtree_recorder, prepared_cache,
@@ -3454,6 +3458,20 @@ void UIElement::append_top_layer_scene_nodes(
         entry.element->append_content_scene_subtree(parent, nullptr, prepared_cache);
         entry.element->append_overlay_scene_subtree(parent, nullptr, prepared_cache);
         entry.element->append_top_layer_scene_nodes(parent, prepared_cache);
+    }
+}
+
+void UIElement::discard_cached_render_commands_subtree() const noexcept {
+    if (render_state_ != nullptr) {
+        render_state_->render_object.discard_commands();
+    }
+    for (const auto& child : children_) {
+        child->discard_cached_render_commands_subtree();
+    }
+    for (const auto& entry : top_layer_manager_.entries()) {
+        if (!entry.pending_removal && entry.element != nullptr) {
+            entry.element->discard_cached_render_commands_subtree();
+        }
     }
 }
 

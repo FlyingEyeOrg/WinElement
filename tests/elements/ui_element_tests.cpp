@@ -2779,6 +2779,22 @@ TEST(UIElementTests, ReusesCleanSubtreeCommandCacheOnCommit) {
     EXPECT_EQ(right_count, 1);
 }
 
+TEST(UIElementTests, CommandCacheClearDiscardsStoredCommands) {
+    RenderCommandRecorder recorder;
+    recorder.fill_rect(Rect{0.0F, 0.0F, 20.0F, 20.0F}, Color::rgba(64, 158, 255));
+
+    CommandCache cache;
+    cache.store(recorder.take_command_list(), 1U);
+
+    EXPECT_TRUE(cache.can_reuse(1U, false));
+    EXPECT_FALSE(cache.commands().empty());
+
+    cache.clear();
+
+    EXPECT_FALSE(cache.can_reuse(1U, false));
+    EXPECT_TRUE(cache.commands().empty());
+}
+
 TEST(UIElementTests, LayeredElementWrapsContentCommandsAndInvalidatesPaint) {
     auto engine = create_unrounded_engine();
     RecordingElement root;
