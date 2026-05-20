@@ -1086,7 +1086,7 @@ std::optional<layout::Rect> Input::text_input_caret_rect() const {
     }
 
     const auto geometry = create_geometry(absolute_frame());
-    const auto rendered_text = display_text();
+    const auto rendered_text = display_text_for_rendering();
     const auto text_layout = textarea()
                                  ? create_text_layout(rendered_text, geometry.text_rect.width)
                                  : create_text_layout(rendered_text);
@@ -1352,7 +1352,8 @@ void Input::on_pointer_event(elements::PointerEvent& event) {
     }
 
     if (textarea()) {
-        const auto text_layout = create_text_layout(display_text(), geometry.text_rect.width);
+        const auto text_layout =
+            create_text_layout(display_text_for_rendering(), geometry.text_rect.width);
         if (vertical_scrollbar_visible_for(geometry, text_layout) &&
             contains_local_point(vertical_scrollbar_track_rect(geometry), event.local_position)) {
             scrollbar_dragging_ = true;
@@ -1637,7 +1638,8 @@ elements::PointerCursor Input::cursor_for_local_point(layout::Point local_positi
         return elements::PointerCursor::Hand;
     }
     if (textarea()) {
-        const auto text_layout = create_text_layout(display_text(), geometry.text_rect.width);
+        const auto text_layout =
+            create_text_layout(display_text_for_rendering(), geometry.text_rect.width);
         if (vertical_scrollbar_visible_for(geometry, text_layout) &&
             contains_local_point(vertical_scrollbar_track_rect(geometry), local_position)) {
             return elements::PointerCursor::Hand;
@@ -1741,15 +1743,17 @@ void Input::on_paint(rendering::RenderContext& context, layout::Rect absolute_fr
         context.draw_text(suffix_text_, geometry.suffix_rect, affix_text_style);
     }
 
-    const auto rendered_text = display_text();
+    const auto base_rendered_text = display_text();
+    const auto rendered_text = display_text_for_rendering();
     const auto has_composition = has_active_composition(composition_active_);
     const auto& text_to_draw =
         rendered_text.empty() && !has_composition ? placeholder_ : rendered_text;
     auto text_layout = textarea() ? create_text_layout(text_to_draw, geometry.text_rect.width)
                                   : create_text_layout(text_to_draw);
-    text_layout.style.color = disabled_                                   ? semantic.disabled_text
-                              : rendered_text.empty() && !has_composition ? style.placeholder_color
-                                                                          : style.text_color;
+    text_layout.style.color = disabled_ ? semantic.disabled_text
+                              : base_rendered_text.empty() && !has_composition
+                                  ? style.placeholder_color
+                                  : style.text_color;
     const auto origin =
         layout::Point{text_origin_x(geometry, text_layout), text_origin_y(geometry, text_layout)};
 
@@ -1770,18 +1774,6 @@ void Input::on_paint(rendering::RenderContext& context, layout::Rect absolute_fr
     context.draw_text_layout(text_layout, origin);
 
     const auto caret_rect = caret_rect_in_content_space(geometry, text_layout);
-
-    if (composition_active_ && !composition_text_.empty()) {
-        auto composition_layout =
-            textarea() ? create_text_layout(composition_text_, geometry.text_rect.width)
-                       : create_text_layout(composition_text_);
-        composition_layout.style.color = disabled_ ? semantic.disabled_text : style.text_color;
-        const auto caret_position = text_engine().caret_position_for_byte_offset(
-            text_layout, display_offset_for_text_offset(caret_byte_offset_));
-        const auto composition_origin =
-            layout::Point{origin.x + caret_position.x, origin.y + caret_position.y};
-        context.draw_text_layout(composition_layout, composition_origin);
-    }
 
     if (focused() && editable() && caret_blink_visible()) {
         context.fill_pixel_snapped_rect(layout::Rect{origin.x + caret_rect.x,
@@ -1841,12 +1833,12 @@ void Input::on_paint_overlay(rendering::RenderContext& context, layout::Rect abs
 void Input::update_measure_callback() {
     set_measure_callback([this](const layout::MeasureInput& input) {
         const auto style = resolved_style();
-        const auto rendered_text = display_text();
+        const auto rendered_text = display_text_for_rendering();
         const auto has_composition = has_active_composition(composition_active_);
-        const auto content = rendered_text.empty() ? has_composition
-                                                         ? std::string_view(composition_text_)
-                                                         : std::string_view(placeholder_)
-                                                   : std::string_view(rendered_text);
+        const auto content =
+            rendered_text.empty()
+                ? has_composition ? std::string_view{} : std::string_view(placeholder_)
+                : std::string_view(rendered_text);
         const auto has_outside_word_limit =
             show_word_limit_ && max_length_ &&
             word_limit_position_ == InputWordLimitPosition::Outside && !password();
@@ -1935,9 +1927,10 @@ void Input::ensure_caret_visible() {
         return;
     }
 
+    const auto rendered_text = display_text_for_rendering();
     const auto text_layout = textarea()
-                                 ? create_text_layout(display_text(), geometry.text_rect.width)
-                                 : create_text_layout(display_text());
+                                 ? create_text_layout(rendered_text, geometry.text_rect.width)
+                                 : create_text_layout(rendered_text);
     const auto caret_rect = caret_rect_in_content_space(geometry, text_layout);
     if (textarea()) {
         horizontal_scroll_x_ = 0.0F;
@@ -1981,7 +1974,8 @@ bool Input::scroll_textarea_by(float delta_y) {
         return false;
     }
 
-    const auto text_layout = create_text_layout(display_text(), geometry.text_rect.width);
+    const auto text_layout =
+        create_text_layout(display_text_for_rendering(), geometry.text_rect.width);
     const auto max_scroll = max_vertical_scroll_y(text_layout, geometry);
     if (max_scroll <= 0.0F) {
         vertical_scroll_y_ = 0.0F;
@@ -2141,7 +2135,8 @@ void Input::move_caret_visually_up() {
 
     const auto local_frame = layout::Rect{0.0F, 0.0F, frame().width, frame().height};
     const auto geometry = create_geometry(local_frame);
-    const auto text_layout = create_text_layout(display_text(), geometry.text_rect.width);
+    const auto text_layout =
+        create_text_layout(display_text_for_rendering(), geometry.text_rect.width);
     const auto current_display_offset = display_offset_for_text_offset(caret_byte_offset_);
     const auto metrics =
         text_engine().caret_metrics_for_byte_offset(text_layout, current_display_offset);
@@ -2165,7 +2160,8 @@ void Input::move_caret_visually_down() {
 
     const auto local_frame = layout::Rect{0.0F, 0.0F, frame().width, frame().height};
     const auto geometry = create_geometry(local_frame);
-    const auto text_layout = create_text_layout(display_text(), geometry.text_rect.width);
+    const auto text_layout =
+        create_text_layout(display_text_for_rendering(), geometry.text_rect.width);
     const auto current_display_offset = display_offset_for_text_offset(caret_byte_offset_);
     const auto metrics =
         text_engine().caret_metrics_for_byte_offset(text_layout, current_display_offset);
@@ -2394,6 +2390,31 @@ std::string Input::display_text() const {
         return formatter_(text_storage());
     }
     return text_storage();
+}
+
+std::string Input::display_text_for_rendering() const {
+    auto rendered_text = display_text();
+    if (!has_visible_composition_text(composition_active_, composition_text_)) {
+        return rendered_text;
+    }
+
+    const auto insert_offset = rendering::clamp_utf8_boundary(
+        rendered_text,
+        std::min(display_offset_for_text_offset(caret_byte_offset_), rendered_text.size()));
+    rendered_text.insert(insert_offset, composition_text_);
+    return rendered_text;
+}
+
+std::size_t Input::display_caret_offset_for_rendering() const {
+    const auto display_offset = display_offset_for_text_offset(caret_byte_offset_);
+    if (!has_visible_composition_text(composition_active_, composition_text_)) {
+        return display_offset;
+    }
+
+    const auto rendered_text = display_text();
+    const auto insert_offset = rendering::clamp_utf8_boundary(
+        rendered_text, std::min(display_offset, rendered_text.size()));
+    return insert_offset + composition_text_.size();
 }
 
 std::string Input::word_limit_text() const {
@@ -2648,23 +2669,12 @@ void Input::initialize_icons() {
 
 layout::Rect Input::caret_rect_in_content_space(const Geometry& geometry,
                                                 const rendering::TextLayout& text_layout) const {
+    static_cast<void>(geometry);
     const auto style = resolved_style();
     const auto caret_metrics = text_engine().caret_metrics_for_byte_offset(
-        text_layout, display_offset_for_text_offset(caret_byte_offset_));
-    auto caret_rect = layout::Rect{caret_metrics.rect.x, caret_metrics.rect.y, style.caret_width,
-                                   caret_metrics.rect.height};
-    if (!has_visible_composition_text(composition_active_, composition_text_)) {
-        return caret_rect;
-    }
-
-    const auto composition_layout =
-        textarea() ? create_text_layout(composition_text_, geometry.text_rect.width)
-                   : create_text_layout(composition_text_);
-    const auto composition_caret_metrics =
-        text_engine().caret_metrics_for_byte_offset(composition_layout, composition_text_.size());
-    return layout::Rect{caret_rect.x + composition_caret_metrics.rect.x,
-                        caret_rect.y + composition_caret_metrics.rect.y, style.caret_width,
-                        composition_caret_metrics.rect.height};
+        text_layout, display_caret_offset_for_rendering());
+    return layout::Rect{caret_metrics.rect.x, caret_metrics.rect.y, style.caret_width,
+                        caret_metrics.rect.height};
 }
 
 float Input::max_horizontal_scroll_x(const rendering::TextLayout& text_layout,

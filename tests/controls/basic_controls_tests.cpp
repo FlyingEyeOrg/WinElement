@@ -1337,10 +1337,52 @@ TEST(BasicControlsTests, InputCompositionUpdateAfterCommittedChineseKeepsCaretVi
     const auto visible_right = input.frame().width - input.style().padding.right;
     EXPECT_LE(caret_rect->x + caret_rect->width, visible_right + 1.0F);
 
-    const auto* composition_command =
-        find_command(context, RenderCommandType::DrawTextLayout, "sdfsdfsdfsdfsdfsdf");
-    ASSERT_NE(composition_command, nullptr);
-    EXPECT_LT(command_rect(*composition_command).x, input.style().padding.left);
+    const auto* composed_command = find_command(context, RenderCommandType::DrawTextLayout,
+                                                "\xE4\xBD\xA0"
+                                                "sdfsdfsdfsdfsdfsdf");
+    ASSERT_NE(composed_command, nullptr);
+    EXPECT_LT(command_rect(*composed_command).x, input.style().padding.left);
+}
+
+TEST(BasicControlsTests, InputCompositionInMiddlePushesTrailingText) {
+    auto engine = create_unrounded_engine();
+    Input input;
+    input.bind_layout_tree(engine);
+    input.set_text("manual");
+    input.set_caret_byte_offset(3U);
+    input.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(220.0F), Length::points(40.0F));
+    });
+    input.calculate_layout(LayoutConstraints{.width = 220.0F, .height = 40.0F});
+
+    EventRouter router(input);
+    ASSERT_TRUE(router.focus_manager().set_focus(&input));
+    ASSERT_TRUE(router.route_key_event(KeyEvent{.kind = KeyEventKind::CompositionStart}).handled);
+    ASSERT_TRUE(
+        router.route_key_event(KeyEvent{.kind = KeyEventKind::CompositionUpdate, .text = "IME"})
+            .handled);
+
+    RenderCommandRecorder context;
+    input.paint(context);
+
+    EXPECT_EQ(input.text(), "manual");
+    EXPECT_NE(find_command(context, RenderCommandType::DrawTextLayout, "manIMEual"), nullptr);
+    EXPECT_EQ(find_command(context, RenderCommandType::DrawTextLayout, "manual"), nullptr);
+
+    const auto* composed_command =
+        find_command(context, RenderCommandType::DrawTextLayout, "manIMEual");
+    ASSERT_NE(composed_command, nullptr);
+    const auto caret_rect = input.text_input_caret_rect();
+    ASSERT_TRUE(caret_rect.has_value());
+    const auto composed_rect = command_rect(*composed_command);
+    const auto prefix_size =
+        TextEngine()
+            .measure_single_line("manIME", TextStyle{.font_size = input.style().font_size,
+                                                     .color = input.style().text_color,
+                                                     .alignment = TextAlignment::Start})
+            .width;
+    EXPECT_GE(caret_rect->x + 0.5F, composed_rect.x + prefix_size);
+    EXPECT_LT(caret_rect->x, composed_rect.x + composed_rect.width);
 }
 
 TEST(BasicControlsTests, InputCommittedChineseThenEnglishPaintsCaretAtTextEnd) {
@@ -1559,8 +1601,8 @@ TEST(BasicControlsTests, InputCompositionStartReplacesSelectedTextWithoutOverlap
 
     RenderCommandRecorder composing_context;
     input.paint(composing_context);
-    EXPECT_NE(find_command(composing_context, RenderCommandType::DrawTextLayout, "aef"), nullptr);
-    EXPECT_NE(find_command(composing_context, RenderCommandType::DrawTextLayout, "X"), nullptr);
+    EXPECT_NE(find_command(composing_context, RenderCommandType::DrawTextLayout, "aXef"), nullptr);
+    EXPECT_EQ(find_command(composing_context, RenderCommandType::DrawTextLayout, "aef"), nullptr);
     EXPECT_EQ(find_command(composing_context, RenderCommandType::DrawTextLayout, "abcdef"),
               nullptr);
 

@@ -245,6 +245,8 @@ class Input final : public Control {
     [[nodiscard]] std::string parsed_text(std::string_view text) const;
     [[nodiscard]] std::string truncated_to_max_length(std::string_view text) const;
     [[nodiscard]] std::string display_text() const;
+    [[nodiscard]] std::string display_text_for_rendering() const;
+    [[nodiscard]] std::size_t display_caret_offset_for_rendering() const;
     [[nodiscard]] std::string word_limit_text() const;
     [[nodiscard]] std::size_t display_offset_for_text_offset(std::size_t byte_offset) const;
     [[nodiscard]] std::size_t text_offset_for_display_offset(std::size_t display_offset) const;
