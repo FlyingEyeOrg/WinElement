@@ -78,6 +78,15 @@ constexpr UINT_PTR caret_blink_timer_id = 0x574DU;
 constexpr UINT_PTR animation_frame_timer_id = 0x574EU;
 constexpr UINT caret_blink_timer_interval_ms = 500U;
 constexpr UINT animation_timer_resolution_ms = 1U;
+constexpr auto window_max_compositor_promotions = 12U;
+constexpr auto window_minimum_compositor_promotion_area = 8192.0F;
+
+[[nodiscard]] rendering::CompositorPromotionOptions window_compositor_promotion_options() noexcept {
+    return rendering::CompositorPromotionOptions{.max_candidates = window_max_compositor_promotions,
+                                                 .minimum_area =
+                                                     window_minimum_compositor_promotion_area,
+                                                 .include_stable_layers = false};
+}
 constexpr auto animation_frame_interval = std::chrono::nanoseconds{16'666'667};
 constexpr UINT native_text_command_cut_id = 0x7310U;
 constexpr UINT native_text_command_copy_id = 0x7311U;
@@ -375,7 +384,8 @@ class WindowRenderCache final {
         rendering::DirtyRegion ui_dirty_region;
         auto next_scene = rendering::RenderScene{prepared_cache_};
         content.commit_render_scene(next_scene, &ui_dirty_region);
-        promotion_plan_ = rendering::build_compositor_promotion_plan(next_scene);
+        promotion_plan_ = rendering::build_compositor_promotion_plan(
+            next_scene, window_compositor_promotion_options());
         frame_graph_ = rendering::build_render_frame_graph(next_scene);
 
         const auto had_valid_snapshot = valid_ && snapshot_ != nullptr;

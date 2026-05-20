@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -159,10 +160,25 @@ void append_command(RenderCommandRecorder& recorder, const RenderCommandList& so
     return static_cast<std::uint64_t>(seed);
 }
 
+[[nodiscard]] std::string debug_child_name(std::string_view parent_name, std::string_view kind,
+                                           std::size_t index) {
+    if (parent_name.empty()) {
+        return {};
+    }
+
+    auto name = std::string{};
+    name.reserve(parent_name.size() + kind.size() + 24U);
+    name.append(parent_name);
+    name.push_back('.');
+    name.append(kind);
+    name.push_back('.');
+    name.append(std::to_string(index));
+    return name;
+}
+
 [[nodiscard]] RenderNode parse_retained_node(const RenderCommandList& source, std::size_t& index,
-                                             bool stop_on_pop_layer,
-                                             const std::string& debug_name) {
-    RenderNode node{.kind = RenderNodeKind::Picture, .debug_name = debug_name};
+                                             bool stop_on_pop_layer, std::string_view debug_name) {
+    RenderNode node{.kind = RenderNodeKind::Picture, .debug_name = std::string{debug_name}};
     RenderCommandRecorder picture_recorder(source.prepared_cache());
     auto picture_index = std::size_t{0};
     auto layer_index = std::size_t{0};
@@ -175,7 +191,7 @@ void append_command(RenderCommandRecorder& recorder, const RenderCommandList& so
         node.children.push_back(
             RenderNode{.kind = RenderNodeKind::Picture,
                        .bounds = commands.bounds(),
-                       .debug_name = debug_name + ".picture." + std::to_string(picture_index++),
+                       .debug_name = debug_child_name(debug_name, "picture", picture_index++),
                        .fingerprint = commands.fingerprint(),
                        .commands = std::move(commands)});
     };
@@ -189,7 +205,7 @@ void append_command(RenderCommandRecorder& recorder, const RenderCommandList& so
             const auto options = source.payload<PushLayerCommand>(index).options;
             ++index;
             auto layer = parse_retained_node(source, index, true,
-                                             debug_name + ".layer." + std::to_string(layer_order));
+                                             debug_child_name(debug_name, "layer", layer_order));
             const auto layer_content_bounds = layer.bounds;
             layer.kind = RenderNodeKind::Layer;
             layer.bounds = options.clips_to_bounds ? options.bounds : layer_content_bounds;
@@ -343,9 +359,6 @@ RenderNode render_node_from_commands(RenderCommandList command_list, std::string
 
     const auto fingerprint = command_list.fingerprint();
     const auto bounds = command_list.bounds();
-    if (debug_name.empty()) {
-        debug_name = "scene.node";
-    }
 
     auto index = std::size_t{0};
     auto root = parse_retained_node(command_list, index, false, debug_name);
@@ -378,9 +391,6 @@ void RenderScene::update_from_commands(RenderCommandList command_list, std::stri
         return;
     }
 
-    if (debug_name.empty()) {
-        debug_name = "scene.root";
-    }
     auto previous_nodes = std::unordered_map<std::uint64_t, std::vector<const RenderNode*>>{};
     if (root_ != nullptr) {
         previous_nodes.reserve(std::max<std::size_t>(root_->children.size() * 2U + 1U,
@@ -388,7 +398,9 @@ void RenderScene::update_from_commands(RenderCommandList command_list, std::stri
         collect_reusable_nodes(*root_, previous_nodes);
     }
     auto next_root = render_node_from_commands(std::move(command_list), std::move(debug_name));
-    reuse_matching_nodes(next_root, previous_nodes);
+    if (!previous_nodes.empty()) {
+        reuse_matching_nodes(next_root, previous_nodes);
+    }
     command_fingerprint_ = next_fingerprint;
     command_count_ = next_command_count;
     root_ = std::make_unique<RenderNode>(std::move(next_root));

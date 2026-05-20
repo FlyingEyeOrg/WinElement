@@ -46,8 +46,16 @@ constexpr auto showcase_page_gap = 8.0F;
 
 [[nodiscard]] float loop_progress(animation::AnimationTimePoint now,
                                   float cycles_per_second) noexcept {
-    const auto seconds = std::chrono::duration<float>(now.time_since_epoch()).count();
-    return std::fmod(std::max(seconds * cycles_per_second, 0.0F), 1.0F);
+    if (!std::isfinite(cycles_per_second) || cycles_per_second <= 0.0F) {
+        return 0.0F;
+    }
+
+    const auto cycle_ms =
+        std::max(1LL, static_cast<long long>(std::lround(1000.0F / cycles_per_second)));
+    const auto elapsed_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+    const auto position = elapsed_ms >= 0 ? elapsed_ms % cycle_ms : 0LL;
+    return static_cast<float>(position) / static_cast<float>(cycle_ms);
 }
 
 enum class MotionDemoKind { Translate, Scale, Rotate, Skew };
@@ -63,7 +71,7 @@ class MotionDemoPanel final : public controls::Panel {
     bool on_animation_frame(animation::AnimationTimePoint now) override {
         const auto seconds = std::chrono::duration<float>(now.time_since_epoch()).count();
         const auto phase = std::sin(seconds * 3.0F);
-        if (std::abs(phase - phase_) >= 0.01F) {
+        if (std::abs(phase - phase_) >= 0.015F) {
             phase_ = phase;
             invalidate_paint();
         }
@@ -119,7 +127,7 @@ class ProgressTrackPanel final : public controls::Panel {
   public:
     ProgressTrackPanel& set_progress(float progress) {
         const auto normalized = std::clamp(progress, 0.0F, 1.0F);
-        if (std::abs(normalized - progress_) < 0.0025F) {
+        if (std::abs(normalized - progress_) < 0.005F) {
             return *this;
         }
         progress_ = normalized;
@@ -246,7 +254,7 @@ class LiveSampleCard final : public controls::Panel {
 
         const auto sample = sample_function_(now);
         const auto progress = std::clamp(sample.progress, 0.0F, 1.0F);
-        if (track_ != nullptr && std::abs(progress - fill_progress_) >= 0.0025F) {
+        if (track_ != nullptr && std::abs(progress - fill_progress_) >= 0.005F) {
             fill_progress_ = progress;
             track_->set_progress(fill_progress_);
         }
@@ -320,7 +328,7 @@ class ImplicitPropertyDemoPanel final : public controls::Panel {
         animate_property<float>(
             implicit_demo_progress_property(), 1.0F,
             animation::AnimationTiming{.duration = animation::AnimationDuration{0.7F},
-                                       .iteration_count = std::numeric_limits<float>::infinity(),
+                                       .iteration_count = 4.0F,
                                        .direction = animation::PlaybackDirection::Alternate,
                                        .fill_mode = animation::FillMode::Both,
                                        .easing = animation::EasingFunction::ease_in_out_cubic()});
@@ -338,7 +346,7 @@ class ImplicitPropertyDemoPanel final : public controls::Panel {
     void sync_visuals() {
         const auto progress = std::clamp(
             properties().value<float>(implicit_demo_progress_property(), 0.0F), 0.0F, 1.0F);
-        if (fill_ != nullptr && std::abs(progress - fill_progress_) >= 0.0025F) {
+        if (fill_ != nullptr && std::abs(progress - fill_progress_) >= 0.005F) {
             fill_progress_ = progress;
             fill_->set_progress(fill_progress_);
         }

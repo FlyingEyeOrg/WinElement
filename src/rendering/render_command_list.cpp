@@ -40,8 +40,8 @@ constexpr auto geometry_epsilon = 0.0001F;
 constexpr auto contour_cleanup_epsilon = 0.001F;
 constexpr auto geometry_flattening_tolerance = 0.01F;
 constexpr auto max_curve_flattening_depth = 12U;
-constexpr auto max_prepared_geometry_cache_entries = 96U;
-constexpr auto max_prepared_text_glyph_cache_entries = 96U;
+constexpr auto max_prepared_geometry_cache_entries = 384U;
+constexpr auto max_prepared_text_glyph_cache_entries = 512U;
 
 template <typename T> void hash_combine(std::size_t& seed, const T& value) noexcept;
 
@@ -54,7 +54,14 @@ template <typename Cache> [[nodiscard]] std::size_t cache_entry_count(const Cach
 }
 
 template <typename Cache> void trim_cache_entries(Cache& cache, std::size_t max_entries) {
-    while (max_entries > 0U && cache_entry_count(cache) > max_entries && !cache.empty()) {
+    if (max_entries == 0U) {
+        cache.clear();
+        return;
+    }
+
+    auto count = cache_entry_count(cache);
+    while (count > max_entries && !cache.empty()) {
+        count -= cache.begin()->second.size();
         cache.erase(cache.begin());
     }
 }
