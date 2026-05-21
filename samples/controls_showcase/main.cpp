@@ -131,7 +131,7 @@ class ProgressTrackPanel final : public controls::Panel {
   public:
     ProgressTrackPanel& set_progress(float progress) {
         const auto normalized = std::clamp(progress, 0.0F, 1.0F);
-        if (std::abs(normalized - progress_) < 0.005F) {
+        if (std::abs(normalized - progress_) < progress_epsilon_) {
             return *this;
         }
         progress_ = normalized;
@@ -149,26 +149,39 @@ class ProgressTrackPanel final : public controls::Panel {
     }
 
     ProgressTrackPanel& set_radius(float radius) noexcept {
-        radius_ = std::max(radius, 0.0F);
+        const auto normalized = std::max(radius, 0.0F);
+        if (std::abs(normalized - radius_) < progress_epsilon_) {
+            return *this;
+        }
+        radius_ = normalized;
+        invalidate_paint();
         return *this;
     }
 
   protected:
     void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override {
         const auto radius = rendering::CornerRadius::uniform(radius_);
-        context.fill_rounded_rect(absolute_frame, radius, rendering::Color::rgba(245, 247, 250));
-        const auto fill_width = std::max(0.0F, absolute_frame.width * progress_);
-        if (fill_width <= 0.0F) {
-            return;
+        context.fill_rounded_rect(absolute_frame, radius, track_color_);
+
+        const auto fill_width =
+            std::clamp(absolute_frame.width * progress_, 0.0F, absolute_frame.width);
+        if (fill_width > 0.0F) {
+            context.fill_rounded_rect(
+                layout::Rect{absolute_frame.x, absolute_frame.y, fill_width, absolute_frame.height},
+                radius, fill_color_);
         }
-        context.fill_rounded_rect(
-            layout::Rect{absolute_frame.x, absolute_frame.y, fill_width, absolute_frame.height},
-            radius, fill_color_);
+
+        context.stroke_rounded_rect(absolute_frame, radius, track_border_color_,
+                                    track_border_width_);
     }
 
   private:
+    static constexpr auto progress_epsilon_ = 0.005F;
+    static constexpr auto track_border_width_ = 1.0F;
     float progress_ = 0.0F;
     float radius_ = 4.0F;
+    rendering::Color track_color_ = rendering::Color::rgba(245, 247, 250);
+    rendering::Color track_border_color_ = rendering::Color::rgba(220, 223, 230);
     rendering::Color fill_color_ = rendering::Color::rgba(64, 158, 255);
 };
 
