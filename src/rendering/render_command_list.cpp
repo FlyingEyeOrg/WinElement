@@ -41,7 +41,7 @@ constexpr auto contour_cleanup_epsilon = 0.001F;
 constexpr auto geometry_flattening_tolerance = 0.01F;
 constexpr auto max_curve_flattening_depth = 12U;
 constexpr auto max_prepared_geometry_cache_entries = 384U;
-constexpr auto max_prepared_text_glyph_cache_entries = 512U;
+constexpr auto max_prepared_text_glyph_cache_entries = 256U;
 
 template <typename T> void hash_combine(std::size_t& seed, const T& value) noexcept;
 

@@ -31,6 +31,7 @@ namespace winelement::platform::win32 {
 namespace {
 
 constexpr auto default_dpi = 96.0F;
+constexpr auto max_surface_present_rects = 32U;
 
 struct PixelSize {
     std::uint32_t width = 1U;
@@ -125,7 +126,6 @@ prepare_surface_dirty_region(const rendering::DirtyRegion& dirty_region,
                              rendering::layout::Rect target_rect, float dpi, PixelSize target_size,
                              bool force_full_target) {
     auto result = SurfaceDirtyRegion{};
-    const auto max_present_rects = rendering::DirtyRegionOptimizeOptions{}.max_rects;
 
     if (force_full_target) {
         result.normalized_region.emplace();
@@ -134,7 +134,7 @@ prepare_surface_dirty_region(const rendering::DirtyRegion& dirty_region,
         return result;
     }
 
-    if (dirty_region.rects().size() > max_present_rects) {
+    if (dirty_region.rects().size() > max_surface_present_rects) {
         const auto dirty_bounds =
             rendering::layout::intersect_rects(dirty_region.bounds(), target_rect);
         if (rendering::layout::is_visible_rect(dirty_bounds)) {

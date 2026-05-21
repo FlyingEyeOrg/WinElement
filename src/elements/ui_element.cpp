@@ -30,7 +30,7 @@ TextInputHandler::~TextInputHandler() = default;
 namespace {
 
 constexpr auto default_scroll_wheel_step = 48.0F;
-constexpr auto ui_text_layout_cache_entries = 128U;
+constexpr auto ui_text_layout_cache_entries = 64U;
 
 std::uint64_t next_local_theme_generation() noexcept {
     static std::atomic_uint64_t generation{std::uint64_t{1} << 63U};

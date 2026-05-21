@@ -207,6 +207,7 @@ struct ShowcaseWindowMetrics {
     layout::Rect viewport_rect{};
     layout::Rect content_rect{};
     float measured_content_height = 0.0F;
+    std::size_t element_count = 0U;
 };
 
 class LiveSampleCard final : public controls::Panel {
@@ -1564,6 +1565,14 @@ void sync_showcase_window_scrollbar(ShowcaseWindowTree& tree) {
     }
 }
 
+[[nodiscard]] std::size_t count_elements(const elements::UIElement& element) noexcept {
+    auto total = std::size_t{1U};
+    for (auto index = std::size_t{0U}; index < element.child_count(); ++index) {
+        total += count_elements(element.child_at(index));
+    }
+    return total;
+}
+
 [[nodiscard]] ShowcaseWindowMetrics measure_showcase_window(float width, float height) {
     auto engine = layout::LayoutEngine{};
     auto tree = build_showcase_window_tree();
@@ -1579,6 +1588,7 @@ void sync_showcase_window_scrollbar(ShowcaseWindowTree& tree) {
     metrics.viewport_rect = tree.viewport != nullptr ? tree.viewport->viewport_rect() : layout::Rect{};
     metrics.measured_content_height =
         measure_showcase_content_height(std::max(metrics.viewport_rect.width, 1.0F));
+    metrics.element_count = tree.root != nullptr ? count_elements(*tree.root) : 0U;
     return metrics;
 }
 
@@ -1640,6 +1650,7 @@ int run_headless_showcase() {
                  "implicit property\n";
     std::cout << "  render nodes: " << node_count << '\n';
     std::cout << "  render commands: " << command_count << '\n';
+    std::cout << "  window ui elements: " << showcase_metrics.element_count << '\n';
     std::cout << "  window scroll max: " << showcase_metrics.scroll_max << '\n';
     std::cout << "  window scrollbar max: " << showcase_metrics.scrollbar_max << '\n';
     std::cout << "  window viewport height: " << showcase_metrics.viewport_rect.height << '\n';
