@@ -4128,6 +4128,89 @@ TEST(BasicControlsTests, HorizontalScrollbarDragSynchronizesViewportScrollOffset
     EXPECT_LT(content.absolute_frame().x, initial_content_x - 180.0F);
 }
 
+TEST(BasicControlsTests, ScrollbarNoresizeDefersAutomaticRangeRefresh) {
+    auto engine = create_unrounded_engine();
+    Scrollbar scrollbar;
+    scrollbar.bind_layout_tree(engine);
+    scrollbar.set_always_visible(true);
+    scrollbar.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(6.0F), Length::points(120.0F));
+    });
+
+    auto range_reads = 0;
+    auto range =
+        ScrollbarRange{.minimum = 0.0F, .maximum = 100.0F, .page_size = 25.0F, .value = 20.0F};
+    scrollbar.bind_range([&range_reads, &range]() {
+        ++range_reads;
+        return range;
+    });
+    EXPECT_EQ(range_reads, 1);
+    EXPECT_FLOAT_EQ(scrollbar.maximum(), 100.0F);
+
+    scrollbar.set_noresize(true);
+    EXPECT_TRUE(scrollbar.noresize());
+    range.maximum = 200.0F;
+    range.value = 150.0F;
+    range_reads = 0;
+    scrollbar.calculate_layout(LayoutConstraints{.width = 6.0F, .height = 120.0F});
+    RenderCommandRecorder context;
+    scrollbar.paint(context);
+
+    EXPECT_EQ(range_reads, 0);
+    EXPECT_FLOAT_EQ(scrollbar.maximum(), 100.0F);
+
+    scrollbar.update();
+    EXPECT_EQ(range_reads, 1);
+    EXPECT_FLOAT_EQ(scrollbar.maximum(), 200.0F);
+    EXPECT_FLOAT_EQ(scrollbar.value(), 150.0F);
+}
+
+TEST(BasicControlsTests, ScrollbarClampsMinSizeToShortTrack) {
+    auto engine = create_unrounded_engine();
+    Scrollbar scrollbar;
+    scrollbar.bind_layout_tree(engine);
+    scrollbar.set_always_visible(true).set_range(0.0F, 100.0F, 10.0F).set_min_size(20.0F);
+    scrollbar.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(6.0F), Length::points(10.0F));
+    });
+    scrollbar.calculate_layout(LayoutConstraints{.width = 6.0F, .height = 10.0F});
+
+    RenderCommandRecorder context;
+    scrollbar.paint(context);
+
+    const auto* thumb_command = find_command(context, RenderCommandType::FillRoundedRect);
+    ASSERT_NE(thumb_command, nullptr);
+    const auto thumb = command_rect(*thumb_command);
+    EXPECT_FLOAT_EQ(thumb.width, 6.0F);
+    EXPECT_GE(thumb.y, 2.0F);
+    EXPECT_LE(thumb.height, 6.0F);
+    EXPECT_LE(thumb.y + thumb.height, 8.0F);
+}
+
+TEST(BasicControlsTests, ScrollbarDisabledStateIgnoresPointerDrag) {
+    auto engine = create_unrounded_engine();
+    Scrollbar scrollbar;
+    scrollbar.bind_layout_tree(engine);
+    scrollbar.set_always_visible(true).set_range(0.0F, 100.0F, 20.0F).set_disabled(true);
+    scrollbar.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(6.0F), Length::points(120.0F));
+    });
+    scrollbar.calculate_layout(LayoutConstraints{.width = 6.0F, .height = 120.0F});
+
+    EventRouter router(scrollbar);
+    EXPECT_EQ(router.cursor_for_point(Point{3.0F, 20.0F}), PointerCursor::Arrow);
+    EXPECT_FALSE(router
+                     .route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
+                                                       .position = Point{3.0F, 20.0F},
+                                                       .button = PointerButton::Primary})
+                     .handled);
+    EXPECT_FALSE(router
+                     .route_pointer_event(PointerEvent{.kind = PointerEventKind::Move,
+                                                       .position = Point{3.0F, 100.0F}})
+                     .handled);
+    EXPECT_FLOAT_EQ(scrollbar.value(), 0.0F);
+}
+
 TEST(BasicControlsTests, ScrollbarCanWrapScrollableContent) {
     auto engine = create_unrounded_engine();
     Scrollbar scrollbar;

@@ -38,6 +38,7 @@ class Scrollbar final : public Control {
     Scrollbar();
 
     Scrollbar& set_orientation(ScrollbarOrientation orientation);
+    Scrollbar& set_disabled(bool disabled) noexcept;
     Scrollbar& set_visibility_mode(ScrollbarVisibility visibility) noexcept;
     Scrollbar& set_range(float minimum, float maximum, float page_size);
     Scrollbar& set_value(float value);
@@ -45,6 +46,7 @@ class Scrollbar final : public Control {
     Scrollbar& set_min_thumb_extent(float extent);
     Scrollbar& set_min_size(float extent);
     Scrollbar& set_always_visible(bool always) noexcept;
+    Scrollbar& set_noresize(bool noresize) noexcept;
     Scrollbar& set_distance(float distance) noexcept;
     Scrollbar& set_track_click_enabled(bool enabled) noexcept;
     Scrollbar& set_container_mode(bool enabled = true);
@@ -70,6 +72,7 @@ class Scrollbar final : public Control {
     [[nodiscard]] float thickness() const noexcept;
     [[nodiscard]] float min_thumb_extent() const noexcept;
     [[nodiscard]] float min_size() const noexcept;
+    [[nodiscard]] bool noresize() const noexcept;
     [[nodiscard]] float distance() const noexcept;
     [[nodiscard]] bool track_click_enabled() const noexcept;
     [[nodiscard]] bool container_mode() const noexcept;
@@ -81,12 +84,14 @@ class Scrollbar final : public Control {
     cursor_for_local_point(layout::Point local_position) const noexcept override;
     [[nodiscard]] bool on_animation_frame(animation::AnimationTimePoint now) override;
     void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override;
-    void on_paint_overlay(rendering::RenderContext& context, layout::Rect absolute_frame) const override;
+    void on_paint_overlay(rendering::RenderContext& context,
+                          layout::Rect absolute_frame) const override;
 
   private:
     void sync_bound_range_if_needed();
     void sync_container_range_if_needed();
     void update_measure_callback();
+    void reset_interaction_state();
     [[nodiscard]] layout::Rect track_rect(layout::Rect frame) const noexcept;
     [[nodiscard]] layout::Rect track_rect(layout::Rect frame,
                                           ScrollbarOrientation orientation) const noexcept;
@@ -100,9 +105,11 @@ class Scrollbar final : public Control {
     [[nodiscard]] float axis_coordinate(layout::Point point,
                                         ScrollbarOrientation orientation) const noexcept;
     [[nodiscard]] float axis_origin(layout::Rect rect) const noexcept;
-    [[nodiscard]] float axis_origin(layout::Rect rect, ScrollbarOrientation orientation) const noexcept;
+    [[nodiscard]] float axis_origin(layout::Rect rect,
+                                    ScrollbarOrientation orientation) const noexcept;
     [[nodiscard]] float axis_extent(layout::Rect rect) const noexcept;
-    [[nodiscard]] float axis_extent(layout::Rect rect, ScrollbarOrientation orientation) const noexcept;
+    [[nodiscard]] float axis_extent(layout::Rect rect,
+                                    ScrollbarOrientation orientation) const noexcept;
     [[nodiscard]] float animated_hover_progress() const;
     [[nodiscard]] float animated_drag_progress() const;
     void animate_hover(float target);
@@ -134,6 +141,7 @@ class Scrollbar final : public Control {
     float drag_thumb_offset_ = 0.0F;
     bool dragging_ = false;
     bool container_mode_ = false;
+    bool noresize_ = false;
     bool track_click_enabled_ = true;
     ScrollbarOrientation dragging_orientation_ = ScrollbarOrientation::Vertical;
     bool top_end_reported_ = false;
