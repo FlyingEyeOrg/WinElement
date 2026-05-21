@@ -1880,7 +1880,7 @@ int run_profiled_showcase_window(std::string_view label, bool scroll_to_bottom) 
         print_process_memory(label_text + " after render");
         trim_process_working_set();
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
-        print_process_memory(label_text + " after working-set trim");
+        print_process_memory(label_text + " after forced working-set trim");
         window.close();
     });
 

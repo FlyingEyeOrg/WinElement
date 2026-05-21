@@ -16,13 +16,7 @@
 namespace winelement::platform::win32 {
 namespace {
 
-constexpr auto idle_memory_trim_delay = std::chrono::milliseconds(1200);
-constexpr auto active_working_set_trim_interval = std::chrono::milliseconds(2000);
-
-void trim_process_working_set() noexcept {
-    static_cast<void>(SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1),
-                                               static_cast<SIZE_T>(-1)));
-}
+constexpr auto idle_memory_trim_delay = std::chrono::milliseconds(3000);
 
 class ResourceUploadReplayCache final {
   public:
@@ -307,7 +301,6 @@ void WindowRenderWorker::run() noexcept {
     std::unique_ptr<D3D11CompositionSurface> surface;
     ResourceUploadReplayCache cached_uploads;
     auto idle_trim_pending = false;
-    auto last_active_working_set_trim_at = std::chrono::steady_clock::now();
 
     for (;;) {
         Job job;
@@ -344,7 +337,6 @@ void WindowRenderWorker::run() noexcept {
         if (trim_idle_resources) {
             try {
                 surface->trim_idle_resources();
-                trim_process_working_set();
             } catch (...) {
             }
             continue;
@@ -427,19 +419,6 @@ void WindowRenderWorker::run() noexcept {
         complete_job(job, job_result);
         if (job_result == RenderJobResult::Failed) {
             request_repaint();
-        }
-        if (trim_memory_on_idle_ && job.kind == JobKind::Render) {
-            auto has_queued_jobs = false;
-            {
-                const std::scoped_lock lock(mutex_);
-                has_queued_jobs = !jobs_.empty();
-            }
-            const auto now = std::chrono::steady_clock::now();
-            if (!has_queued_jobs &&
-                now - last_active_working_set_trim_at >= active_working_set_trim_interval) {
-                trim_process_working_set();
-                last_active_working_set_trim_at = now;
-            }
         }
         if (trim_memory_on_idle_ && surface != nullptr) {
             idle_trim_pending = true;
