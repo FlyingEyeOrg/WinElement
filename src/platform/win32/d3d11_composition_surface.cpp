@@ -446,7 +446,7 @@ class D3D11CompositionSurface::Impl final {
         swap_chain_description.BufferCount = 2;
         swap_chain_description.Scaling = DXGI_SCALING_STRETCH;
         swap_chain_description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-        swap_chain_description.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+        swap_chain_description.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
 
         Microsoft::WRL::ComPtr<IDXGISwapChain1> temp_swap_chain;
         result = dxgi_factory->CreateSwapChainForComposition(

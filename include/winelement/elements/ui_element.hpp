@@ -389,6 +389,8 @@ class UIElement {
     void mark_paint_dirty_subtree() noexcept;
     void mark_descendant_paint_dirty() noexcept;
     void mark_descendant_layout_dirty() noexcept;
+    void record_pending_visual_dirty_bounds() noexcept;
+    void invalidate_visual();
     void offset_top_layer_entries_for_logical_owner_delta(layout::Point delta,
                                                           std::uint64_t generation) noexcept;
     void clear_paint_dirty_subtree_unchecked() noexcept;
@@ -418,6 +420,7 @@ class UIElement {
         rendering::RenderNode& parent,
         const std::shared_ptr<rendering::PreparedRenderCache>& prepared_cache) const;
     void discard_cached_render_commands_subtree() const noexcept;
+    [[nodiscard]] bool should_cache_render_command_subtree() const noexcept;
     [[nodiscard]] bool has_render_layer() const noexcept;
     [[nodiscard]] rendering::RenderLayerOptions render_layer_options() const noexcept;
     void calculate_top_layer_layouts(layout::LayoutConstraints constraints,

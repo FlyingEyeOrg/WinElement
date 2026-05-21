@@ -62,6 +62,7 @@ constexpr auto glyph_atlas_width = 1024U;
 constexpr auto glyph_atlas_height = 1024U;
 constexpr auto glyph_atlas_padding = 2U;
 constexpr auto glyph_atlas_bytes_per_pixel = 4U;
+constexpr auto render_worker_text_layout_cache_entries = 128U;
 constexpr auto geometry_epsilon = 0.0001F;
 constexpr auto contour_cleanup_epsilon = 0.001F;
 constexpr auto geometry_flattening_tolerance = 0.01F;
@@ -484,7 +485,7 @@ dirty_clips_for_layer(std::span<const D3D11RenderDirtyClip> parent_clips,
     thread_local rendering::TextEngine engine;
     thread_local bool configured = false;
     if (!configured) {
-        engine.set_max_cached_layouts(12U);
+        engine.set_max_cached_layouts(render_worker_text_layout_cache_entries);
         configured = true;
     }
     return engine;

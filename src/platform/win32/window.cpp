@@ -78,7 +78,9 @@ constexpr UINT_PTR caret_blink_timer_id = 0x574DU;
 constexpr UINT_PTR animation_frame_timer_id = 0x574EU;
 constexpr UINT caret_blink_timer_interval_ms = 500U;
 constexpr UINT animation_timer_resolution_ms = 1U;
-constexpr auto window_max_compositor_promotions = 12U;
+// DirectCompositionBridge currently binds the swap chain only; promotion candidates are advisory
+// until promoted backing surfaces are implemented. Avoid the per-frame full-scene DFS in windows.
+constexpr auto window_max_compositor_promotions = 0U;
 constexpr auto window_minimum_compositor_promotion_area = 8192.0F;
 
 [[nodiscard]] rendering::CompositorPromotionOptions window_compositor_promotion_options() noexcept {
@@ -88,6 +90,7 @@ constexpr auto window_minimum_compositor_promotion_area = 8192.0F;
                                                  .include_stable_layers = false};
 }
 constexpr auto animation_frame_interval = std::chrono::nanoseconds{16'666'667};
+constexpr auto interactive_resize_frame_interval = animation_frame_interval;
 constexpr UINT native_text_command_cut_id = 0x7310U;
 constexpr UINT native_text_command_copy_id = 0x7311U;
 constexpr UINT native_text_command_paste_id = 0x7312U;
@@ -135,6 +138,7 @@ struct UiFrameRequest {
     layout::LayoutConstraints layout_constraints{};
     std::uint32_t target_pixel_width = 1U;
     std::uint32_t target_pixel_height = 1U;
+    bool tick_animations = true;
 };
 
 [[nodiscard]] std::runtime_error make_win32_error(std::string_view message) {
@@ -594,10 +598,13 @@ class Window::Impl final {
         switch (message) {
         case WM_ENTERSIZEMOVE:
             interactive_resize_ = true;
+            begin_interactive_resize();
             return 0;
         case WM_EXITSIZEMOVE:
             interactive_resize_ = false;
+            last_interactive_resize_flush_at_ = {};
             apply_resize_now();
+            resume_animation_after_interactive_resize();
             return 0;
         case WM_SIZE:
             on_resize();
@@ -816,7 +823,7 @@ class Window::Impl final {
     }
 
     void arm_animation_repaint_timer() noexcept {
-        if (hwnd_ == nullptr) {
+        if (hwnd_ == nullptr || interactive_resize_) {
             animation_repaint_pending_.store(false, std::memory_order_release);
             release_animation_timer_resolution();
             return;
@@ -898,6 +905,7 @@ class Window::Impl final {
             request.layout_constraints.height = layout_size.height;
             request.target_pixel_width = target_pixel_size.width;
             request.target_pixel_height = target_pixel_size.height;
+            request.tick_animations = !interactive_resize_;
 
             if (interactive_resize_) {
                 cancel_pending_ui_frame();
@@ -1008,27 +1016,32 @@ class Window::Impl final {
             if (content_ != nullptr) {
                 detail::UIElementThreadAccessScope access_scope(*content_,
                                                                 std::this_thread::get_id());
-                animations_active = content_->tick_animations();
+                if (request.tick_animations) {
+                    animations_active = content_->tick_animations();
+                }
                 if (content_->needs_layout()) {
                     content_->calculate_layout(request.layout_constraints);
                 }
                 render_cache_.commit_if_needed(*content_, request.dirty_region);
             }
 
-            auto frame = win32::RenderFrame{.clear_color = rendering::Color::rgba(255, 255, 255),
-                                            .dirty_region = std::move(request.dirty_region),
-                                            .render_scene = render_cache_.snapshot(),
-                                            .promotion_plan = render_cache_.promotion_plan(),
-                                            .frame_graph = render_cache_.frame_graph(),
-                                            .target_pixel_width = request.target_pixel_width,
-                                            .target_pixel_height = request.target_pixel_height};
-            if (wait_for_render) {
-                const auto result = render_worker_->render_sync(std::move(frame));
-                if (result != win32::RenderJobResult::Completed) {
-                    request_repaint_from_any_thread();
+            if (!request.dirty_region.empty()) {
+                auto frame =
+                    win32::RenderFrame{.clear_color = rendering::Color::rgba(255, 255, 255),
+                                       .dirty_region = std::move(request.dirty_region),
+                                       .render_scene = render_cache_.snapshot(),
+                                       .promotion_plan = render_cache_.promotion_plan(),
+                                       .frame_graph = render_cache_.frame_graph(),
+                                       .target_pixel_width = request.target_pixel_width,
+                                       .target_pixel_height = request.target_pixel_height};
+                if (wait_for_render) {
+                    const auto result = render_worker_->render_sync(std::move(frame));
+                    if (result != win32::RenderJobResult::Completed) {
+                        request_repaint_from_any_thread();
+                    }
+                } else {
+                    render_worker_->render(std::move(frame));
                 }
-            } else {
-                render_worker_->render(std::move(frame));
             }
         } catch (...) {
             std::unique_lock lock(ui_tree_mutex_, std::defer_lock);
@@ -1159,11 +1172,32 @@ class Window::Impl final {
             }
         }
         request_repaint();
-        if (hwnd_ != nullptr) {
+        const auto now = std::chrono::steady_clock::now();
+        const auto should_flush =
+            !interactive_resize_ ||
+            last_interactive_resize_flush_at_ == std::chrono::steady_clock::time_point{} ||
+            now - last_interactive_resize_flush_at_ >= interactive_resize_frame_interval;
+        if (hwnd_ != nullptr && should_flush) {
+            last_interactive_resize_flush_at_ = now;
             // Flush the invalidated paint during the modal size loop so layout changes
-            // track the client rect without waiting for another message turn.
+            // track the client rect, but do not render every raw WM_SIZE while dragging.
             UpdateWindow(hwnd_);
         }
+    }
+
+    void begin_interactive_resize() noexcept {
+        last_interactive_resize_flush_at_ = {};
+        animation_repaint_pending_.store(false, std::memory_order_release);
+        next_animation_repaint_at_ = {};
+        if (hwnd_ != nullptr) {
+            KillTimer(hwnd_, animation_frame_timer_id);
+        }
+        release_animation_timer_resolution();
+    }
+
+    void resume_animation_after_interactive_resize() noexcept {
+        next_animation_repaint_at_ = {};
+        request_animation_repaint_from_any_thread();
     }
 
     void on_dpi_changed(WPARAM wparam, LPARAM lparam) {
@@ -1221,6 +1255,7 @@ class Window::Impl final {
                 request.layout_constraints.height = layout_size.height;
                 request.target_pixel_width = target_pixel_size.width;
                 request.target_pixel_height = target_pixel_size.height;
+                request.tick_animations = !interactive_resize_;
                 if (interactive_resize_) {
                     cancel_pending_ui_frame();
                     prepare_ui_frame(std::move(request), true);
@@ -1653,6 +1688,7 @@ class Window::Impl final {
     std::atomic_bool repaint_requested_ = false;
     std::atomic_bool animation_repaint_pending_ = false;
     std::chrono::steady_clock::time_point next_animation_repaint_at_{};
+    std::chrono::steady_clock::time_point last_interactive_resize_flush_at_{};
     HMODULE winmm_module_ = nullptr;
     TimePeriodProc time_begin_period_ = nullptr;
     TimePeriodProc time_end_period_ = nullptr;

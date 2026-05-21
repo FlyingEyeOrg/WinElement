@@ -66,6 +66,14 @@ class RenderObject final {
         overlay_commands_.store(std::move(commands), generation);
     }
 
+    void clear_content() noexcept {
+        content_commands_.clear();
+    }
+
+    void clear_overlay() noexcept {
+        overlay_commands_.clear();
+    }
+
     void invalidate_commands() noexcept {
         content_commands_.invalidate();
         overlay_commands_.invalidate();

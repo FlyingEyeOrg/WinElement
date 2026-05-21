@@ -23,6 +23,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace winelement::rendering {
 namespace {
@@ -414,10 +415,18 @@ struct ResolvedFontFace {
         static std::mutex cache_mutex;
         static std::unordered_map<FontFaceFamilyCacheKey, std::string, FontFaceFamilyCacheKeyHash>
             family_cache;
+        static std::vector<FontFaceFamilyCacheKey> family_cache_lru;
         const auto key = FontFaceFamilyCacheKey{.face = face, .locale = std::string(locale)};
         {
             const std::scoped_lock lock(cache_mutex);
             if (const auto cached = family_cache.find(key); cached != family_cache.end()) {
+                if (const auto entry =
+                        std::find(family_cache_lru.begin(), family_cache_lru.end(), key);
+                    entry != family_cache_lru.end() && std::next(entry) != family_cache_lru.end()) {
+                    auto touched_key = std::move(*entry);
+                    family_cache_lru.erase(entry);
+                    family_cache_lru.push_back(std::move(touched_key));
+                }
                 return cached->second;
             }
         }
@@ -450,10 +459,16 @@ struct ResolvedFontFace {
         {
             const std::scoped_lock lock(cache_mutex);
             constexpr auto max_cached_faces = 512U;
-            if (family_cache.size() >= max_cached_faces) {
-                family_cache.clear();
+            const auto [entry, inserted] = family_cache.emplace(key, family_name);
+            if (inserted) {
+                family_cache_lru.push_back(key);
+            } else {
+                entry->second = family_name;
             }
-            family_cache.emplace(key, family_name);
+            while (family_cache.size() > max_cached_faces && !family_cache_lru.empty()) {
+                family_cache.erase(family_cache_lru.front());
+                family_cache_lru.erase(family_cache_lru.begin());
+            }
         }
         return family_name;
     } catch (...) {
@@ -1375,9 +1390,16 @@ TextLayout TextEngine::layout_text(std::string_view text, const TextStyle& style
     validate_layout_options(options);
     {
         const std::scoped_lock lock(cache_mutex_);
-        for (const auto& entry : cache_) {
+        for (auto index = cache_.size(); index > 0U; --index) {
+            auto& entry = cache_[index - 1U];
             if (entry.text == text && entry.style == style && entry.options == options) {
-                return entry.layout;
+                auto layout = entry.layout;
+                if (index != cache_.size()) {
+                    auto touched_entry = std::move(entry);
+                    cache_.erase(cache_.begin() + static_cast<std::ptrdiff_t>(index - 1U));
+                    cache_.push_back(std::move(touched_entry));
+                }
+                return layout;
             }
         }
     }
@@ -1986,6 +2008,9 @@ void TextEngine::clear_font_cache() const {
 void TextEngine::set_max_cached_layouts(std::size_t max_cached_layouts) {
     const std::scoped_lock lock(cache_mutex_);
     max_cached_layouts_ = max_cached_layouts;
+    if (cache_.capacity() < max_cached_layouts_) {
+        cache_.reserve(max_cached_layouts_);
+    }
     while (cache_.size() > max_cached_layouts_) {
         cache_.erase(cache_.begin());
     }

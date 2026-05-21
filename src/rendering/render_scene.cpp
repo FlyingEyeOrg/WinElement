@@ -11,6 +11,12 @@
 namespace winelement::rendering {
 namespace {
 
+#if defined(NDEBUG) && !defined(WINELEMENT_ENABLE_RENDER_DEBUG_NAMES)
+constexpr auto render_debug_names_enabled = false;
+#else
+constexpr auto render_debug_names_enabled = true;
+#endif
+
 template <typename Value> void hash_combine(std::size_t& seed, const Value& value) noexcept {
     seed ^= std::hash<Value>{}(value) + 0x9E3779B9U + (seed << 6U) + (seed >> 2U);
 }
@@ -162,6 +168,9 @@ void append_command(RenderCommandRecorder& recorder, const RenderCommandList& so
 
 [[nodiscard]] std::string debug_child_name(std::string_view parent_name, std::string_view kind,
                                            std::size_t index) {
+    if constexpr (!render_debug_names_enabled) {
+        return {};
+    }
     if (parent_name.empty()) {
         return {};
     }
@@ -176,9 +185,19 @@ void append_command(RenderCommandRecorder& recorder, const RenderCommandList& so
     return name;
 }
 
+[[nodiscard]] std::string render_debug_name(std::string_view name) {
+    if constexpr (!render_debug_names_enabled) {
+        return {};
+    }
+    if (name.empty()) {
+        return {};
+    }
+    return std::string{name};
+}
+
 [[nodiscard]] RenderNode parse_retained_node(const RenderCommandList& source, std::size_t& index,
                                              bool stop_on_pop_layer, std::string_view debug_name) {
-    RenderNode node{.kind = RenderNodeKind::Picture, .debug_name = std::string{debug_name}};
+    RenderNode node{.kind = RenderNodeKind::Picture, .debug_name = render_debug_name(debug_name)};
     RenderCommandRecorder picture_recorder(source.prepared_cache());
     auto picture_index = std::size_t{0};
     auto layer_index = std::size_t{0};
@@ -352,9 +371,10 @@ void RenderScene::set_root(RenderNode root) {
     root_ = std::make_unique<RenderNode>(std::move(root));
 }
 
-RenderNode render_node_from_commands(RenderCommandList command_list, std::string debug_name) {
+RenderNode render_node_from_commands(RenderCommandList command_list, std::string_view debug_name) {
     if (command_list.empty()) {
-        return RenderNode{.kind = RenderNodeKind::Picture, .debug_name = std::move(debug_name)};
+        return RenderNode{.kind = RenderNodeKind::Picture,
+                          .debug_name = render_debug_name(debug_name)};
     }
 
     const auto fingerprint = command_list.fingerprint();
@@ -363,14 +383,14 @@ RenderNode render_node_from_commands(RenderCommandList command_list, std::string
     auto index = std::size_t{0};
     auto root = parse_retained_node(command_list, index, false, debug_name);
     root.bounds = bounds;
-    root.debug_name = debug_name;
+    root.debug_name = render_debug_name(debug_name);
     root.fingerprint = fingerprint;
 
     if (root.children.size() == 1U && root.children.front().kind == RenderNodeKind::Picture &&
         root.children.front().children.empty()) {
         auto only_picture = std::move(root.children.front());
         only_picture.bounds = bounds;
-        only_picture.debug_name = std::move(debug_name);
+        only_picture.debug_name = render_debug_name(debug_name);
         only_picture.fingerprint = fingerprint;
         return only_picture;
     }
@@ -378,7 +398,7 @@ RenderNode render_node_from_commands(RenderCommandList command_list, std::string
     return root;
 }
 
-void RenderScene::update_from_commands(RenderCommandList command_list, std::string debug_name) {
+void RenderScene::update_from_commands(RenderCommandList command_list, std::string_view debug_name) {
     if (command_list.empty()) {
         clear();
         return;
@@ -397,7 +417,7 @@ void RenderScene::update_from_commands(RenderCommandList command_list, std::stri
                                                      command_count_ / 4U + 1U));
         collect_reusable_nodes(*root_, previous_nodes);
     }
-    auto next_root = render_node_from_commands(std::move(command_list), std::move(debug_name));
+    auto next_root = render_node_from_commands(std::move(command_list), debug_name);
     if (!previous_nodes.empty()) {
         reuse_matching_nodes(next_root, previous_nodes);
     }

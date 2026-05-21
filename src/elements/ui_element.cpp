@@ -30,6 +30,7 @@ TextInputHandler::~TextInputHandler() = default;
 namespace {
 
 constexpr auto default_scroll_wheel_step = 48.0F;
+constexpr auto ui_text_layout_cache_entries = 128U;
 
 std::uint64_t next_local_theme_generation() noexcept {
     static std::atomic_uint64_t generation{std::uint64_t{1} << 63U};
@@ -1438,9 +1439,10 @@ UIElement& UIElement::set_opacity(float opacity) {
     }
 
     detach_theme_management();
+    record_pending_visual_dirty_bounds();
     visual.opacity = normalized_opacity;
     mutable_style_value().visual = visual;
-    invalidate_paint();
+    invalidate_visual();
     return *this;
 }
 
@@ -1462,18 +1464,11 @@ UIElement& UIElement::set_render_transform(rendering::Transform2D transform) {
         return *this;
     }
 
-    if (layout_generation_ != 0U) {
-        const auto previous_bounds = visible_subtree_bounds();
-        pending_visual_dirty_bounds_ =
-            pending_visual_dirty_bounds_.has_value()
-                ? layout::union_rects(*pending_visual_dirty_bounds_, previous_bounds)
-                : previous_bounds;
-    }
-
     detach_theme_management();
+    record_pending_visual_dirty_bounds();
     visual.transform = transform;
     mutable_style_value().visual = visual;
-    invalidate_paint();
+    invalidate_visual();
     return *this;
 }
 
@@ -1491,9 +1486,10 @@ UIElement& UIElement::set_layer_enabled(bool enabled) {
     }
 
     detach_theme_management();
+    record_pending_visual_dirty_bounds();
     visual.layer_enabled = enabled;
     mutable_style_value().visual = visual;
-    invalidate_paint();
+    invalidate_visual();
     return *this;
 }
 
@@ -2416,6 +2412,16 @@ void UIElement::invalidate_paint() {
     }
 }
 
+void UIElement::invalidate_visual() {
+    verify_thread_access();
+
+    needs_paint_ = true;
+
+    if (parent_ != nullptr && !parent_->needs_paint_) {
+        parent_->mark_descendant_paint_dirty();
+    }
+}
+
 void UIElement::clear_paint_dirty() {
     verify_thread_access();
 
@@ -2571,8 +2577,10 @@ void UIElement::commit_render_scene(rendering::RenderScene& scene,
         collect_paint_dirty_region_subtree(*dirty_region);
     }
 
-    auto root = rendering::RenderNode{.kind = rendering::RenderNodeKind::Picture,
-                                      .debug_name = "window.content"};
+    auto root = rendering::RenderNode{.kind = rendering::RenderNodeKind::Picture};
+#if !defined(NDEBUG) || defined(WINELEMENT_ENABLE_RENDER_DEBUG_NAMES)
+    root.debug_name = "window.content";
+#endif
     const auto prepared_cache = scene.prepared_cache();
     append_content_scene_subtree(root, nullptr, prepared_cache);
     append_overlay_scene_subtree(root, nullptr, prepared_cache);
@@ -2846,6 +2854,18 @@ void UIElement::mark_descendant_layout_dirty() noexcept {
     }
 }
 
+void UIElement::record_pending_visual_dirty_bounds() noexcept {
+    if (layout_generation_ == 0U) {
+        return;
+    }
+
+    const auto previous_bounds = visible_subtree_bounds();
+    pending_visual_dirty_bounds_ =
+        pending_visual_dirty_bounds_.has_value()
+            ? layout::union_rects(*pending_visual_dirty_bounds_, previous_bounds)
+            : previous_bounds;
+}
+
 void UIElement::offset_top_layer_entries_for_logical_owner_delta(
     layout::Point delta, std::uint64_t generation) noexcept {
     if ((delta.x == 0.0F && delta.y == 0.0F) || !std::isfinite(delta.x) ||
@@ -2909,15 +2929,17 @@ void UIElement::collect_paint_dirty_region_subtree(rendering::DirtyRegion& dirty
         return;
     }
 
+    const auto has_pending_visual_dirty = pending_visual_dirty_bounds_.has_value();
+    if (has_pending_visual_dirty) {
+        dirty_region.add(*pending_visual_dirty_bounds_);
+    }
+
     if (self_needs_paint_) {
-        if (pending_visual_dirty_bounds_.has_value()) {
-            dirty_region.add(*pending_visual_dirty_bounds_);
-        }
         dirty_region.add(visible_subtree_bounds());
         return;
     }
 
-    if (has_render_layer() && needs_paint_) {
+    if (needs_paint_ && (has_render_layer() || has_pending_visual_dirty)) {
         dirty_region.add(visible_subtree_bounds());
         return;
     }
@@ -3148,7 +3170,9 @@ void UIElement::append_content_commands_subtree(rendering::RenderCommandRecorder
     }
 
     auto& render_object = ensure_render_state().render_object;
-    if (render_object.can_reuse_content(layout_generation_, needs_paint_)) {
+    const auto cache_subtree_commands = should_cache_render_command_subtree();
+    if (cache_subtree_commands &&
+        render_object.can_reuse_content(layout_generation_, needs_paint_)) {
         recorder.append(render_object.content_commands());
         return;
     }
@@ -3179,8 +3203,14 @@ void UIElement::append_content_commands_subtree(rendering::RenderCommandRecorder
         subtree_recorder.pop_layer();
     }
 
-    render_object.store_content(subtree_recorder.take_command_list(), layout_generation_);
-    recorder.append(render_object.content_commands());
+    auto subtree_commands = subtree_recorder.take_command_list();
+    if (cache_subtree_commands) {
+        render_object.store_content(std::move(subtree_commands), layout_generation_);
+        recorder.append(render_object.content_commands());
+    } else {
+        render_object.clear_content();
+        recorder.append(std::move(subtree_commands));
+    }
 }
 
 void UIElement::append_overlay_commands_subtree(rendering::RenderCommandRecorder& recorder) const {
@@ -3189,7 +3219,9 @@ void UIElement::append_overlay_commands_subtree(rendering::RenderCommandRecorder
     }
 
     auto& render_object = ensure_render_state().render_object;
-    if (render_object.can_reuse_overlay(layout_generation_, needs_paint_)) {
+    const auto cache_subtree_commands = should_cache_render_command_subtree();
+    if (cache_subtree_commands &&
+        render_object.can_reuse_overlay(layout_generation_, needs_paint_)) {
         recorder.append(render_object.overlay_commands());
         return;
     }
@@ -3214,8 +3246,14 @@ void UIElement::append_overlay_commands_subtree(rendering::RenderCommandRecorder
         subtree_recorder.pop_clip();
     }
 
-    render_object.store_overlay(subtree_recorder.take_command_list(), layout_generation_);
-    recorder.append(render_object.overlay_commands());
+    auto subtree_commands = subtree_recorder.take_command_list();
+    if (cache_subtree_commands) {
+        render_object.store_overlay(std::move(subtree_commands), layout_generation_);
+        recorder.append(render_object.overlay_commands());
+    } else {
+        render_object.clear_overlay();
+        recorder.append(std::move(subtree_commands));
+    }
 }
 
 void UIElement::append_content_scene_subtree(
@@ -3231,7 +3269,9 @@ void UIElement::append_content_scene_subtree(
     }
 
     auto& render_object = ensure_render_state().render_object;
-    if (render_object.can_reuse_content(layout_generation_, needs_paint_)) {
+    const auto cache_subtree_commands = should_cache_render_command_subtree();
+    if (cache_subtree_commands &&
+        render_object.can_reuse_content(layout_generation_, needs_paint_)) {
         if (parent_recorder != nullptr) {
             parent_recorder->append(render_object.content_commands());
         }
@@ -3298,9 +3338,19 @@ void UIElement::append_content_scene_subtree(
         subtree_recorder.pop_layer();
     }
 
-    render_object.store_content(subtree_recorder.take_command_list(), layout_generation_);
+    auto subtree_commands = subtree_recorder.take_command_list();
     if (parent_recorder != nullptr) {
-        parent_recorder->append(render_object.content_commands());
+        if (cache_subtree_commands) {
+            render_object.store_content(std::move(subtree_commands), layout_generation_);
+            parent_recorder->append(render_object.content_commands());
+        } else {
+            render_object.clear_content();
+            parent_recorder->append(std::move(subtree_commands));
+        }
+    } else if (cache_subtree_commands) {
+        render_object.store_content(std::move(subtree_commands), layout_generation_);
+    } else {
+        render_object.clear_content();
     }
 
     refresh_scene_node_metadata(node);
@@ -3322,7 +3372,9 @@ void UIElement::append_overlay_scene_subtree(
     }
 
     auto& render_object = ensure_render_state().render_object;
-    if (render_object.can_reuse_overlay(layout_generation_, needs_paint_)) {
+    const auto cache_subtree_commands = should_cache_render_command_subtree();
+    if (cache_subtree_commands &&
+        render_object.can_reuse_overlay(layout_generation_, needs_paint_)) {
         if (parent_recorder != nullptr) {
             parent_recorder->append(render_object.overlay_commands());
         }
@@ -3374,9 +3426,19 @@ void UIElement::append_overlay_scene_subtree(
         }
     }
 
-    render_object.store_overlay(subtree_recorder.take_command_list(), layout_generation_);
+    auto subtree_commands = subtree_recorder.take_command_list();
     if (parent_recorder != nullptr) {
-        parent_recorder->append(render_object.overlay_commands());
+        if (cache_subtree_commands) {
+            render_object.store_overlay(std::move(subtree_commands), layout_generation_);
+            parent_recorder->append(render_object.overlay_commands());
+        } else {
+            render_object.clear_overlay();
+            parent_recorder->append(std::move(subtree_commands));
+        }
+    } else if (cache_subtree_commands) {
+        render_object.store_overlay(std::move(subtree_commands), layout_generation_);
+    } else {
+        render_object.clear_overlay();
     }
 
     refresh_scene_node_metadata(node);
@@ -3473,6 +3535,11 @@ void UIElement::discard_cached_render_commands_subtree() const noexcept {
             entry.element->discard_cached_render_commands_subtree();
         }
     }
+}
+
+bool UIElement::should_cache_render_command_subtree() const noexcept {
+    return children_.empty() || has_render_layer() || repaint_boundary() ||
+           !top_layer_manager_.entries().empty();
 }
 
 bool UIElement::has_render_layer() const noexcept {
@@ -4125,7 +4192,7 @@ rendering::TextEngine& UIElement::text_engine() const {
     thread_local rendering::TextEngine engine;
     thread_local bool configured = false;
     if (!configured) {
-        engine.set_max_cached_layouts(12U);
+        engine.set_max_cached_layouts(ui_text_layout_cache_entries);
         configured = true;
     }
     return engine;

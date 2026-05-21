@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace winelement::rendering {
@@ -60,7 +61,7 @@ class RenderScene final {
 
     void clear() noexcept;
     void set_root(RenderNode root);
-    void update_from_commands(RenderCommandList command_list, std::string debug_name = {});
+    void update_from_commands(RenderCommandList command_list, std::string_view debug_name = {});
 
     [[nodiscard]] bool empty() const noexcept;
     [[nodiscard]] const RenderNode* root() const noexcept;
@@ -76,6 +77,6 @@ class RenderScene final {
 };
 
 [[nodiscard]] RenderNode render_node_from_commands(RenderCommandList command_list,
-                                                   std::string debug_name = {});
+                                                   std::string_view debug_name = {});
 
 } // namespace winelement::rendering
