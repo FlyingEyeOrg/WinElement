@@ -5,6 +5,7 @@
 #include <winelement/style/ui_element_style.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -81,8 +82,11 @@ class ItemsControl final : public Control {
     void rebuild_children();
     void update_container(elements::UIElement& container, std::size_t item_index);
     void update_realized_children();
+    void refresh_realized_containers();
     void select_index_from_item(std::size_t index);
     void reorder_from_item(std::size_t from_index, std::size_t to_index);
+    void prune_selection_to_item_count();
+    [[nodiscard]] std::optional<std::size_t> first_selected_multi_index() const noexcept;
     [[nodiscard]] bool is_index_selected(std::size_t index) const;
     [[nodiscard]] std::unique_ptr<elements::UIElement> create_item_content(ItemContext context);
     [[nodiscard]] std::unique_ptr<ItemsControlItemContainer> take_reusable_container();
@@ -104,6 +108,7 @@ class ItemsControl final : public Control {
     bool virtualized_ = false;
     VirtualizationPlanner virtualization_planner_;
     std::size_t reusable_container_limit_ = 64U;
+    std::uint64_t items_revision_ = 0;
 };
 
 } // namespace winelement::controls

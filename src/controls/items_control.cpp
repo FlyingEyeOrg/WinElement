@@ -37,6 +37,33 @@ class ItemsControlItemContainer final : public elements::UIElement {
             invalidate_paint();
         }
     }
+    [[nodiscard]] bool needs_content_update(std::size_t item_index, std::string_view item_value,
+                                            bool selected,
+                                            std::uint64_t items_revision) const noexcept {
+        return item_index_ != item_index || item_value_ != item_value || selected_ != selected ||
+               content_revision_ != items_revision;
+    }
+    void commit_content_metadata(std::size_t item_index, std::string_view item_value, bool selected,
+                                 std::uint64_t items_revision) {
+        item_index_ = item_index;
+        item_value_ = std::string(item_value);
+        selected_ = selected;
+        content_revision_ = items_revision;
+    }
+    void reset_for_reuse() {
+        const auto had_visual_state = selected_ || hovered_ || pressed_;
+        item_index_ = 0U;
+        item_value_.clear();
+        content_revision_ = static_cast<std::uint64_t>(-1);
+        selected_ = false;
+        hovered_ = false;
+        pressed_ = false;
+        release_pointer_capture();
+        clear_children();
+        if (had_visual_state) {
+            invalidate_paint();
+        }
+    }
 
   protected:
     void on_pointer_event(elements::PointerEvent& event) override {
@@ -112,12 +139,12 @@ class ItemsControlItemContainer final : public elements::UIElement {
     void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override {
         const auto style = owner_.style();
         const auto radius = rendering::CornerRadius::uniform(6.0F);
-        const auto hover_background = rendering::Color::rgba(style.hover_background.red,
-                                                             style.hover_background.green,
-                                                             style.hover_background.blue, 132);
-        const auto active_background = rendering::Color::rgba(style.active_background.red,
-                                                              style.active_background.green,
-                                                              style.active_background.blue, 188);
+        const auto hover_background =
+            rendering::Color::rgba(style.hover_background.red, style.hover_background.green,
+                                   style.hover_background.blue, 132);
+        const auto active_background =
+            rendering::Color::rgba(style.active_background.red, style.active_background.green,
+                                   style.active_background.blue, 188);
         if (pressed_) {
             context.fill_rounded_rect(absolute_frame, radius, active_background);
         } else if (selected_) {
@@ -127,10 +154,10 @@ class ItemsControlItemContainer final : public elements::UIElement {
         }
 
         if (selected_ || focused() || hovered_) {
-            context.stroke_rounded_rect(
-                absolute_frame, radius, selected_ || focused() ? style.focus_border_color
+            context.stroke_rounded_rect(absolute_frame, radius,
+                                        selected_ || focused() ? style.focus_border_color
                                                                : style.border_color,
-                std::max(style.border_width, 1.0F));
+                                        std::max(style.border_width, 1.0F));
         }
     }
 
@@ -149,6 +176,8 @@ class ItemsControlItemContainer final : public elements::UIElement {
 
     ItemsControl& owner_;
     std::size_t item_index_ = 0;
+    std::string item_value_;
+    std::uint64_t content_revision_ = static_cast<std::uint64_t>(-1);
     bool selected_ = false;
     bool hovered_ = false;
     bool pressed_ = false;
@@ -177,16 +206,8 @@ ItemsControl::~ItemsControl() = default;
 ItemsControl& ItemsControl::set_items(std::vector<std::string> items) {
     items_source_ = nullptr;
     items_ = std::move(items);
-    if (selected_index_ && *selected_index_ >= items_.size()) {
-        selected_index_.reset();
-    }
-    for (auto iterator = selected_indices_.begin(); iterator != selected_indices_.end();) {
-        if (*iterator >= items_.size()) {
-            iterator = selected_indices_.erase(iterator);
-        } else {
-            ++iterator;
-        }
-    }
+    ++items_revision_;
+    prune_selection_to_item_count();
     rebuild_children();
     return *this;
 }
@@ -198,6 +219,7 @@ ItemsControl& ItemsControl::bind_items(ItemsSource source) {
 
 ItemsControl& ItemsControl::set_item_factory(ItemFactory factory) {
     item_factory_ = std::move(factory);
+    ++items_revision_;
     rebuild_children();
     return *this;
 }
@@ -206,12 +228,36 @@ ItemsControl& ItemsControl::set_selection_mode(SelectionMode mode) {
     if (selection_mode_ == mode) {
         return *this;
     }
+    const auto previous_mode = selection_mode_;
+    const auto previous_selected_index = selected_index_;
+    const auto previous_selected_indices = selected_indices();
     selection_mode_ = mode;
+
     if (selection_mode_ == SelectionMode::None) {
-        set_selected_index(std::nullopt);
-        set_selected_indices({});
+        selected_index_.reset();
+        selected_indices_.clear();
+    } else if (selection_mode_ == SelectionMode::Single) {
+        if (previous_mode == SelectionMode::Multiple) {
+            selected_index_ = first_selected_multi_index();
+        }
+        if (selected_index_ && *selected_index_ >= items_.size()) {
+            selected_index_.reset();
+        }
+        selected_indices_.clear();
     } else {
-        rebuild_children();
+        if (previous_mode == SelectionMode::Single && selected_index_ &&
+            *selected_index_ < items_.size()) {
+            selected_indices_.insert(*selected_index_);
+        }
+        prune_selection_to_item_count();
+    }
+
+    refresh_realized_containers();
+    if (multi_selection_changed_handler_ && previous_selected_indices != selected_indices()) {
+        multi_selection_changed_handler_(selected_indices());
+    }
+    if (selection_changed_handler_ && previous_selected_index != selected_index_) {
+        selection_changed_handler_(selected_index_);
     }
     return *this;
 }
@@ -225,17 +271,18 @@ ItemsControl& ItemsControl::set_selected_index(std::optional<std::size_t> index)
     if (index && *index >= items_.size()) {
         index.reset();
     }
-    if (selected_index_ == index) {
+    const auto clear_multi_selection = !selected_indices_.empty();
+    const auto previous_selected_index = selected_index_;
+    if (selected_index_ == index && !clear_multi_selection) {
         return *this;
     }
     selected_index_ = index;
-    for (std::size_t i = 0; i < child_count(); ++i) {
-        auto* container = dynamic_cast<ItemsControlItemContainer*>(&child_at(i));
-        if (container != nullptr) {
-            container->set_selected(is_index_selected(container->item_index()));
-        }
+    selected_indices_.clear();
+    refresh_realized_containers();
+    if (clear_multi_selection && multi_selection_changed_handler_) {
+        multi_selection_changed_handler_(selected_indices());
     }
-    if (selection_changed_handler_) {
+    if (selection_changed_handler_ && previous_selected_index != selected_index_) {
         selection_changed_handler_(selected_index_);
     }
     return *this;
@@ -243,28 +290,30 @@ ItemsControl& ItemsControl::set_selected_index(std::optional<std::size_t> index)
 
 ItemsControl& ItemsControl::set_selected_indices(std::vector<std::size_t> indices) {
     std::unordered_set<std::size_t> next;
+    std::vector<std::size_t> normalized_indices;
     if (selection_mode_ == SelectionMode::Multiple) {
+        std::sort(indices.begin(), indices.end());
+        indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+        normalized_indices.reserve(indices.size());
         for (const auto index : indices) {
             if (index < items_.size()) {
                 next.insert(index);
+                normalized_indices.push_back(index);
             }
         }
-    } else if (selection_mode_ == SelectionMode::Single && !indices.empty()) {
-        return set_selected_index(indices.front());
+    } else if (selection_mode_ == SelectionMode::Single) {
+        return set_selected_index(indices.empty() ? std::optional<std::size_t>{}
+                                                  : std::optional<std::size_t>{indices.front()});
     }
-    if (selected_indices_ == next) {
+    const auto next_selected_index = normalized_indices.empty()
+                                         ? std::optional<std::size_t>{}
+                                         : std::optional<std::size_t>{normalized_indices.front()};
+    if (selected_indices_ == next && selected_index_ == next_selected_index) {
         return *this;
     }
     selected_indices_ = std::move(next);
-    selected_index_ = selected_indices_.empty()
-                          ? std::optional<std::size_t>{}
-                          : std::optional<std::size_t>{*selected_indices_.begin()};
-    for (std::size_t i = 0; i < child_count(); ++i) {
-        auto* container = dynamic_cast<ItemsControlItemContainer*>(&child_at(i));
-        if (container != nullptr) {
-            container->set_selected(is_index_selected(container->item_index()));
-        }
-    }
+    selected_index_ = next_selected_index;
+    refresh_realized_containers();
     if (multi_selection_changed_handler_) {
         multi_selection_changed_handler_(selected_indices());
     }
@@ -350,16 +399,8 @@ ItemsControl& ItemsControl::clear_groups() {
 ItemsControl& ItemsControl::refresh_items() {
     if (items_source_) {
         items_ = items_source_();
-        if (selected_index_ && *selected_index_ >= items_.size()) {
-            selected_index_.reset();
-        }
-        for (auto iterator = selected_indices_.begin(); iterator != selected_indices_.end();) {
-            if (*iterator >= items_.size()) {
-                iterator = selected_indices_.erase(iterator);
-            } else {
-                ++iterator;
-            }
-        }
+        ++items_revision_;
+        prune_selection_to_item_count();
     }
     update_realized_children();
     return *this;
@@ -367,6 +408,7 @@ ItemsControl& ItemsControl::refresh_items() {
 
 ItemsControl& ItemsControl::set_style(style::UIElementStyle style) {
     apply_style_value(std::move(style), false);
+    refresh_realized_containers();
     return *this;
 }
 
@@ -410,8 +452,7 @@ std::size_t ItemsControl::realized_end_index() const noexcept {
 
 std::size_t ItemsControl::realized_count() const noexcept {
     const auto start = std::min(realized_start_index_, items_.size());
-    return virtualized_ ? std::min(realized_count_, items_.size() - start)
-                        : items_.size();
+    return virtualized_ ? std::min(realized_count_, items_.size() - start) : items_.size();
 }
 
 std::size_t ItemsControl::reusable_container_count() const noexcept {
@@ -431,17 +472,24 @@ void ItemsControl::rebuild_children() {
 
 void ItemsControl::update_container(elements::UIElement& element, std::size_t item_index) {
     auto& container = static_cast<ItemsControlItemContainer&>(element);
-    container.set_item_index(item_index);
     const auto selected = is_index_selected(item_index);
+    const auto item_value = std::string_view{items_[item_index].data(), items_[item_index].size()};
+    const auto rebuild_content =
+        container.needs_content_update(item_index, item_value, selected, items_revision_);
+    container.set_item_index(item_index);
     container.set_selected(selected);
     container.set_style(style_storage());
-    container.clear_children();
-    auto content = create_item_content(
-        ItemContext{.item = items_[item_index], .index = item_index, .selected = selected});
-    if (content) {
-        content->configure_layout(
-            [](layout::LayoutElement& item) { item.set_width(layout::Length::percent(100.0F)); });
-        container.append_child(std::move(content));
+    if (rebuild_content) {
+        container.clear_children();
+        auto content = create_item_content(
+            ItemContext{.item = item_value, .index = item_index, .selected = selected});
+        if (content) {
+            content->configure_layout([](layout::LayoutElement& item) {
+                item.set_width(layout::Length::percent(100.0F));
+            });
+            container.append_child(std::move(content));
+        }
+        container.commit_content_metadata(item_index, item_value, selected, items_revision_);
     }
 }
 
@@ -453,7 +501,7 @@ void ItemsControl::update_realized_children() {
     std::unordered_map<std::size_t, std::unique_ptr<elements::UIElement>> survivors;
     survivors.reserve(count);
     while (child_count() > 0U) {
-        auto child = remove_child_at(0U);
+        auto child = remove_child_at(child_count() - 1U);
         auto* container = dynamic_cast<ItemsControlItemContainer*>(child.get());
         if (container != nullptr && container->item_index() >= start &&
             container->item_index() < start + count) {
@@ -488,6 +536,15 @@ void ItemsControl::update_realized_children() {
     }
 }
 
+void ItemsControl::refresh_realized_containers() {
+    for (std::size_t i = 0; i < child_count(); ++i) {
+        auto* container = dynamic_cast<ItemsControlItemContainer*>(&child_at(i));
+        if (container != nullptr && container->item_index() < items_.size()) {
+            update_container(*container, container->item_index());
+        }
+    }
+}
+
 void ItemsControl::select_index_from_item(std::size_t index) {
     if (selection_mode_ == SelectionMode::Single) {
         set_selected_index(index);
@@ -510,6 +567,38 @@ void ItemsControl::reorder_from_item(std::size_t from_index, std::size_t to_inde
     if (reorder_handler_) {
         reorder_handler_(from_index, to_index);
     }
+}
+
+void ItemsControl::prune_selection_to_item_count() {
+    if (selection_mode_ == SelectionMode::None) {
+        selected_index_.reset();
+        selected_indices_.clear();
+        return;
+    }
+
+    if (selected_index_ && *selected_index_ >= items_.size()) {
+        selected_index_.reset();
+    }
+    for (auto iterator = selected_indices_.begin(); iterator != selected_indices_.end();) {
+        if (*iterator >= items_.size()) {
+            iterator = selected_indices_.erase(iterator);
+        } else {
+            ++iterator;
+        }
+    }
+
+    if (selection_mode_ == SelectionMode::Single) {
+        selected_indices_.clear();
+    } else {
+        selected_index_ = first_selected_multi_index();
+    }
+}
+
+std::optional<std::size_t> ItemsControl::first_selected_multi_index() const noexcept {
+    if (selected_indices_.empty()) {
+        return std::nullopt;
+    }
+    return *std::min_element(selected_indices_.begin(), selected_indices_.end());
 }
 
 bool ItemsControl::is_index_selected(std::size_t index) const {
@@ -553,7 +642,7 @@ void ItemsControl::recycle_container(std::unique_ptr<elements::UIElement> contai
         return;
     }
     container.release();
-    raw_container->clear_children();
+    raw_container->reset_for_reuse();
     reusable_containers_.push_back(std::unique_ptr<ItemsControlItemContainer>(raw_container));
 }
 

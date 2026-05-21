@@ -912,6 +912,79 @@ TEST(BasicControlsTests, ItemsControlBoundsReusableContainerPool) {
     EXPECT_EQ(items.reusable_container_count(), 1U);
 }
 
+TEST(BasicControlsTests, ItemsControlNormalizesSelectionWhenModeChanges) {
+    ItemsControl items;
+    items.set_items({"0", "1", "2", "3"});
+
+    items.set_selected_index(2U).set_selection_mode(ItemsControl::SelectionMode::Multiple);
+    EXPECT_EQ(items.selected_index(), 2U);
+    EXPECT_EQ(items.selected_indices(), (std::vector<std::size_t>{2U}));
+
+    items.set_selected_indices({3U, 1U});
+    EXPECT_EQ(items.selected_index(), 1U);
+    EXPECT_EQ(items.selected_indices(), (std::vector<std::size_t>{1U, 3U}));
+
+    items.set_selection_mode(ItemsControl::SelectionMode::Single);
+    EXPECT_EQ(items.selected_index(), 1U);
+    EXPECT_TRUE(items.selected_indices().empty());
+
+    items.set_selection_mode(ItemsControl::SelectionMode::None);
+    EXPECT_FALSE(items.selected_index().has_value());
+    EXPECT_TRUE(items.selected_indices().empty());
+}
+
+TEST(BasicControlsTests, ItemsControlSelectionRefreshesFactoryContent) {
+    auto engine = create_unrounded_engine();
+    ItemsControl items;
+    items.bind_layout_tree(engine);
+
+    auto factory_calls = 0;
+    items.set_item_factory([&factory_calls](ItemsControl::ItemContext context) {
+        ++factory_calls;
+        auto element = std::make_unique<Text>();
+        element->set_text(std::string(context.selected ? "selected:" : "plain:") +
+                          std::string(context.item));
+        return element;
+    });
+    items.set_items({"Alpha", "Beta"});
+
+    ASSERT_EQ(items.child_at(0U).child_count(), 1U);
+    EXPECT_EQ(items.child_at(0U).child_at(0U).text(), "plain:Alpha");
+    EXPECT_EQ(factory_calls, 2);
+
+    items.set_selected_index(0U);
+    ASSERT_EQ(items.child_at(0U).child_count(), 1U);
+    EXPECT_EQ(items.child_at(0U).child_at(0U).text(), "selected:Alpha");
+    EXPECT_EQ(items.child_at(1U).child_at(0U).text(), "plain:Beta");
+    EXPECT_EQ(factory_calls, 3);
+}
+
+TEST(BasicControlsTests, ItemsControlVirtualizedScrollReusesOverlappingContent) {
+    auto engine = create_unrounded_engine();
+    ItemsControl items;
+    items.bind_layout_tree(engine);
+
+    auto factory_calls = 0;
+    items.set_virtualized(true).set_item_factory(
+        [&factory_calls](ItemsControl::ItemContext context) {
+            ++factory_calls;
+            auto element = std::make_unique<Text>();
+            element->set_text(std::to_string(context.index) + ":" + std::string(context.item));
+            return element;
+        });
+    items.set_items({"0", "1", "2", "3", "4", "5", "6"});
+    items.set_realized_range(0U, 5U);
+
+    EXPECT_EQ(items.child_count(), 5U);
+    EXPECT_EQ(factory_calls, 5);
+
+    items.set_realized_range(1U, 5U);
+    EXPECT_EQ(items.child_count(), 5U);
+    EXPECT_EQ(factory_calls, 6);
+    EXPECT_EQ(items.child_at(0U).child_at(0U).text(), "1:1");
+    EXPECT_EQ(items.child_at(4U).child_at(0U).text(), "5:5");
+}
+
 TEST(BasicControlsTests, ButtonHandlesPointerAndKeyboardClick) {
     auto engine = create_unrounded_engine();
     Panel root;
@@ -3848,7 +3921,8 @@ TEST(BasicControlsTests, ImagePaintsObjectFitAndSourceRectLikeBrowserImg) {
     image.set_object_fit(ImageFit::Contain);
     image.paint(contain_context);
     ASSERT_EQ(command_count(contain_context, RenderCommandType::DrawImage), 1U);
-    ASSERT_EQ(contain_context.commands().front().type(), RenderCommandType::PushClip);
+    EXPECT_EQ(command_count(contain_context, RenderCommandType::PushClip), 0U);
+    EXPECT_EQ(command_count(contain_context, RenderCommandType::PopClip), 0U);
     const auto* contain_command = find_command(contain_context, RenderCommandType::DrawImage);
     ASSERT_NE(contain_command, nullptr);
     const auto& contain = contain_command->payload<DrawImageCommand>();
@@ -3859,6 +3933,8 @@ TEST(BasicControlsTests, ImagePaintsObjectFitAndSourceRectLikeBrowserImg) {
     RenderCommandRecorder cover_context;
     image.set_object_fit(ImageFit::Cover);
     image.paint(cover_context);
+    EXPECT_EQ(command_count(cover_context, RenderCommandType::PushClip), 1U);
+    EXPECT_EQ(command_count(cover_context, RenderCommandType::PopClip), 1U);
     const auto* cover_command = find_command(cover_context, RenderCommandType::DrawImage);
     ASSERT_NE(cover_command, nullptr);
     const auto& cover = cover_command->payload<DrawImageCommand>();
@@ -3875,6 +3951,17 @@ TEST(BasicControlsTests, ImagePaintsObjectFitAndSourceRectLikeBrowserImg) {
     expect_rect_near(crop.options.destination, Rect{0.0F, 25.0F, 100.0F, 50.0F});
     expect_rect_near(crop.options.source, Rect{100.0F, 40.0F, 160.0F, 80.0F});
     EXPECT_FLOAT_EQ(crop.options.opacity, 0.5F);
+
+    RenderCommandRecorder clamped_context;
+    image.set_source_rect(Rect{-10.0F, -20.0F, 100.0F, 80.0F})
+        .set_object_fit(ImageFit::Fill)
+        .set_image_opacity(1.0F);
+    image.paint(clamped_context);
+    const auto* clamped_command = find_command(clamped_context, RenderCommandType::DrawImage);
+    ASSERT_NE(clamped_command, nullptr);
+    const auto& clamped = clamped_command->payload<DrawImageCommand>();
+    expect_rect_near(clamped.options.destination, Rect{0.0F, 0.0F, 100.0F, 100.0F});
+    expect_rect_near(clamped.options.source, Rect{0.0F, 0.0F, 90.0F, 60.0F});
 }
 
 TEST(BasicControlsTests, PathClipsGeometryToLayoutFrame) {

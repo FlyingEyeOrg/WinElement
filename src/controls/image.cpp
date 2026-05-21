@@ -32,6 +32,13 @@ namespace {
     return natural;
 }
 
+[[nodiscard]] bool contains_rect(layout::Rect outer, layout::Rect inner) noexcept {
+    constexpr auto tolerance = 0.001F;
+    return inner.x >= outer.x - tolerance && inner.y >= outer.y - tolerance &&
+           inner.x + inner.width <= outer.x + outer.width + tolerance &&
+           inner.y + inner.height <= outer.y + outer.height + tolerance;
+}
+
 } // namespace
 
 Image::Image() : Control() {
@@ -330,12 +337,17 @@ void Image::on_paint(rendering::RenderContext& context, layout::Rect absolute_fr
         return;
     }
 
-    context.push_clip(content);
+    const auto needs_clip = !contains_rect(content, destination);
+    if (needs_clip) {
+        context.push_clip(content);
+    }
     context.draw_image(source_.resource_id,
                        rendering::RenderImageOptions{.destination = destination,
                                                      .source = *source,
                                                      .opacity = image_opacity_});
-    context.pop_clip();
+    if (needs_clip) {
+        context.pop_clip();
+    }
 }
 
 } // namespace winelement::controls
