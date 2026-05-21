@@ -13,6 +13,7 @@ enum class AutomationControlType {
     Window,
     Button,
     Text,
+    Image,
     Edit,
     List,
     ListItem,
@@ -53,6 +54,8 @@ class UiaSemanticsAdapter final {
             return AutomationControlType::Button;
         case SemanticsRole::Text:
             return AutomationControlType::Text;
+        case SemanticsRole::Image:
+            return AutomationControlType::Image;
         case SemanticsRole::TextInput:
             return AutomationControlType::Edit;
         case SemanticsRole::List:

@@ -9,6 +9,7 @@
 #include <winelement/controls/control.hpp>
 #include <winelement/controls/control_animation.hpp>
 #include <winelement/controls/feedback.hpp>
+#include <winelement/controls/image.hpp>
 #include <winelement/controls/input.hpp>
 #include <winelement/controls/items_control.hpp>
 #include <winelement/controls/panel.hpp>

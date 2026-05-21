@@ -13,6 +13,7 @@ enum class SemanticsRole {
     Window,
     Button,
     Text,
+    Image,
     TextInput,
     List,
     ListItem,

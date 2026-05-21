@@ -113,6 +113,13 @@ struct ScopedThemeReset {
     return Point{rect.x + rect.width * 0.5F, rect.y + rect.height * 0.5F};
 }
 
+void expect_rect_near(Rect actual, Rect expected, float tolerance = 0.001F) {
+    EXPECT_NEAR(actual.x, expected.x, tolerance);
+    EXPECT_NEAR(actual.y, expected.y, tolerance);
+    EXPECT_NEAR(actual.width, expected.width, tolerance);
+    EXPECT_NEAR(actual.height, expected.height, tolerance);
+}
+
 [[nodiscard]] LayoutEngine create_unrounded_engine() {
     LayoutEngineOptions options;
     options.point_scale_factor = 0.0F;
@@ -454,8 +461,7 @@ TEST(BasicControlsTests, MessageBoxAndDialogCascadeWhenStacked) {
     });
     root.calculate_layout();
 
-    auto& first_box =
-        MessageBox::show(root, MessageBoxOptions{.title = "First", .message = "One"});
+    auto& first_box = MessageBox::show(root, MessageBoxOptions{.title = "First", .message = "One"});
     auto& second_box =
         MessageBox::show(root, MessageBoxOptions{.title = "Second", .message = "Two"});
     const auto first_box_bounds = root.top_layer_bounds(first_box);
@@ -496,12 +502,11 @@ TEST(BasicControlsTests, MessageBoxModalBackdropFullyCoversUnderlyingContent) {
     RenderCommandRecorder context;
     root.paint(context);
 
-    const auto iterator = std::find_if(context.commands().begin(), context.commands().end(),
-                                       [](const auto& command) {
-                                           return command.type() == RenderCommandType::FillRect &&
-                                                  command_rect(command) ==
-                                                      Rect{0.0F, 0.0F, 640.0F, 360.0F};
-                                       });
+    const auto iterator =
+        std::find_if(context.commands().begin(), context.commands().end(), [](const auto& command) {
+            return command.type() == RenderCommandType::FillRect &&
+                   command_rect(command) == Rect{0.0F, 0.0F, 640.0F, 360.0F};
+        });
     ASSERT_NE(iterator, context.commands().end());
     EXPECT_EQ(command_fill_color(*iterator), Color::rgba(0, 0, 0, 80));
 }
@@ -515,19 +520,17 @@ TEST(BasicControlsTests, DialogModalBackdropFullyCoversUnderlyingContent) {
     });
     root.calculate_layout();
 
-    static_cast<void>(Dialog::show(root, DialogOptions{.title = "Dialog",
-                                                       .body = "Backdrop covers page",
-                                                       .modal = true}));
+    static_cast<void>(Dialog::show(
+        root, DialogOptions{.title = "Dialog", .body = "Backdrop covers page", .modal = true}));
 
     RenderCommandRecorder context;
     root.paint(context);
 
-    const auto iterator = std::find_if(context.commands().begin(), context.commands().end(),
-                                       [](const auto& command) {
-                                           return command.type() == RenderCommandType::FillRect &&
-                                                  command_rect(command) ==
-                                                      Rect{0.0F, 0.0F, 640.0F, 360.0F};
-                                       });
+    const auto iterator =
+        std::find_if(context.commands().begin(), context.commands().end(), [](const auto& command) {
+            return command.type() == RenderCommandType::FillRect &&
+                   command_rect(command) == Rect{0.0F, 0.0F, 640.0F, 360.0F};
+        });
     ASSERT_NE(iterator, context.commands().end());
     EXPECT_EQ(command_fill_color(*iterator), Color::rgba(0, 0, 0, 80));
 }
@@ -629,9 +632,9 @@ TEST(BasicControlsTests, FullscreenDialogTracksHostResize) {
     });
     root.calculate_layout(LayoutConstraints{.width = 800.0F, .height = 600.0F});
 
-    auto& dialog = Dialog::show(root, DialogOptions{.title = "Fullscreen",
-                                                    .body = "Resize with the host.",
-                                                    .fullscreen = true});
+    auto& dialog = Dialog::show(
+        root,
+        DialogOptions{.title = "Fullscreen", .body = "Resize with the host.", .fullscreen = true});
     auto bounds = root.top_layer_bounds(dialog);
     EXPECT_FLOAT_EQ(bounds.width, 800.0F);
     EXPECT_FLOAT_EQ(bounds.height, 600.0F);
@@ -2409,6 +2412,9 @@ TEST(BasicControlsTests, NewControlsUseCurrentThemeDefaultsAtConstruction) {
     panel_style.background = Color::rgba(10, 11, 12);
     panel_style.border_width = 3.0F;
     set_theme_style_class(theme, theme_class::panel, panel_style);
+    auto image_style = require_theme_style(theme, theme_class::image);
+    image_style.background = Color::rgba(13, 14, 15);
+    set_theme_style_class(theme, theme_class::image, image_style);
 
     set_theme(theme);
 
@@ -2421,12 +2427,15 @@ TEST(BasicControlsTests, NewControlsUseCurrentThemeDefaultsAtConstruction) {
     text.bind_layout_tree(engine);
     Panel panel;
     panel.bind_layout_tree(engine);
+    Image image;
+    image.bind_layout_tree(engine);
 
     EXPECT_EQ(button.style().background, button_style.background);
     EXPECT_EQ(input.style().focus_border_color, input_style.focus_border_color);
     EXPECT_EQ(text.style().text_color, text_style.text_color);
     EXPECT_EQ(panel.style().background, panel_style.background);
     EXPECT_FLOAT_EQ(panel.style().border_width, panel_style.border_width);
+    EXPECT_EQ(image.style().background, image_style.background);
 }
 
 TEST(BasicControlsTests, BuiltInDarkThemeFlowsIntoNewControlsAndContextMenu) {
@@ -2440,6 +2449,8 @@ TEST(BasicControlsTests, BuiltInDarkThemeFlowsIntoNewControlsAndContextMenu) {
     input.bind_layout_tree(engine);
     Text text;
     text.bind_layout_tree(engine);
+    Image image;
+    image.bind_layout_tree(engine);
     ContextMenu menu;
     menu.bind_layout_tree(engine);
     menu.set_items({ContextMenuItem{"Delete", false}});
@@ -2450,9 +2461,11 @@ TEST(BasicControlsTests, BuiltInDarkThemeFlowsIntoNewControlsAndContextMenu) {
     const auto& dark_input = require_theme_style(dark, theme_class::input);
     const auto& dark_context_menu = require_theme_style(dark, theme_class::context_menu);
     const auto& dark_text = require_theme_style(dark, theme_class::text);
+    const auto& dark_image = require_theme_style(dark, theme_class::image);
     EXPECT_EQ(button.style().background, dark_button.background);
     EXPECT_EQ(input.style().text_color, dark_input.text_color);
     EXPECT_EQ(text.style().text_color, dark_text.text_color);
+    EXPECT_EQ(image.style().border_color, dark_image.border_color);
 
     RenderCommandRecorder context;
     menu.paint(context);
@@ -3779,6 +3792,89 @@ TEST(BasicControlsTests, BorderRadioSwitchScrollbarSelectAndItemsControlExposeCo
     EXPECT_FLOAT_EQ(path.stroke_style().width, 2.0F);
     EXPECT_EQ(path.stretch(), PathStretch::Fill);
     EXPECT_THROW(static_cast<void>(Path::parse_path_data("M 0")), std::invalid_argument);
+
+    Image image;
+
+    image.bind_layout_tree(engine);
+    image.set_source(RenderResourceId{42U}, 640U, 420U)
+        .set_source_rect(Rect{120.0F, 80.0F, 240.0F, 160.0F})
+        .set_object_fit(ImageFit::Cover)
+        .set_object_position(0.0F, 1.0F)
+        .set_image_opacity(0.65F)
+        .set_alt_text("Generated sample");
+    EXPECT_TRUE(image.has_source());
+    EXPECT_EQ(image.source().resource_id, RenderResourceId{42U});
+    EXPECT_EQ(image.source().width, 640U);
+    EXPECT_EQ(image.source().height, 420U);
+    ASSERT_TRUE(image.source_rect().has_value());
+    EXPECT_EQ(*image.source_rect(), (Rect{120.0F, 80.0F, 240.0F, 160.0F}));
+    EXPECT_EQ(image.object_fit(), ImageFit::Cover);
+    EXPECT_FLOAT_EQ(image.object_position_x(), 0.0F);
+    EXPECT_FLOAT_EQ(image.object_position_y(), 1.0F);
+    EXPECT_FLOAT_EQ(image.image_opacity(), 0.65F);
+    EXPECT_EQ(image.alt_text(), "Generated sample");
+    EXPECT_THROW(image.set_object_position(std::numeric_limits<float>::quiet_NaN(), 0.0F),
+                 std::invalid_argument);
+    EXPECT_THROW(image.set_source_rect(Rect{0.0F, 0.0F, -1.0F, 10.0F}), std::invalid_argument);
+}
+
+TEST(BasicControlsTests, ImageMeasuresFromIntrinsicSizeAndExposesAltSemantics) {
+    auto engine = create_unrounded_engine();
+    Image image;
+    image.bind_layout_tree(engine);
+    image.set_source(RenderResourceId{7U}, 320U, 180U).set_alt_text("Preview");
+
+    image.calculate_layout();
+
+    EXPECT_FLOAT_EQ(image.frame().width, 320.0F);
+    EXPECT_FLOAT_EQ(image.frame().height, 180.0F);
+    const auto semantics = image.build_semantics_tree();
+    EXPECT_EQ(semantics.role, SemanticsRole::Image);
+    EXPECT_EQ(semantics.label, "Preview");
+    EXPECT_EQ(UiaSemanticsAdapter::map_role(semantics.role), AutomationControlType::Image);
+}
+
+TEST(BasicControlsTests, ImagePaintsObjectFitAndSourceRectLikeBrowserImg) {
+    auto engine = create_unrounded_engine();
+    Image image;
+    image.bind_layout_tree(engine);
+    image.set_source(RenderResourceId{9U}, 400U, 200U);
+    image.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(100.0F), Length::points(100.0F));
+    });
+    image.calculate_layout(LayoutConstraints{.width = 100.0F, .height = 100.0F});
+
+    RenderCommandRecorder contain_context;
+    image.set_object_fit(ImageFit::Contain);
+    image.paint(contain_context);
+    ASSERT_EQ(command_count(contain_context, RenderCommandType::DrawImage), 1U);
+    ASSERT_EQ(contain_context.commands().front().type(), RenderCommandType::PushClip);
+    const auto* contain_command = find_command(contain_context, RenderCommandType::DrawImage);
+    ASSERT_NE(contain_command, nullptr);
+    const auto& contain = contain_command->payload<DrawImageCommand>();
+    expect_rect_near(contain.options.destination, Rect{0.0F, 25.0F, 100.0F, 50.0F});
+    expect_rect_near(contain.options.source, Rect{0.0F, 0.0F, 400.0F, 200.0F});
+    EXPECT_EQ(contain.resource_id, RenderResourceId{9U});
+
+    RenderCommandRecorder cover_context;
+    image.set_object_fit(ImageFit::Cover);
+    image.paint(cover_context);
+    const auto* cover_command = find_command(cover_context, RenderCommandType::DrawImage);
+    ASSERT_NE(cover_command, nullptr);
+    const auto& cover = cover_command->payload<DrawImageCommand>();
+    expect_rect_near(cover.options.destination, Rect{-50.0F, 0.0F, 200.0F, 100.0F});
+
+    RenderCommandRecorder crop_context;
+    image.set_source_rect(Rect{100.0F, 40.0F, 160.0F, 80.0F})
+        .set_object_fit(ImageFit::Contain)
+        .set_image_opacity(0.5F);
+    image.paint(crop_context);
+    const auto* crop_command = find_command(crop_context, RenderCommandType::DrawImage);
+    ASSERT_NE(crop_command, nullptr);
+    const auto& crop = crop_command->payload<DrawImageCommand>();
+    expect_rect_near(crop.options.destination, Rect{0.0F, 25.0F, 100.0F, 50.0F});
+    expect_rect_near(crop.options.source, Rect{100.0F, 40.0F, 160.0F, 80.0F});
+    EXPECT_FLOAT_EQ(crop.options.opacity, 0.5F);
 }
 
 TEST(BasicControlsTests, PathClipsGeometryToLayoutFrame) {
@@ -4028,13 +4124,13 @@ TEST(BasicControlsTests, ScrollbarContainerKeepsAxesFromOverlapping) {
 
     EventRouter router(scrollbar);
     const auto bounds = scrollbar.absolute_frame();
-    EXPECT_FALSE(router
-                     .route_pointer_event(PointerEvent{
-                         .kind = PointerEventKind::Down,
-                         .position = Point{bounds.x + bounds.width - 2.0F,
-                                           bounds.y + bounds.height - 2.0F},
-                         .button = PointerButton::Primary})
-                     .handled);
+    EXPECT_FALSE(
+        router
+            .route_pointer_event(PointerEvent{
+                .kind = PointerEventKind::Down,
+                .position = Point{bounds.x + bounds.width - 2.0F, bounds.y + bounds.height - 2.0F},
+                .button = PointerButton::Primary})
+            .handled);
 
     const auto vertical_x = bounds.x + bounds.width - 4.0F;
     const auto vertical_y = bounds.y + bounds.height - scrollbar.thickness() - 12.0F;

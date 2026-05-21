@@ -282,6 +282,17 @@ namespace {
     return style;
 }
 
+[[nodiscard]] UIElementStyle make_default_image_style() noexcept {
+    auto style = make_default_panel_style();
+    style.background = rendering::Color::rgba(0, 0, 0, 0);
+    style.border_color = rendering::Color::rgba(0, 0, 0, 0);
+    style.border_width = 0.0F;
+    style.padding = layout::EdgeInsets{};
+    style.min_width = 0.0F;
+    style.min_height = 0.0F;
+    return style;
+}
+
 [[nodiscard]] SemanticColorTokens make_dark_semantic_tokens() noexcept {
     return SemanticColorTokens{.secondary_text = rendering::Color::rgba(168, 171, 178),
                                .disabled_text = rendering::Color::rgba(110, 113, 122),
@@ -448,6 +459,11 @@ namespace {
     return style;
 }
 
+[[nodiscard]] const UIElementStyle& fallback_image_style() noexcept {
+    static const auto style = make_default_image_style();
+    return style;
+}
+
 void register_builtin_theme_classes(Theme& theme, UIElementStyle panel, UIElementStyle button,
                                     UIElementStyle input, UIElementStyle text) {
     const auto panel_style = std::move(panel);
@@ -580,6 +596,14 @@ void register_builtin_theme_classes(Theme& theme, UIElementStyle panel, UIElemen
     path_style.min_width = 24.0F;
     path_style.min_height = 24.0F;
     set_theme_style_class(theme, theme_class::path, path_style);
+    auto image_style = panel_style;
+    image_style.background = rendering::Color::rgba(0, 0, 0, 0);
+    image_style.border_color = rendering::Color::rgba(0, 0, 0, 0);
+    image_style.border_width = 0.0F;
+    image_style.padding = layout::EdgeInsets{};
+    image_style.min_width = 0.0F;
+    image_style.min_height = 0.0F;
+    set_theme_style_class(theme, theme_class::image, image_style);
 }
 
 [[nodiscard]] const UIElementStyle&
@@ -884,6 +908,10 @@ const UIElementStyle& default_items_control_style() {
 
 const UIElementStyle& default_panel_style() {
     return current_theme_style_or_fallback(theme_class::panel, fallback_panel_style());
+}
+
+const UIElementStyle& default_image_style() {
+    return current_theme_style_or_fallback(theme_class::image, fallback_image_style());
 }
 
 } // namespace winelement::style

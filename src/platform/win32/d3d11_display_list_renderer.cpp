@@ -6296,14 +6296,24 @@ void D3D11DisplayListRenderer::draw_image(
         state.transform);
 
     auto source = options.source;
+    const auto texture_width = static_cast<float>(std::max(texture->width, 1U));
+    const auto texture_height = static_cast<float>(std::max(texture->height, 1U));
     if (!rendering::layout::is_visible_rect(source)) {
-        source = rendering::layout::Rect{0.0F, 0.0F, static_cast<float>(texture->width),
-                                         static_cast<float>(texture->height)};
+        source = rendering::layout::Rect{0.0F, 0.0F, texture_width, texture_height};
+    } else {
+        const auto left = std::clamp(source.x, 0.0F, texture_width);
+        const auto top = std::clamp(source.y, 0.0F, texture_height);
+        const auto right = std::clamp(source.x + source.width, 0.0F, texture_width);
+        const auto bottom = std::clamp(source.y + source.height, 0.0F, texture_height);
+        if (right <= left || bottom <= top) {
+            return;
+        }
+        source = rendering::layout::Rect{left, top, right - left, bottom - top};
     }
-    const auto u0 = source.x / static_cast<float>(std::max(texture->width, 1U));
-    const auto v0 = source.y / static_cast<float>(std::max(texture->height, 1U));
-    const auto u1 = (source.x + source.width) / static_cast<float>(std::max(texture->width, 1U));
-    const auto v1 = (source.y + source.height) / static_cast<float>(std::max(texture->height, 1U));
+    const auto u0 = source.x / texture_width;
+    const auto v0 = source.y / texture_height;
+    const auto u1 = (source.x + source.width) / texture_width;
+    const auto v1 = (source.y + source.height) / texture_height;
     const std::vector<Vertex> vertices{
         {top_left.x, top_left.y, 1.0F, 1.0F, 1.0F, alpha, u0, v0},
         {top_right.x, top_right.y, 1.0F, 1.0F, 1.0F, alpha, u1, v0},

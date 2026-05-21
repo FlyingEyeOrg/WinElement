@@ -4,6 +4,7 @@ add_library(winelement_controls STATIC
     control.cpp
     context_menu.cpp
     feedback.cpp
+    image.cpp
     input.cpp
     items_control.cpp
     panel.cpp

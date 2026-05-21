@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <iomanip>
 #include <iostream>
@@ -44,11 +45,14 @@ namespace {
 using namespace winelement;
 
 constexpr auto canvas_width = 1440.0F;
-constexpr auto canvas_height = 4200.0F;
+constexpr auto canvas_height = 5000.0F;
 constexpr auto showcase_window_width = 1320.0F;
 constexpr auto showcase_window_height = 920.0F;
 constexpr auto showcase_page_scrollbar_width = 14.0F;
 constexpr auto showcase_page_gap = 8.0F;
+constexpr auto showcase_image_resource_id = rendering::RenderResourceId{0x51494D475F53484FULL};
+constexpr auto showcase_image_width = 640U;
+constexpr auto showcase_image_height = 420U;
 
 [[nodiscard]] float showcase_window_viewport_width(float window_width) noexcept {
     return std::max(window_width - showcase_page_gap - showcase_page_scrollbar_width, 1.0F);
@@ -65,6 +69,80 @@ constexpr auto showcase_page_gap = 8.0F;
         surface.border_width = 0.0F;
         surface.shadow_visible = false;
     });
+}
+
+[[nodiscard]] std::uint8_t channel(float value) noexcept {
+    return static_cast<std::uint8_t>(std::clamp(std::lround(value), 0L, 255L));
+}
+
+[[nodiscard]] rendering::RenderResourceUpload make_showcase_image_upload() {
+    constexpr auto stride = showcase_image_width * 4U;
+    auto upload = rendering::RenderResourceUpload{
+        .id = showcase_image_resource_id,
+        .action = rendering::RenderResourceAction::Upload,
+        .kind = rendering::RenderResourceKind::Image,
+        .format = rendering::RenderResourceFormat::Bgra8Premultiplied,
+        .reference_count = 1U,
+        .width = showcase_image_width,
+        .height = showcase_image_height,
+        .stride = stride};
+    upload.payload.resize(static_cast<std::size_t>(stride) * showcase_image_height);
+
+    const auto write_pixel = [&upload](std::uint32_t x, std::uint32_t y, rendering::Color color) {
+        const auto offset =
+            static_cast<std::size_t>(y) * upload.stride + static_cast<std::size_t>(x) * 4U;
+        upload.payload[offset + 0U] = std::byte{color.blue};
+        upload.payload[offset + 1U] = std::byte{color.green};
+        upload.payload[offset + 2U] = std::byte{color.red};
+        upload.payload[offset + 3U] = std::byte{color.alpha};
+    };
+
+    for (std::uint32_t y = 0U; y < showcase_image_height; ++y) {
+        const auto fy = static_cast<float>(y) / static_cast<float>(showcase_image_height - 1U);
+        for (std::uint32_t x = 0U; x < showcase_image_width; ++x) {
+            const auto fx = static_cast<float>(x) / static_cast<float>(showcase_image_width - 1U);
+            auto red = 64.0F + 54.0F * fx;
+            auto green = 145.0F + 80.0F * (1.0F - fy);
+            auto blue = 210.0F + 32.0F * (1.0F - fx);
+
+            const auto sun_dx = fx - 0.78F;
+            const auto sun_dy = fy - 0.22F;
+            if (sun_dx * sun_dx + sun_dy * sun_dy < 0.018F) {
+                red = 255.0F;
+                green = 205.0F;
+                blue = 90.0F;
+            }
+
+            const auto ridge_a = 0.64F - std::abs(fx - 0.36F) * 0.75F;
+            const auto ridge_b = 0.74F - std::abs(fx - 0.68F) * 0.95F;
+            const auto ridge = std::max(ridge_a, ridge_b);
+            if (fy > ridge) {
+                const auto shade = std::clamp((fy - ridge) * 3.4F, 0.0F, 1.0F);
+                red = 30.0F + 38.0F * shade + 26.0F * fx;
+                green = 92.0F + 64.0F * shade;
+                blue = 118.0F + 34.0F * (1.0F - shade);
+            }
+
+            if (fy > 0.78F) {
+                const auto field = std::sin((fx * 26.0F + fy * 9.0F) * 3.1415926F) * 0.5F + 0.5F;
+                red = 72.0F + 42.0F * field;
+                green = 142.0F + 72.0F * field;
+                blue = 82.0F + 26.0F * (1.0F - field);
+            }
+
+            const auto hash = (x * 73856093U) ^ (y * 19349663U) ^ 0x9E3779B9U;
+            const auto noise = static_cast<float>(hash & 31U) - 15.0F;
+            write_pixel(x, y,
+                        rendering::Color::rgba(channel(red + noise), channel(green + noise),
+                                               channel(blue + noise)));
+        }
+    }
+
+    return upload;
+}
+
+void upload_showcase_resources(platform::Window& window) {
+    window.upload_resource(make_showcase_image_upload());
 }
 
 [[nodiscard]] float loop_progress(animation::AnimationTimePoint now,
@@ -1070,6 +1148,79 @@ void add_structure_text_path_section(controls::StackPanel& root) {
     });
 }
 
+void configure_showcase_image(controls::Image& image, layout::Size size,
+                              rendering::Color background = rendering::Color::rgba(245, 247, 250)) {
+    image.set_style(style::style_from(
+        style::default_image_style(), [background](style::UIElementStyle& image_style) {
+            image_style.background = background;
+            image_style.border_color = rendering::Color::rgba(220, 223, 230);
+            image_style.border_width = 1.0F;
+            image_style.padding = layout::EdgeInsets{1.0F, 1.0F, 1.0F, 1.0F};
+            image_style.pixel_snapped_border = true;
+        }));
+    image.configure_layout([size](layout::LayoutElement& item) {
+        item.set_size(layout::Length::points(size.width), layout::Length::points(size.height))
+            .set_flex_shrink(0.0F);
+    });
+}
+
+controls::Image& add_image_sample(controls::StackPanel& row, std::string_view title,
+                                  controls::ImageFit fit, layout::Size size,
+                                  std::optional<layout::Rect> source_rect = std::nullopt,
+                                  float position_x = 0.5F, float position_y = 0.5F,
+                                  float opacity = 1.0F) {
+    auto& card = row.append_new_child<controls::Border>();
+    card.set_title(title).set_preset(controls::BorderPreset::Plain);
+    configure_card(card, 260.0F);
+
+    auto& stack = card.append_new_child<controls::StackPanel>();
+    stack.set_gap(8.0F);
+    stack.configure_layout([](layout::LayoutElement& item) {
+        item.set_width(layout::Length::percent(100.0F)).set_flex_shrink(0.0F);
+    });
+
+    auto& label = stack.append_new_child<controls::Text>();
+    label.set_text(title).set_size(controls::TextSize::Small);
+    label.configure_layout([](layout::LayoutElement& item) { item.set_flex_shrink(0.0F); });
+
+    auto& image = stack.append_new_child<controls::Image>();
+    image.set_source(showcase_image_resource_id, showcase_image_width, showcase_image_height)
+        .set_object_fit(fit)
+        .set_object_position(position_x, position_y)
+        .set_image_opacity(opacity)
+        .set_alt_text(title);
+    if (source_rect.has_value()) {
+        image.set_source_rect(*source_rect);
+    }
+    configure_showcase_image(image, size,
+                             opacity < 1.0F ? rendering::Color::rgba(236, 245, 255)
+                                            : rendering::Color::rgba(245, 247, 250));
+    return image;
+}
+
+void add_image_section(controls::StackPanel& root) {
+    auto& section = add_section(root, "Image: browser-style object fitting");
+    auto& row = section.append_new_child<controls::StackPanel>();
+    configure_row(row);
+
+    add_image_sample(row, "object-fit: fill", controls::ImageFit::Fill,
+                     layout::Size{220.0F, 140.0F});
+    add_image_sample(row, "object-fit: contain", controls::ImageFit::Contain,
+                     layout::Size{220.0F, 140.0F});
+    add_image_sample(row, "object-fit: cover", controls::ImageFit::Cover,
+                     layout::Size{220.0F, 140.0F});
+    add_image_sample(row, "cover position: top left", controls::ImageFit::Cover,
+                     layout::Size{220.0F, 140.0F}, std::nullopt, 0.0F, 0.0F);
+    add_image_sample(row, "object-fit: none", controls::ImageFit::None,
+                     layout::Size{220.0F, 140.0F}, std::nullopt, 0.0F, 0.0F);
+    add_image_sample(row, "object-fit: scale-down", controls::ImageFit::ScaleDown,
+                     layout::Size{220.0F, 140.0F});
+    add_image_sample(row, "source crop + cover", controls::ImageFit::Cover,
+                     layout::Size{220.0F, 140.0F}, layout::Rect{120.0F, 70.0F, 320.0F, 210.0F});
+    add_image_sample(row, "image opacity", controls::ImageFit::Contain,
+                     layout::Size{220.0F, 140.0F}, std::nullopt, 0.5F, 0.5F, 0.56F);
+}
+
 void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedback_host) {
     auto& section = add_section(root, "Feedback components");
 
@@ -1563,6 +1714,7 @@ build_showcase_content(elements::UIElement& feedback_host) {
     add_input_select_section(*root);
     add_choice_scroll_section(*root);
     add_structure_text_path_section(*root);
+    add_image_section(*root);
     add_feedback_section(*root, feedback_host);
     add_animation_section(*root);
     return root;
@@ -1598,6 +1750,7 @@ build_showcase_content(elements::UIElement& feedback_host) {
     add_input_select_section(*root);
     add_choice_scroll_section(*root);
     add_structure_text_path_section(*root);
+    add_image_section(*root);
     add_feedback_section(*root, *root);
     add_animation_section(*root);
     return root;
@@ -1780,8 +1933,8 @@ int run_headless_showcase() {
     const auto command_count = scene_root != nullptr ? count_commands(*scene_root) : 0U;
 
     std::cout << "controls_showcase\n";
-    std::cout << "  controls: panel border stack text button input select radio switch scrollbar "
-                 "items path context-menu message message-box loading dialog\n";
+    std::cout << "  controls: panel border stack text image button input select radio switch "
+                 "scrollbar items path context-menu message message-box loading dialog\n";
     std::cout << "  styles: Element Plus semantic variants sizes status borders shadows text "
                  "states dark/custom\n";
     std::cout << "  scroll: vertical and horizontal viewports with clipped overflowing content\n";
@@ -1836,6 +1989,7 @@ int run_window_showcase() {
     platform::Application application;
     platform::Window window(platform::WindowOptions{
         .title = L"WinElement Controls Showcase", .width = 1320, .height = 920});
+    upload_showcase_resources(window);
     auto tree = build_showcase_window_tree();
     window.set_content(std::move(tree.root));
     if (auto* content = window.content()) {
@@ -1857,6 +2011,7 @@ int run_profiled_showcase_window(std::string_view label, bool scroll_to_bottom) 
     platform::Window window(platform::WindowOptions{.title = L"WinElement Controls Showcase",
                                                     .width = profiled_window_width,
                                                     .height = profiled_window_height});
+    upload_showcase_resources(window);
 
     auto label_text = std::string{label};
     print_process_memory(label_text + " after window");

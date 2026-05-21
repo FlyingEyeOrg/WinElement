@@ -185,6 +185,7 @@ inline constexpr std::string_view radio = "wm.radio";
 inline constexpr std::string_view switch_control = "wm.switch";
 inline constexpr std::string_view items_control = "wm.items_control";
 inline constexpr std::string_view path = "wm.path";
+inline constexpr std::string_view image = "wm.image";
 } // namespace theme_class
 
 struct Theme {
@@ -256,5 +257,6 @@ Theme& configure_theme_style_class(Theme& theme, std::string_view style_class,
 [[nodiscard]] const UIElementStyle& default_switch_style();
 [[nodiscard]] const UIElementStyle& default_items_control_style();
 [[nodiscard]] const UIElementStyle& default_panel_style();
+[[nodiscard]] const UIElementStyle& default_image_style();
 
 } // namespace winelement::style
