@@ -38,6 +38,7 @@ class D3D11CompositionSurface final {
     void set_dpi(float dpi) noexcept;
     void invalidate_surface_size() noexcept;
     void discard() noexcept;
+    void trim_idle_resources() noexcept;
     void upload_resource(rendering::RenderResourceUpload upload) noexcept;
     [[nodiscard]] RenderResult render(rendering::Color clear_color,
                                       const rendering::DirtyRegion& dirty_region,

@@ -96,6 +96,7 @@ class D3D11DisplayListRenderer final {
     [[nodiscard]] bool parallel_recording_enabled() const noexcept;
     [[nodiscard]] RenderTimingMetrics last_timing_metrics() const noexcept;
     void trim_parallel_recording_resources() noexcept;
+    void trim_idle_resources() noexcept;
 
   private:
     enum class StateKind : std::uint8_t { Base, Save, RectClip, GeometryClip, Layer };
@@ -329,8 +330,7 @@ class D3D11DisplayListRenderer final {
     void render_to_context(ID3D11DeviceContext& context, ID3D11RenderTargetView& target,
                            core::Color clear_color, const rendering::RenderScene* scene,
                            const rendering::DirtyRegion& dirty_region, float dpi,
-                           std::uint32_t target_pixel_width,
-                           std::uint32_t target_pixel_height,
+                           std::uint32_t target_pixel_width, std::uint32_t target_pixel_height,
                            const D3D11RenderResourceCache::Snapshot& resource_snapshot,
                            const rendering::RenderFrameGraph* frame_graph);
     [[nodiscard]] RenderFrameAnalysis
@@ -339,9 +339,8 @@ class D3D11DisplayListRenderer final {
                          std::uint32_t target_pixel_width, std::uint32_t target_pixel_height,
                          const D3D11RenderResourceCache& resource_cache,
                          const rendering::RenderFrameGraph* frame_graph);
-    void prepare_text_resources_for_scene(
-        const rendering::RenderScene* scene,
-        std::span<const D3D11RenderDirtyClip> dirty_clips);
+    void prepare_text_resources_for_scene(const rendering::RenderScene* scene,
+                                          std::span<const D3D11RenderDirtyClip> dirty_clips);
     void prepare_text_resources_for_node(const rendering::RenderNode& node,
                                          std::span<const D3D11RenderDirtyClip> dirty_clips);
     void prepare_text_resources_for_command_list(const rendering::RenderCommandList& commands);

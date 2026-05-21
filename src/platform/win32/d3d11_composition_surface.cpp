@@ -1,8 +1,8 @@
 #include "d3d11_composition_surface.hpp"
 
 #include "d3d11_display_list_renderer.hpp"
-#include "direct_composition_bridge.hpp"
 #include "d3d11_render_resource_cache.hpp"
+#include "direct_composition_bridge.hpp"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -217,6 +217,18 @@ class D3D11CompositionSurface::Impl final {
         swap_chain_.Reset();
         display_list_renderer_.reset();
         validated_client_size_.reset();
+    }
+
+    void trim_idle_resources() noexcept {
+        try {
+            if (display_list_renderer_ != nullptr) {
+                display_list_renderer_->trim_idle_resources();
+            }
+            if (device_ != nullptr) {
+                device_->trim_idle_resources();
+            }
+        } catch (...) {
+        }
     }
 
     void upload_resource(rendering::RenderResourceUpload upload) noexcept {
@@ -492,14 +504,16 @@ class D3D11CompositionSurface::Impl final {
 D3D11CompositionSurface::D3D11CompositionSurface(HWND hwnd)
     : D3D11CompositionSurface(hwnd, std::make_shared<D3D11RenderDevice>()) {}
 
-D3D11CompositionSurface::D3D11CompositionSurface(HWND hwnd, std::shared_ptr<D3D11RenderDevice> device)
+D3D11CompositionSurface::D3D11CompositionSurface(HWND hwnd,
+                                                 std::shared_ptr<D3D11RenderDevice> device)
     : impl_(std::make_unique<Impl>(hwnd, std::move(device))) {}
 
 D3D11CompositionSurface::~D3D11CompositionSurface() = default;
 
 D3D11CompositionSurface::D3D11CompositionSurface(D3D11CompositionSurface&&) noexcept = default;
 
-D3D11CompositionSurface& D3D11CompositionSurface::operator=(D3D11CompositionSurface&&) noexcept = default;
+D3D11CompositionSurface&
+D3D11CompositionSurface::operator=(D3D11CompositionSurface&&) noexcept = default;
 
 void D3D11CompositionSurface::set_dpi(float dpi) noexcept {
     impl_->set_dpi(dpi);
@@ -511,6 +525,10 @@ void D3D11CompositionSurface::invalidate_surface_size() noexcept {
 
 void D3D11CompositionSurface::discard() noexcept {
     impl_->discard();
+}
+
+void D3D11CompositionSurface::trim_idle_resources() noexcept {
+    impl_->trim_idle_resources();
 }
 
 void D3D11CompositionSurface::upload_resource(rendering::RenderResourceUpload upload) noexcept {

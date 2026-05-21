@@ -3,6 +3,7 @@
 #include "d3d11_composition_surface.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <iterator>
 #include <memory>
@@ -14,6 +15,14 @@
 
 namespace winelement::platform::win32 {
 namespace {
+
+constexpr auto idle_memory_trim_delay = std::chrono::milliseconds(1200);
+constexpr auto active_working_set_trim_interval = std::chrono::milliseconds(2000);
+
+void trim_process_working_set() noexcept {
+    static_cast<void>(SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1),
+                                               static_cast<SIZE_T>(-1)));
+}
 
 class ResourceUploadReplayCache final {
   public:
@@ -105,7 +114,8 @@ class ResourceUploadReplayCache final {
 
 } // namespace
 
-WindowRenderWorker::WindowRenderWorker(HWND hwnd) : hwnd_(hwnd) {
+WindowRenderWorker::WindowRenderWorker(HWND hwnd, bool trim_memory_on_idle)
+    : hwnd_(hwnd), trim_memory_on_idle_(trim_memory_on_idle) {
     worker_ = std::thread([this]() noexcept { run(); });
 }
 
@@ -296,19 +306,48 @@ void WindowRenderWorker::stop() noexcept {
 void WindowRenderWorker::run() noexcept {
     std::unique_ptr<D3D11CompositionSurface> surface;
     ResourceUploadReplayCache cached_uploads;
+    auto idle_trim_pending = false;
+    auto last_active_working_set_trim_at = std::chrono::steady_clock::now();
 
     for (;;) {
         Job job;
+        auto trim_idle_resources = false;
         {
             std::unique_lock lock(mutex_);
-            wake_.wait(lock, [this]() noexcept { return stopping_ || !jobs_.empty(); });
-            if (jobs_.empty() && stopping_) {
-                return;
+            for (;;) {
+                if (stopping_ || !jobs_.empty()) {
+                    break;
+                }
+                if (trim_memory_on_idle_ && idle_trim_pending && surface != nullptr) {
+                    if (wake_.wait_for(lock, idle_memory_trim_delay,
+                                       [this]() noexcept { return stopping_ || !jobs_.empty(); })) {
+                        continue;
+                    }
+                    idle_trim_pending = false;
+                    trim_idle_resources = true;
+                    break;
+                }
+                wake_.wait(lock, [this]() noexcept { return stopping_ || !jobs_.empty(); });
             }
-            auto iterator = jobs_.begin();
-            job = std::move(*iterator);
-            clear_pending_iterator(iterator);
-            jobs_.erase(iterator);
+
+            if (!trim_idle_resources) {
+                if (jobs_.empty() && stopping_) {
+                    return;
+                }
+                auto iterator = jobs_.begin();
+                job = std::move(*iterator);
+                clear_pending_iterator(iterator);
+                jobs_.erase(iterator);
+            }
+        }
+
+        if (trim_idle_resources) {
+            try {
+                surface->trim_idle_resources();
+                trim_process_working_set();
+            } catch (...) {
+            }
+            continue;
         }
 
         if (job.kind == JobKind::Stop) {
@@ -388,6 +427,22 @@ void WindowRenderWorker::run() noexcept {
         complete_job(job, job_result);
         if (job_result == RenderJobResult::Failed) {
             request_repaint();
+        }
+        if (trim_memory_on_idle_ && job.kind == JobKind::Render) {
+            auto has_queued_jobs = false;
+            {
+                const std::scoped_lock lock(mutex_);
+                has_queued_jobs = !jobs_.empty();
+            }
+            const auto now = std::chrono::steady_clock::now();
+            if (!has_queued_jobs &&
+                now - last_active_working_set_trim_at >= active_working_set_trim_interval) {
+                trim_process_working_set();
+                last_active_working_set_trim_at = now;
+            }
+        }
+        if (trim_memory_on_idle_ && surface != nullptr) {
+            idle_trim_pending = true;
         }
     }
 }

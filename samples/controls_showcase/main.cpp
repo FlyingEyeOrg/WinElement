@@ -13,12 +13,31 @@
 #include <cmath>
 #include <cstddef>
 #include <functional>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+// clang-format off
+#include <windows.h>
+#include <psapi.h>
+// clang-format on
+#pragma comment(lib, "Psapi.lib")
+#ifdef MessageBox
+#undef MessageBox
+#endif
+#endif
 
 namespace {
 
@@ -234,6 +253,63 @@ struct ShowcaseScrollProfile {
     ShowcaseRenderMetrics top{};
     ShowcaseRenderMetrics bottom{};
 };
+
+struct ProcessMemorySnapshot {
+    bool available = false;
+    std::size_t working_set_bytes = 0U;
+    std::size_t peak_working_set_bytes = 0U;
+    std::size_t private_bytes = 0U;
+    std::size_t pagefile_bytes = 0U;
+};
+
+[[nodiscard]] ProcessMemorySnapshot query_process_memory() noexcept {
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS_EX counters{};
+    counters.cb = sizeof(counters);
+    if (GetProcessMemoryInfo(GetCurrentProcess(),
+                             reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&counters),
+                             sizeof(counters)) == FALSE) {
+        return {};
+    }
+
+    return ProcessMemorySnapshot{.available = true,
+                                 .working_set_bytes = counters.WorkingSetSize,
+                                 .peak_working_set_bytes = counters.PeakWorkingSetSize,
+                                 .private_bytes = counters.PrivateUsage,
+                                 .pagefile_bytes = counters.PagefileUsage};
+#else
+    return {};
+#endif
+}
+
+[[nodiscard]] double bytes_to_mib(std::size_t bytes) noexcept {
+    return static_cast<double>(bytes) / (1024.0 * 1024.0);
+}
+
+void print_process_memory(std::string_view label) {
+    const auto snapshot = query_process_memory();
+    if (!snapshot.available) {
+        std::cout << "memory " << label << ": unavailable\n";
+        return;
+    }
+
+    const auto old_flags = std::cout.flags();
+    const auto old_precision = std::cout.precision();
+    std::cout << std::fixed << std::setprecision(1) << "memory " << label
+              << ": working_set=" << bytes_to_mib(snapshot.working_set_bytes)
+              << " MiB, private=" << bytes_to_mib(snapshot.private_bytes)
+              << " MiB, peak_working_set=" << bytes_to_mib(snapshot.peak_working_set_bytes)
+              << " MiB, pagefile=" << bytes_to_mib(snapshot.pagefile_bytes) << " MiB\n";
+    std::cout.flags(old_flags);
+    std::cout.precision(old_precision);
+}
+
+void trim_process_working_set() noexcept {
+#ifdef _WIN32
+    static_cast<void>(SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1),
+                                               static_cast<SIZE_T>(-1)));
+#endif
+}
 
 class LiveSampleCard final : public controls::Panel {
   public:
@@ -1610,7 +1686,8 @@ void sync_showcase_window_scrollbar(ShowcaseWindowTree& tree) {
     metrics.scrollbar_max = tree.scrollbar != nullptr ? tree.scrollbar->maximum() : 0.0F;
     metrics.content_rect =
         tree.viewport != nullptr ? tree.viewport->scrollable_content_rect() : layout::Rect{};
-    metrics.viewport_rect = tree.viewport != nullptr ? tree.viewport->viewport_rect() : layout::Rect{};
+    metrics.viewport_rect =
+        tree.viewport != nullptr ? tree.viewport->viewport_rect() : layout::Rect{};
     metrics.measured_content_height =
         measure_showcase_content_height(std::max(metrics.viewport_rect.width, 1.0F));
     metrics.element_count = tree.root != nullptr ? count_elements(*tree.root) : 0U;
@@ -1633,15 +1710,15 @@ void sync_showcase_window_scrollbar(ShowcaseWindowTree& tree) {
     return total;
 }
 
-[[nodiscard]] ShowcaseRenderMetrics render_metrics_for_scene(
-    const rendering::RenderScene& scene) noexcept {
+[[nodiscard]] ShowcaseRenderMetrics
+render_metrics_for_scene(const rendering::RenderScene& scene) noexcept {
     const auto* scene_root = scene.root();
     return ShowcaseRenderMetrics{
         .node_count = scene_root != nullptr ? count_nodes(*scene_root) : 0U,
         .command_count = scene_root != nullptr ? count_commands(*scene_root) : 0U,
-        .prepared_cache =
-            scene.prepared_cache() != nullptr ? scene.prepared_cache()->stats()
-                                             : rendering::PreparedRenderCacheStats{}};
+        .prepared_cache = scene.prepared_cache() != nullptr
+                              ? scene.prepared_cache()->stats()
+                              : rendering::PreparedRenderCacheStats{}};
 }
 
 [[nodiscard]] ShowcaseScrollProfile profile_showcase_window_scroll(float width, float height) {
@@ -1722,8 +1799,8 @@ int run_headless_showcase() {
     std::cout << "  wide window scroll max: " << wide_showcase_metrics.scroll_max << '\n';
     std::cout << "  wide window content height: " << wide_showcase_metrics.content_rect.height
               << '\n';
-    std::cout << "  wide measured content height: "
-              << wide_showcase_metrics.measured_content_height << '\n';
+    std::cout << "  wide measured content height: " << wide_showcase_metrics.measured_content_height
+              << '\n';
     std::cout << "  maximized scroll bottom: " << maximized_scroll_profile.scroll_max << '\n';
     std::cout << "  maximized top render nodes: " << maximized_scroll_profile.top.node_count
               << '\n';
@@ -1770,11 +1847,70 @@ int run_window_showcase() {
     return application.run();
 }
 
+int run_profiled_showcase_window(std::string_view label, bool scroll_to_bottom) {
+    constexpr auto profiled_window_width = 1918;
+    constexpr auto profiled_window_height = 1034;
+    constexpr auto profiled_layout_width = static_cast<float>(profiled_window_width);
+    constexpr auto profiled_layout_height = static_cast<float>(profiled_window_height);
+
+    platform::Application application;
+    platform::Window window(platform::WindowOptions{.title = L"WinElement Controls Showcase",
+                                                    .width = profiled_window_width,
+                                                    .height = profiled_window_height});
+
+    auto label_text = std::string{label};
+    print_process_memory(label_text + " after window");
+
+    auto tree = build_showcase_window_tree();
+    window.set_content(std::move(tree.root));
+    if (auto* content = window.content()) {
+        content->calculate_layout(layout::LayoutConstraints{.width = profiled_layout_width,
+                                                            .height = profiled_layout_height});
+    }
+    sync_showcase_window_scrollbar(tree);
+
+    if (scroll_to_bottom && tree.viewport != nullptr) {
+        tree.viewport->set_scroll_offset(layout::Point{0.0F, tree.viewport->max_scroll_offset().y});
+        sync_showcase_window_scrollbar(tree);
+    }
+    print_process_memory(label_text + " after content");
+
+    std::thread sampler([&window, label_text]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2600));
+        print_process_memory(label_text + " after render");
+        trim_process_working_set();
+        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        print_process_memory(label_text + " after working-set trim");
+        window.close();
+    });
+
+    window.show();
+    const auto result = application.run();
+    sampler.join();
+    print_process_memory(label_text + " after close");
+    return result;
+}
+
+int run_profile_memory_showcase() {
+#ifdef _WIN32
+    std::cout << "showcase profile pid: " << GetCurrentProcessId() << "\n";
+#endif
+    print_process_memory("startup");
+    if (const auto result = run_profiled_showcase_window("maximized top", false); result != 0) {
+        return result;
+    }
+    print_process_memory("between windows");
+    return run_profiled_showcase_window("maximized bottom", true);
+}
+
 #ifndef WINELEMENT_CONTROLS_SHOWCASE_AS_LIBRARY
 int main(int argc, char** argv) {
     for (auto index = 1; index < argc; ++index) {
         if (std::string_view{argv[index]} == "--headless") {
             return run_headless_showcase();
+        }
+        if (std::string_view{argv[index]} == "--profile-memory") {
+            return run_profile_memory_showcase();
         }
     }
     return run_window_showcase();

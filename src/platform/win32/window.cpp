@@ -1062,7 +1062,8 @@ class Window::Impl final {
         if (render_worker_ != nullptr || hwnd_ == nullptr) {
             return;
         }
-        render_worker_ = std::make_unique<win32::WindowRenderWorker>(hwnd_);
+        render_worker_ =
+            std::make_unique<win32::WindowRenderWorker>(hwnd_, options_.trim_render_memory_on_idle);
         render_worker_->set_dpi(dpi_);
     }
 

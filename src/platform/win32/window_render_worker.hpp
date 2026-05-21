@@ -40,7 +40,7 @@ enum class RenderJobResult { Completed, StaleTargetSize, Canceled, Failed };
 
 class WindowRenderWorker final {
   public:
-    explicit WindowRenderWorker(HWND hwnd);
+    explicit WindowRenderWorker(HWND hwnd, bool trim_memory_on_idle = true);
     ~WindowRenderWorker();
 
     WindowRenderWorker(const WindowRenderWorker&) = delete;
@@ -87,6 +87,7 @@ class WindowRenderWorker final {
     std::optional<JobIterator> pending_set_dpi_job_;
     std::optional<JobIterator> pending_upload_job_;
     bool stopping_ = false;
+    bool trim_memory_on_idle_ = true;
     std::thread worker_;
 };
 

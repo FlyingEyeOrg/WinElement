@@ -70,6 +70,10 @@ constexpr auto max_curve_flattening_depth = 12U;
 constexpr auto smooth_stroke_join_cosine = 0.94F;
 constexpr auto continuous_join_cover_cosine = 0.997F;
 
+template <typename Container> void release_container_storage(Container& container) noexcept {
+    Container{}.swap(container);
+}
+
 struct FrameConstants {
     float target_width = 1.0F;
     float target_height = 1.0F;
@@ -565,10 +569,9 @@ build_render_tiles(std::span<const D3D11RenderDirtyClip> dirty_clips, float targ
                                    ? rect.x
                                    : std::min(rect.x + rect.width,
                                               rect.x + tile_width * static_cast<float>(column));
-                const auto y = row == 0U
-                                   ? rect.y
-                                   : std::min(rect.y + rect.height,
-                                              rect.y + tile_height * static_cast<float>(row));
+                const auto y = row == 0U ? rect.y
+                                         : std::min(rect.y + rect.height,
+                                                    rect.y + tile_height * static_cast<float>(row));
                 const auto tile_right = column + 1U == columns
                                             ? rect.x + rect.width
                                             : std::min(rect.x + rect.width, x + tile_width);
@@ -630,8 +633,8 @@ slice_dirty_clips_for_parallel_recording(std::span<const D3D11RenderDirtyClip> d
     return count;
 }
 
-[[nodiscard]] bool command_list_has_serial_barrier(
-    const rendering::RenderCommandList& commands) noexcept {
+[[nodiscard]] bool
+command_list_has_serial_barrier(const rendering::RenderCommandList& commands) noexcept {
     for (const auto& opcode : commands.opcodes()) {
         switch (opcode.opcode) {
         case rendering::RenderCommandType::PushGeometryClip:
@@ -663,8 +666,8 @@ slice_dirty_clips_for_parallel_recording(std::span<const D3D11RenderDirtyClip> d
     return false;
 }
 
-[[nodiscard]] std::size_t estimate_vertex_budget_for_command_count(
-    std::size_t command_count) noexcept {
+[[nodiscard]] std::size_t
+estimate_vertex_budget_for_command_count(std::size_t command_count) noexcept {
     return std::min<std::size_t>(command_count * 24U, max_vertices);
 }
 
@@ -741,14 +744,14 @@ void collect_visible_opcode_indices(const rendering::RenderCommandList& commands
 
         const auto* current_layer = current_layer_state();
         const auto current_force_all = current_layer != nullptr && current_layer->force_all;
-        const auto current_dirty_rect = current_layer == nullptr ? dirty_rect
-                                                                 : current_layer->dirty_rect;
+        const auto current_dirty_rect =
+            current_layer == nullptr ? dirty_rect : current_layer->dirty_rect;
 
         if (current_force_all) {
             append_opcode_index(output, index);
             if (opcode.opcode == rendering::RenderCommandType::PushLayer) {
-                push_layer_state(LayerCullState{.dirty_rect = current_dirty_rect,
-                                                .force_all = true});
+                push_layer_state(
+                    LayerCullState{.dirty_rect = current_dirty_rect, .force_all = true});
             } else if (opcode.opcode == rendering::RenderCommandType::PopLayer) {
                 pop_layer_state();
             }
@@ -781,8 +784,8 @@ void collect_visible_opcode_indices(const rendering::RenderCommandList& commands
             }
 
             append_opcode_index(output, index);
-            push_layer_state(LayerCullState{.dirty_rect = layer_dirty_rect,
-                                            .force_all = force_layer_commands});
+            push_layer_state(
+                LayerCullState{.dirty_rect = layer_dirty_rect, .force_all = force_layer_commands});
             continue;
         }
 
@@ -800,17 +803,15 @@ void collect_visible_opcode_indices(const rendering::RenderCommandList& commands
     }
 }
 
-void collect_visible_opcode_indices_for_tiles(
-    const rendering::RenderCommandList& commands,
-    std::span<PreparedRenderTile> tiles) {
+void collect_visible_opcode_indices_for_tiles(const rendering::RenderCommandList& commands,
+                                              std::span<PreparedRenderTile> tiles) {
     const auto& opcodes = commands.opcodes();
     if (opcodes.empty() || tiles.empty()) {
         return;
     }
 
-    const auto reserve_count =
-        std::min<std::size_t>(opcodes.size(),
-                              std::max<std::size_t>(32U, opcodes.size() / tiles.size()));
+    const auto reserve_count = std::min<std::size_t>(
+        opcodes.size(), std::max<std::size_t>(32U, opcodes.size() / tiles.size()));
     for (auto& tile : tiles) {
         tile.command_indices.clear();
         tile.command_indices.reserve(reserve_count);
@@ -2204,24 +2205,21 @@ struct D3D11DisplayListRenderer::RenderPlanCacheState {
             add_visible_command_count(plan.visible_command_count,
                                       plan.shared_command_indices.size() * plan.tiles.size());
         } else if (plan.tiles.size() == 1U) {
-            plan.shared_command_indices =
-                visibility_indices_for(commands, plan.tiles.front().cull_clip, false,
-                                       frame_sequence);
+            plan.shared_command_indices = visibility_indices_for(
+                commands, plan.tiles.front().cull_clip, false, frame_sequence);
             plan.tiles.front().uses_shared_command_indices = true;
             add_visible_command_count(plan.visible_command_count,
                                       plan.shared_command_indices.size());
         } else if (!command_list_has_serial_barrier(commands)) {
             collect_visible_opcode_indices_for_tiles(commands, plan.tiles);
             for (const auto& tile : plan.tiles) {
-                add_visible_command_count(plan.visible_command_count,
-                                          tile.command_indices.size());
+                add_visible_command_count(plan.visible_command_count, tile.command_indices.size());
             }
         } else {
             for (auto& tile : plan.tiles) {
                 tile.command_indices =
                     visibility_indices_for(commands, tile.cull_clip, false, frame_sequence);
-                add_visible_command_count(plan.visible_command_count,
-                                          tile.command_indices.size());
+                add_visible_command_count(plan.visible_command_count, tile.command_indices.size());
             }
         }
 
@@ -2324,16 +2322,15 @@ struct D3D11DisplayListRenderer::RenderPlanCacheState {
     }
 
     void prune_unused(std::uint64_t frame_sequence, std::uint64_t max_idle_frames) {
-        const auto prune_entries =
-            [frame_sequence, max_idle_frames](auto& entries) {
-                entries.erase(std::remove_if(entries.begin(), entries.end(),
-                                             [frame_sequence, max_idle_frames](const auto& cached) {
-                                                 return frame_sequence > cached.last_used_frame &&
-                                                        frame_sequence - cached.last_used_frame >
-                                                            max_idle_frames;
-                                             }),
-                              entries.end());
-            };
+        const auto prune_entries = [frame_sequence, max_idle_frames](auto& entries) {
+            entries.erase(std::remove_if(entries.begin(), entries.end(),
+                                         [frame_sequence, max_idle_frames](const auto& cached) {
+                                             return frame_sequence > cached.last_used_frame &&
+                                                    frame_sequence - cached.last_used_frame >
+                                                        max_idle_frames;
+                                         }),
+                          entries.end());
+        };
 
         prune_entries(frame_graphs);
         prune_entries(visibility_tiles);
@@ -2356,8 +2353,7 @@ D3D11DisplayListRenderer::D3D11DisplayListRenderer(ID3D11Device& device)
 
 D3D11DisplayListRenderer::D3D11DisplayListRenderer(ID3D11Device& device,
                                                    RendererInstanceKind instance_kind)
-    : device_(&device),
-      render_plan_cache_(std::make_unique<RenderPlanCacheState>()),
+    : device_(&device), render_plan_cache_(std::make_unique<RenderPlanCacheState>()),
       resource_updates_allowed_(instance_kind == RendererInstanceKind::Primary) {
     create_pipeline(device);
 }
@@ -2385,6 +2381,30 @@ void D3D11DisplayListRenderer::trim_parallel_recording_resources() noexcept {
     primary_deferred_context_.Reset();
     const std::scoped_lock lock(worker_recorder_mutex_);
     worker_recorders_.clear();
+}
+
+void D3D11DisplayListRenderer::trim_idle_resources() noexcept {
+    try {
+        trim_parallel_recording_resources();
+        recorder_state_ = RecorderState{};
+        stencil_view_.Reset();
+        stencil_texture_.Reset();
+        stencil_idle_frame_count_ = 0U;
+        release_container_storage(primitive_point_cache_.unit_circle_points);
+        release_container_storage(primitive_point_cache_.quarter_arc_points);
+        release_container_storage(transformed_geometry_fill_cache_);
+        release_container_storage(text_glyph_run_cache_);
+        release_container_storage(frame_dirty_clips_);
+        release_container_storage(prepared_draw_text_layouts_);
+        release_container_storage(prepared_text_layout_resource_keys_);
+        release_container_storage(text_face_cache_);
+        release_container_storage(glyph_atlas_pixels_);
+        render_plan_cache_ = std::make_unique<RenderPlanCacheState>();
+        applied_frame_graph_plan_key_ = 0U;
+        applied_frame_graph_plan_vertices_ = 0U;
+        clear_glyph_atlas_dirty();
+    } catch (...) {
+    }
 }
 
 void D3D11DisplayListRenderer::prune_frame_caches_if_needed() {
@@ -2612,8 +2632,7 @@ void D3D11DisplayListRenderer::render(ID3D11DeviceContext& context, ID3D11Render
         const auto record_start = Clock::now();
         const auto resource_snapshot = resource_cache.snapshot();
         render_to_context(context, target, clear_color, scene, dirty_region, dpi,
-                          target_pixel_width, target_pixel_height, resource_snapshot,
-                          frame_graph);
+                          target_pixel_width, target_pixel_height, resource_snapshot, frame_graph);
         const auto record_finish = Clock::now();
         last_timing_metrics_.worker_record_ms = elapsed_ms(record_start, record_finish);
         last_timing_metrics_.work_item_count = 1U;
@@ -2650,12 +2669,11 @@ void D3D11DisplayListRenderer::render(ID3D11DeviceContext& context, ID3D11Render
                           *analysis.resource_snapshot, frame_graph);
 
         analysis.work_items.clear();
-        analysis.work_items.push_back(RenderWorkItem{.kind = RenderWorkKind::NodeSubtree,
-                                                     .frame_graph_snapshot =
-                                                         analysis.frame_graph_snapshot,
-                                                     .resource_snapshot =
-                                                         analysis.resource_snapshot,
-                                                     .sort_key = RenderWorkSortKey{}});
+        analysis.work_items.push_back(
+            RenderWorkItem{.kind = RenderWorkKind::NodeSubtree,
+                           .frame_graph_snapshot = analysis.frame_graph_snapshot,
+                           .resource_snapshot = analysis.resource_snapshot,
+                           .sort_key = RenderWorkSortKey{}});
         throw_if_failed(primary_deferred_context_->FinishCommandList(
                             FALSE, &analysis.work_items.back().command_list),
                         "failed to finish display-list deferred command list");
@@ -2736,27 +2754,26 @@ D3D11DisplayListRenderer::RenderFrameAnalysis D3D11DisplayListRenderer::analyze_
     }
 
     if (!analysis.dirty_clips.empty()) {
-        analysis.work_items.push_back(RenderWorkItem{
-            .kind = RenderWorkKind::Clear,
-            .dirty_clips = analysis.dirty_clips,
-            .frame_graph_snapshot = analysis.frame_graph_snapshot,
-            .resource_snapshot = analysis.resource_snapshot,
-            .sort_key = RenderWorkSortKey{.pass_order = 0U},
-            .dependency_key = 0U,
-            .clear_color = clear_color,
-            .dpi = analysis.dpi,
-            .target_pixel_width = analysis.target_pixel_width,
-            .target_pixel_height = analysis.target_pixel_height,
-            .barrier = true,
-            .may_record_parallel = false});
+        analysis.work_items.push_back(
+            RenderWorkItem{.kind = RenderWorkKind::Clear,
+                           .dirty_clips = analysis.dirty_clips,
+                           .frame_graph_snapshot = analysis.frame_graph_snapshot,
+                           .resource_snapshot = analysis.resource_snapshot,
+                           .sort_key = RenderWorkSortKey{.pass_order = 0U},
+                           .dependency_key = 0U,
+                           .clear_color = clear_color,
+                           .dpi = analysis.dpi,
+                           .target_pixel_width = analysis.target_pixel_width,
+                           .target_pixel_height = analysis.target_pixel_height,
+                           .barrier = true,
+                           .may_record_parallel = false});
     }
 
     const auto* root = scene != nullptr ? scene->root() : nullptr;
     if (root != nullptr && !analysis.dirty_tiles.empty()) {
-        const auto can_split_root =
-            (root->kind == rendering::RenderNodeKind::Picture ||
-             root->kind == rendering::RenderNodeKind::Surface) &&
-            !command_list_has_serial_barrier(root->commands);
+        const auto can_split_root = (root->kind == rendering::RenderNodeKind::Picture ||
+                                     root->kind == rendering::RenderNodeKind::Surface) &&
+                                    !command_list_has_serial_barrier(root->commands);
         auto scene_order = 1U;
         const auto append_item = [&](RenderWorkKind kind, const rendering::RenderNode& node,
                                      std::span<const D3D11RenderDirtyClip> clips,
@@ -2769,9 +2786,9 @@ D3D11DisplayListRenderer::RenderFrameAnalysis D3D11DisplayListRenderer::analyze_
                 .resource_snapshot = analysis.resource_snapshot,
                 .sort_key = RenderWorkSortKey{.pass_order = 1U, .scene_order = order},
                 .dependency_key = barrier ? static_cast<std::uint64_t>(order) : 0U,
-                .estimated_command_count =
-                    kind == RenderWorkKind::NodeCommandsOnly ? node.commands.command_count()
-                                                             : command_count_for_subtree(node),
+                .estimated_command_count = kind == RenderWorkKind::NodeCommandsOnly
+                                               ? node.commands.command_count()
+                                               : command_count_for_subtree(node),
                 .dpi = analysis.dpi,
                 .target_pixel_width = analysis.target_pixel_width,
                 .target_pixel_height = analysis.target_pixel_height,
@@ -2786,8 +2803,8 @@ D3D11DisplayListRenderer::RenderFrameAnalysis D3D11DisplayListRenderer::analyze_
             if (!root->commands.empty()) {
                 for (std::size_t tile_index = 0U; tile_index < analysis.dirty_tiles.size();
                      ++tile_index) {
-                    const auto clip = std::array<D3D11RenderDirtyClip, 1U>{
-                        analysis.dirty_tiles[tile_index]};
+                    const auto clip =
+                        std::array<D3D11RenderDirtyClip, 1U>{analysis.dirty_tiles[tile_index]};
                     append_item(RenderWorkKind::NodeCommandsOnly, *root, clip, scene_order++,
                                 command_list_has_serial_barrier(root->commands));
                     analysis.work_items.back().sort_key.dirty_bucket_order =
@@ -2804,13 +2821,12 @@ D3D11DisplayListRenderer::RenderFrameAnalysis D3D11DisplayListRenderer::analyze_
                 if (split_child_by_tile) {
                     for (std::size_t tile_index = 0U; tile_index < analysis.dirty_tiles.size();
                          ++tile_index) {
-                        const auto clip = std::array<D3D11RenderDirtyClip, 1U>{
-                            analysis.dirty_tiles[tile_index]};
+                        const auto clip =
+                            std::array<D3D11RenderDirtyClip, 1U>{analysis.dirty_tiles[tile_index]};
                         if (!dirty_clips_intersect_node(clip, child)) {
                             continue;
                         }
-                        append_item(RenderWorkKind::NodeSubtree, child, clip, scene_order,
-                                    false);
+                        append_item(RenderWorkKind::NodeSubtree, child, clip, scene_order, false);
                         analysis.work_items.back().sort_key.dirty_bucket_order =
                             static_cast<std::uint32_t>(tile_index);
                     }
@@ -2841,14 +2857,14 @@ D3D11DisplayListRenderer::RenderFrameAnalysis D3D11DisplayListRenderer::analyze_
     }
 
     constexpr auto min_parallel_work_items = 2U;
-    const auto pass_count =
-        analysis.frame_graph_snapshot != nullptr ? analysis.frame_graph_snapshot->graph.passes.size()
-                                                 : std::size_t{};
-    const auto dirty_area = std::accumulate(
-        analysis.dirty_clips.begin(), analysis.dirty_clips.end(), 0.0F,
-        [](float total, const D3D11RenderDirtyClip& clip) {
-            return total + rect_area(clip.cull_clip);
-        });
+    const auto pass_count = analysis.frame_graph_snapshot != nullptr
+                                ? analysis.frame_graph_snapshot->graph.passes.size()
+                                : std::size_t{};
+    const auto dirty_area =
+        std::accumulate(analysis.dirty_clips.begin(), analysis.dirty_clips.end(), 0.0F,
+                        [](float total, const D3D11RenderDirtyClip& clip) {
+                            return total + rect_area(clip.cull_clip);
+                        });
     constexpr auto min_large_dirty_parallel_area = 16'384.0F;
     const auto large_dirty_scene =
         estimated_commands >= 128U && dirty_area >= min_large_dirty_parallel_area;
@@ -2881,8 +2897,7 @@ void D3D11DisplayListRenderer::assign_glyph_snapshot(
     }
 }
 
-void D3D11DisplayListRenderer::adopt_glyph_atlas_snapshot(
-    const GlyphAtlasSnapshot& snapshot) {
+void D3D11DisplayListRenderer::adopt_glyph_atlas_snapshot(const GlyphAtlasSnapshot& snapshot) {
     glyph_atlas_entries_ = snapshot.entries;
     prepared_draw_text_layouts_ = snapshot.prepared_text_layouts;
     glyph_atlas_texture_ = snapshot.texture;
@@ -2892,8 +2907,7 @@ void D3D11DisplayListRenderer::adopt_glyph_atlas_snapshot(
     clear_glyph_atlas_dirty();
 }
 
-std::shared_ptr<D3D11DisplayListRenderer>
-D3D11DisplayListRenderer::acquire_worker_recorder() {
+std::shared_ptr<D3D11DisplayListRenderer> D3D11DisplayListRenderer::acquire_worker_recorder() {
     if (device_ == nullptr) {
         return {};
     }
@@ -2998,13 +3012,12 @@ void D3D11DisplayListRenderer::record_render_work_items(RenderFrameAnalysis& ana
     }
 }
 
-void D3D11DisplayListRenderer::record_work_item_to_command_list(
-    RenderWorkItem& work_item, ID3D11RenderTargetView& target) {
+void D3D11DisplayListRenderer::record_work_item_to_command_list(RenderWorkItem& work_item,
+                                                                ID3D11RenderTargetView& target) {
     ensure_primary_deferred_context();
 
-    render_work_item_to_context(*primary_deferred_context_.Get(), target, work_item,
-                                work_item.dpi, work_item.target_pixel_width,
-                                work_item.target_pixel_height);
+    render_work_item_to_context(*primary_deferred_context_.Get(), target, work_item, work_item.dpi,
+                                work_item.target_pixel_width, work_item.target_pixel_height);
     throw_if_failed(primary_deferred_context_->FinishCommandList(FALSE, &work_item.command_list),
                     "failed to finish display-list work item command list");
 }
@@ -3022,9 +3035,8 @@ void D3D11DisplayListRenderer::ensure_primary_deferred_context() {
 }
 
 void D3D11DisplayListRenderer::render_work_item_to_context(
-    ID3D11DeviceContext& context, ID3D11RenderTargetView& target,
-    const RenderWorkItem& work_item, float dpi, std::uint32_t target_pixel_width,
-    std::uint32_t target_pixel_height) {
+    ID3D11DeviceContext& context, ID3D11RenderTargetView& target, const RenderWorkItem& work_item,
+    float dpi, std::uint32_t target_pixel_width, std::uint32_t target_pixel_height) {
     const auto* graph = work_item.frame_graph_snapshot != nullptr
                             ? &work_item.frame_graph_snapshot->graph
                             : static_cast<const rendering::RenderFrameGraph*>(nullptr);
@@ -3058,8 +3070,8 @@ void D3D11DisplayListRenderer::render_work_item_to_context(
     end_frame();
 }
 
-void D3D11DisplayListRenderer::submit_recorded_work_items(
-    ID3D11DeviceContext& context, RenderFrameAnalysis& analysis) {
+void D3D11DisplayListRenderer::submit_recorded_work_items(ID3D11DeviceContext& context,
+                                                          RenderFrameAnalysis& analysis) {
     const auto work_item_less = [](const RenderWorkItem& left, const RenderWorkItem& right) {
         const auto& a = left.sort_key;
         const auto& b = right.sort_key;
@@ -3077,10 +3089,8 @@ void D3D11DisplayListRenderer::submit_recorded_work_items(
         }
         return a.dirty_bucket_order < b.dirty_bucket_order;
     };
-    if (!std::is_sorted(analysis.work_items.begin(), analysis.work_items.end(),
-                        work_item_less)) {
-        std::stable_sort(analysis.work_items.begin(), analysis.work_items.end(),
-                         work_item_less);
+    if (!std::is_sorted(analysis.work_items.begin(), analysis.work_items.end(), work_item_less)) {
+        std::stable_sort(analysis.work_items.begin(), analysis.work_items.end(), work_item_less);
     }
 
     for (const auto& item : analysis.work_items) {
@@ -3261,8 +3271,10 @@ void D3D11DisplayListRenderer::apply_frame_graph_plan(
     }
 
     if (estimated_vertices > 0U) {
-        recorder_state_.batch_vertices.reserve(std::min<std::size_t>(estimated_vertices, max_vertices));
-        recorder_state_.primitive_vertices.reserve(std::min<std::size_t>(estimated_vertices, max_vertices));
+        recorder_state_.batch_vertices.reserve(
+            std::min<std::size_t>(estimated_vertices, max_vertices));
+        recorder_state_.primitive_vertices.reserve(
+            std::min<std::size_t>(estimated_vertices, max_vertices));
     }
     applied_frame_graph_plan_key_ = plan_key;
     applied_frame_graph_plan_vertices_ = estimated_vertices;
@@ -3508,10 +3520,9 @@ void D3D11DisplayListRenderer::bind_shader_resource(
     recorder_state_.bound_shader_resource = texture_view;
 }
 
-void D3D11DisplayListRenderer::render_node(const rendering::RenderNode& node,
-                                           std::span<const D3D11RenderDirtyClip> dirty_clips,
-                                           const D3D11RenderResourceCache::Snapshot& resource_snapshot,
-                                           bool force_commands) {
+void D3D11DisplayListRenderer::render_node(
+    const rendering::RenderNode& node, std::span<const D3D11RenderDirtyClip> dirty_clips,
+    const D3D11RenderResourceCache::Snapshot& resource_snapshot, bool force_commands) {
     if (!force_commands && !dirty_clips_intersect_node(dirty_clips, node)) {
         return;
     }
@@ -3535,91 +3546,92 @@ void D3D11DisplayListRenderer::render_node(const rendering::RenderNode& node,
                 single_mapped_dirty_clip.data(), single_mapped_dirty_clip.size()};
             force_descendant_commands = true;
         } else if (node.kind == rendering::RenderNodeKind::Layer) {
-        if (rendering::is_identity_transform(node.transform)) {
-            if (!node.clips_to_bounds) {
-                active_dirty_clips = dirty_clips;
-            } else if (dirty_clips.size() == 1U) {
-                const auto cull_clip =
-                    rendering::layout::intersect_rects(dirty_clips.front().cull_clip, node.bounds);
-                if (!rendering::layout::is_visible_rect(cull_clip)) {
-                    return;
-                }
-                single_mapped_dirty_clip[0] = D3D11RenderDirtyClip{
-                    .device_clip = dirty_clips.front().device_clip, .cull_clip = cull_clip};
-                active_dirty_clips = std::span<const D3D11RenderDirtyClip>{
-                    single_mapped_dirty_clip.data(), single_mapped_dirty_clip.size()};
-            } else if (dirty_clips.size() <= stack_mapped_dirty_clips.size()) {
-                auto mapped_count = std::size_t{0U};
-                for (const auto dirty_clip : dirty_clips) {
-                    const auto cull_clip =
-                        rendering::layout::intersect_rects(dirty_clip.cull_clip, node.bounds);
+            if (rendering::is_identity_transform(node.transform)) {
+                if (!node.clips_to_bounds) {
+                    active_dirty_clips = dirty_clips;
+                } else if (dirty_clips.size() == 1U) {
+                    const auto cull_clip = rendering::layout::intersect_rects(
+                        dirty_clips.front().cull_clip, node.bounds);
                     if (!rendering::layout::is_visible_rect(cull_clip)) {
-                        continue;
+                        return;
                     }
-                    stack_mapped_dirty_clips[mapped_count++] = D3D11RenderDirtyClip{
-                        .device_clip = dirty_clip.device_clip, .cull_clip = cull_clip};
+                    single_mapped_dirty_clip[0] = D3D11RenderDirtyClip{
+                        .device_clip = dirty_clips.front().device_clip, .cull_clip = cull_clip};
+                    active_dirty_clips = std::span<const D3D11RenderDirtyClip>{
+                        single_mapped_dirty_clip.data(), single_mapped_dirty_clip.size()};
+                } else if (dirty_clips.size() <= stack_mapped_dirty_clips.size()) {
+                    auto mapped_count = std::size_t{0U};
+                    for (const auto dirty_clip : dirty_clips) {
+                        const auto cull_clip =
+                            rendering::layout::intersect_rects(dirty_clip.cull_clip, node.bounds);
+                        if (!rendering::layout::is_visible_rect(cull_clip)) {
+                            continue;
+                        }
+                        stack_mapped_dirty_clips[mapped_count++] = D3D11RenderDirtyClip{
+                            .device_clip = dirty_clip.device_clip, .cull_clip = cull_clip};
+                    }
+                    if (mapped_count == 0U) {
+                        return;
+                    }
+                    active_dirty_clips = std::span<const D3D11RenderDirtyClip>{
+                        stack_mapped_dirty_clips.data(), mapped_count};
+                } else {
+                    mapped_dirty_clips = dirty_clips_for_clip_rect(dirty_clips, node.bounds);
+                    if (mapped_dirty_clips.empty()) {
+                        return;
+                    }
+                    active_dirty_clips = mapped_dirty_clips;
                 }
-                if (mapped_count == 0U) {
-                    return;
-                }
-                active_dirty_clips = std::span<const D3D11RenderDirtyClip>{
-                    stack_mapped_dirty_clips.data(), mapped_count};
-            } else {
-                mapped_dirty_clips = dirty_clips_for_clip_rect(dirty_clips, node.bounds);
-                if (mapped_dirty_clips.empty()) {
-                    return;
-                }
-                active_dirty_clips = mapped_dirty_clips;
-            }
-        } else if (dirty_clips.size() == 1U) {
-            const auto inverse = inverse_transform(node.transform);
-            if (!inverse.has_value()) {
-                force_descendant_commands = true;
-            } else {
-                auto cull_clip = rendering::transform_rect(dirty_clips.front().cull_clip, *inverse);
-                if (node.clips_to_bounds) {
-                    cull_clip = rendering::layout::intersect_rects(cull_clip, node.bounds);
-                }
-                if (!rendering::layout::is_visible_rect(cull_clip)) {
-                    return;
-                }
-                single_mapped_dirty_clip[0] = D3D11RenderDirtyClip{
-                    .device_clip = dirty_clips.front().device_clip, .cull_clip = cull_clip};
-                active_dirty_clips = std::span<const D3D11RenderDirtyClip>{
-                    single_mapped_dirty_clip.data(), single_mapped_dirty_clip.size()};
-            }
-        } else if (dirty_clips.size() <= stack_mapped_dirty_clips.size()) {
-            const auto inverse = inverse_transform(node.transform);
-            if (!inverse.has_value()) {
-                force_descendant_commands = true;
-            } else {
-                auto mapped_count = std::size_t{0U};
-                for (const auto dirty_clip : dirty_clips) {
-                    auto cull_clip = rendering::transform_rect(dirty_clip.cull_clip, *inverse);
+            } else if (dirty_clips.size() == 1U) {
+                const auto inverse = inverse_transform(node.transform);
+                if (!inverse.has_value()) {
+                    force_descendant_commands = true;
+                } else {
+                    auto cull_clip =
+                        rendering::transform_rect(dirty_clips.front().cull_clip, *inverse);
                     if (node.clips_to_bounds) {
                         cull_clip = rendering::layout::intersect_rects(cull_clip, node.bounds);
                     }
                     if (!rendering::layout::is_visible_rect(cull_clip)) {
-                        continue;
+                        return;
                     }
-                    stack_mapped_dirty_clips[mapped_count++] = D3D11RenderDirtyClip{
-                        .device_clip = dirty_clip.device_clip, .cull_clip = cull_clip};
+                    single_mapped_dirty_clip[0] = D3D11RenderDirtyClip{
+                        .device_clip = dirty_clips.front().device_clip, .cull_clip = cull_clip};
+                    active_dirty_clips = std::span<const D3D11RenderDirtyClip>{
+                        single_mapped_dirty_clip.data(), single_mapped_dirty_clip.size()};
                 }
-                if (mapped_count == 0U) {
+            } else if (dirty_clips.size() <= stack_mapped_dirty_clips.size()) {
+                const auto inverse = inverse_transform(node.transform);
+                if (!inverse.has_value()) {
+                    force_descendant_commands = true;
+                } else {
+                    auto mapped_count = std::size_t{0U};
+                    for (const auto dirty_clip : dirty_clips) {
+                        auto cull_clip = rendering::transform_rect(dirty_clip.cull_clip, *inverse);
+                        if (node.clips_to_bounds) {
+                            cull_clip = rendering::layout::intersect_rects(cull_clip, node.bounds);
+                        }
+                        if (!rendering::layout::is_visible_rect(cull_clip)) {
+                            continue;
+                        }
+                        stack_mapped_dirty_clips[mapped_count++] = D3D11RenderDirtyClip{
+                            .device_clip = dirty_clip.device_clip, .cull_clip = cull_clip};
+                    }
+                    if (mapped_count == 0U) {
+                        return;
+                    }
+                    active_dirty_clips = std::span<const D3D11RenderDirtyClip>{
+                        stack_mapped_dirty_clips.data(), mapped_count};
+                }
+            } else if (auto layer_clips = dirty_clips_for_layer(dirty_clips, node)) {
+                if (layer_clips->empty()) {
                     return;
                 }
-                active_dirty_clips = std::span<const D3D11RenderDirtyClip>{
-                    stack_mapped_dirty_clips.data(), mapped_count};
+                mapped_dirty_clips = std::move(*layer_clips);
+                active_dirty_clips = mapped_dirty_clips;
+            } else {
+                force_descendant_commands = true;
             }
-        } else if (auto layer_clips = dirty_clips_for_layer(dirty_clips, node)) {
-            if (layer_clips->empty()) {
-                return;
-            }
-            mapped_dirty_clips = std::move(*layer_clips);
-            active_dirty_clips = mapped_dirty_clips;
-        } else {
-            force_descendant_commands = true;
-        }
         } else {
             if (dirty_clips.size() == 1U) {
                 const auto cull_clip =
@@ -3760,7 +3772,8 @@ void D3D11DisplayListRenderer::render_command_list(
 
     const auto* command_frame_graph =
         render_plan_cache_ != nullptr
-            ? render_plan_cache_->frame_graph_for(commands, recorder_state_.active_frame_graph, frame_sequence_)
+            ? render_plan_cache_->frame_graph_for(commands, recorder_state_.active_frame_graph,
+                                                  frame_sequence_)
             : recorder_state_.active_frame_graph;
     auto fallback_plan = PreparedRenderPlan{};
     const auto* plan = static_cast<const PreparedRenderPlan*>(nullptr);
@@ -3779,8 +3792,8 @@ void D3D11DisplayListRenderer::render_command_list(
 
     if (plan->tiles.size() == 1U) {
         const auto& tile = plan->tiles.front();
-        const auto& command_indices = tile.uses_shared_command_indices ? plan->shared_command_indices
-                                                                       : tile.command_indices;
+        const auto& command_indices =
+            tile.uses_shared_command_indices ? plan->shared_command_indices : tile.command_indices;
         if (command_indices.empty()) {
             return;
         }
@@ -3799,8 +3812,10 @@ void D3D11DisplayListRenderer::render_command_list(
             estimate_vertex_budget_for_pass(pass.kind, pass.visible_command_count);
     }
     if (visible_vertex_budget > 0U) {
-        recorder_state_.batch_vertices.reserve(std::min<std::size_t>(visible_vertex_budget, max_vertices));
-        recorder_state_.primitive_vertices.reserve(std::min<std::size_t>(visible_vertex_budget, max_vertices));
+        recorder_state_.batch_vertices.reserve(
+            std::min<std::size_t>(visible_vertex_budget, max_vertices));
+        recorder_state_.primitive_vertices.reserve(
+            std::min<std::size_t>(visible_vertex_budget, max_vertices));
     }
 
     for (const auto& tile : plan->tiles) {
@@ -3829,8 +3844,7 @@ template <typename Payload>
 }
 
 void D3D11DisplayListRenderer::prepare_text_resources_for_scene(
-    const rendering::RenderScene* scene,
-    std::span<const D3D11RenderDirtyClip> dirty_clips) {
+    const rendering::RenderScene* scene, std::span<const D3D11RenderDirtyClip> dirty_clips) {
     prepared_draw_text_layouts_.clear();
     prepared_text_layout_resource_keys_.clear();
     if (scene == nullptr || scene->root() == nullptr || dirty_clips.empty()) {
@@ -3840,8 +3854,7 @@ void D3D11DisplayListRenderer::prepare_text_resources_for_scene(
 }
 
 void D3D11DisplayListRenderer::prepare_text_resources_for_node(
-    const rendering::RenderNode& node,
-    std::span<const D3D11RenderDirtyClip> dirty_clips) {
+    const rendering::RenderNode& node, std::span<const D3D11RenderDirtyClip> dirty_clips) {
     if (!dirty_clips_intersect_node(dirty_clips, node)) {
         return;
     }
@@ -3869,11 +3882,10 @@ void D3D11DisplayListRenderer::prepare_text_resources_for_command_list(
                     payload->text_view(), payload->style,
                     rendering::TextLayoutOptions{.max_width = payload->rect.width,
                                                  .max_height = payload->rect.height});
-                prepared_draw_text_layouts_.push_back(
-                    PreparedDrawTextLayoutSnapshot{.commands = &commands,
-                                                   .opcode_index = opcode_index,
-                                                   .layout = std::make_shared<rendering::TextLayout>(
-                                                       layout)});
+                prepared_draw_text_layouts_.push_back(PreparedDrawTextLayoutSnapshot{
+                    .commands = &commands,
+                    .opcode_index = opcode_index,
+                    .layout = std::make_shared<rendering::TextLayout>(layout)});
                 prepare_text_layout_resources(layout, nullptr);
             }
             break;
@@ -3892,8 +3904,7 @@ void D3D11DisplayListRenderer::prepare_text_resources_for_command_list(
 }
 
 void D3D11DisplayListRenderer::prepare_text_layout_resources(
-    const rendering::TextLayout& layout,
-    const rendering::PreparedTextGlyphCoverageList* prepared) {
+    const rendering::TextLayout& layout, const rendering::PreparedTextGlyphCoverageList* prepared) {
     if (layout.text.empty()) {
         return;
     }
@@ -3955,9 +3966,9 @@ const rendering::TextLayout* D3D11DisplayListRenderer::prepared_draw_text_layout
     return nullptr;
 }
 
-void D3D11DisplayListRenderer::render_command(const rendering::RenderCommandList& commands,
-                                              std::size_t opcode_index,
-                                              const D3D11RenderResourceCache::Snapshot& resource_snapshot) {
+void D3D11DisplayListRenderer::render_command(
+    const rendering::RenderCommandList& commands, std::size_t opcode_index,
+    const D3D11RenderResourceCache::Snapshot& resource_snapshot) {
     const auto& opcodes = commands.opcodes();
     if (opcode_index >= opcodes.size()) {
         return;
@@ -4086,8 +4097,7 @@ void D3D11DisplayListRenderer::render_command(const rendering::RenderCommandList
     case rendering::RenderCommandType::DrawText:
         if (const auto* payload =
                 payload_at(commands.draw_text_payloads(), indices, opcode_index)) {
-            if (const auto* prepared_layout =
-                    prepared_draw_text_layout_for(commands, opcode_index);
+            if (const auto* prepared_layout = prepared_draw_text_layout_for(commands, opcode_index);
                 prepared_layout != nullptr) {
                 draw_text_layout(*prepared_layout,
                                  rendering::layout::Point{payload->rect.x, payload->rect.y});
@@ -4404,7 +4414,8 @@ void D3D11DisplayListRenderer::append_batch_vertices(std::span<const Vertex> ver
 
     const auto offset = recorder_state_.batch_vertices.size();
     recorder_state_.batch_vertices.resize(offset + vertices.size());
-    std::memcpy(recorder_state_.batch_vertices.data() + offset, vertices.data(), vertices.size_bytes());
+    std::memcpy(recorder_state_.batch_vertices.data() + offset, vertices.data(),
+                vertices.size_bytes());
 }
 
 void D3D11DisplayListRenderer::draw_stroke_ellipse(core::Rect rect, core::Color color,
@@ -5547,18 +5558,16 @@ void D3D11DisplayListRenderer::render_stencil_clip(
     }
 
     bind_blend_state(stencil_mask_blend_state_.Get());
-    bind_depth_stencil_state(op == StencilUpdateOp::Increment
-                                 ? stencil_increment_state_.Get()
-                                 : stencil_decrement_state_.Get(),
+    bind_depth_stencil_state(op == StencilUpdateOp::Increment ? stencil_increment_state_.Get()
+                                                              : stencil_decrement_state_.Get(),
                              reference);
     draw_vertices_now(vertices, nullptr, TextureSamplingMode::None);
     bind_blend_state(blend_state_.Get());
     const auto draw_depth = recorder_state_.state_stack.empty()
                                 ? std::uint8_t{0U}
                                 : recorder_state_.state_stack.back().stencil_depth;
-    bind_depth_stencil_state(draw_depth > 0U ? stencil_test_state_.Get()
-                                             : stencil_disabled_state_.Get(),
-                             draw_depth);
+    bind_depth_stencil_state(
+        draw_depth > 0U ? stencil_test_state_.Get() : stencil_disabled_state_.Get(), draw_depth);
 }
 
 D3D11DisplayListRenderer::GlyphBitmap D3D11DisplayListRenderer::rasterize_glyph_coverage(
@@ -6260,9 +6269,9 @@ void D3D11DisplayListRenderer::draw_box_shadow(core::Rect rect,
     draw_solid_rect(base_rect, multiply_alpha(style.color, 0.18F));
 }
 
-void D3D11DisplayListRenderer::draw_image(rendering::RenderResourceId resource_id,
-                                          const rendering::RenderImageOptions& options,
-                                          const D3D11RenderResourceCache::Snapshot& resource_snapshot) {
+void D3D11DisplayListRenderer::draw_image(
+    rendering::RenderResourceId resource_id, const rendering::RenderImageOptions& options,
+    const D3D11RenderResourceCache::Snapshot& resource_snapshot) {
     const auto* texture = resource_snapshot.texture(resource_id);
     if (texture == nullptr || texture->view == nullptr ||
         !rendering::layout::is_visible_rect(options.destination)) {
@@ -6321,9 +6330,11 @@ void D3D11DisplayListRenderer::submit_vertices(std::span<const Vertex> vertices,
     auto first = std::size_t{0U};
     const auto aligned_vertex_count = vertices.size() - vertices.size() % triangle_vertex_count;
     while (first < aligned_vertex_count) {
-        if (recorder_state_.batch_active && (recorder_state_.batch_texture != texture || recorder_state_.batch_texture_mode != mode ||
-                              recorder_state_.batch_stencil_depth != stencil_depth ||
-                              recorder_state_.batch_vertices.size() + triangle_vertex_count > max_vertices)) {
+        if (recorder_state_.batch_active &&
+            (recorder_state_.batch_texture != texture ||
+             recorder_state_.batch_texture_mode != mode ||
+             recorder_state_.batch_stencil_depth != stencil_depth ||
+             recorder_state_.batch_vertices.size() + triangle_vertex_count > max_vertices)) {
             flush_batch();
         }
 
@@ -6350,16 +6361,19 @@ void D3D11DisplayListRenderer::submit_vertices(std::span<const Vertex> vertices,
 }
 
 void D3D11DisplayListRenderer::flush_batch() {
-    if (context_ == nullptr || !recorder_state_.batch_active || recorder_state_.batch_vertices.empty()) {
+    if (context_ == nullptr || !recorder_state_.batch_active ||
+        recorder_state_.batch_vertices.empty()) {
         recorder_state_.batch_vertices.clear();
         recorder_state_.batch_active = false;
         return;
     }
 
-    const auto& pipeline = cached_pipeline_for(recorder_state_.batch_texture_mode, recorder_state_.batch_stencil_depth);
+    const auto& pipeline = cached_pipeline_for(recorder_state_.batch_texture_mode,
+                                               recorder_state_.batch_stencil_depth);
     bind_blend_state(pipeline.blend_state);
     bind_depth_stencil_state(pipeline.depth_stencil_state, recorder_state_.batch_stencil_depth);
-    draw_vertices_now(recorder_state_.batch_vertices, recorder_state_.batch_texture, recorder_state_.batch_texture_mode);
+    draw_vertices_now(recorder_state_.batch_vertices, recorder_state_.batch_texture,
+                      recorder_state_.batch_texture_mode);
     recorder_state_.batch_vertices.clear();
     recorder_state_.batch_texture = nullptr;
     recorder_state_.batch_texture_mode = TextureSamplingMode::None;
@@ -6398,11 +6412,12 @@ void D3D11DisplayListRenderer::draw_vertices_now(std::span<const Vertex> vertice
                                     .target_height = target_dip_height_,
                                     .textured = texture == nullptr ? 0.0F : 1.0F,
                                     .texture_mode = mode_value};
-    const auto constants_changed = !recorder_state_.constant_buffer_state_valid ||
-                                   recorder_state_.uploaded_constant_target_width != constants.target_width ||
-                                   recorder_state_.uploaded_constant_target_height != constants.target_height ||
-                                   recorder_state_.uploaded_constant_textured != constants.textured ||
-                                   recorder_state_.uploaded_constant_texture_mode != constants.texture_mode;
+    const auto constants_changed =
+        !recorder_state_.constant_buffer_state_valid ||
+        recorder_state_.uploaded_constant_target_width != constants.target_width ||
+        recorder_state_.uploaded_constant_target_height != constants.target_height ||
+        recorder_state_.uploaded_constant_textured != constants.textured ||
+        recorder_state_.uploaded_constant_texture_mode != constants.texture_mode;
     if (constants_changed) {
         D3D11_MAPPED_SUBRESOURCE constants_resource{};
         if (SUCCEEDED(context_->Map(constant_buffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0,

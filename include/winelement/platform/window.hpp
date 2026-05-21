@@ -15,6 +15,7 @@ struct WindowOptions {
     int height = 640;
     bool use_no_redirection_bitmap = true;
     bool defer_render_thread_until_show = false;
+    bool trim_render_memory_on_idle = true;
 };
 
 class Window final {

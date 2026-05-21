@@ -9,7 +9,7 @@
 #include <windows.h>
 
 #include <d3d11.h>
-#include <dxgi1_2.h>
+#include <dxgi1_3.h>
 #include <wrl/client.h>
 
 #include <stdexcept>
@@ -52,6 +52,21 @@ class D3D11RenderDevice::Impl final {
         d3d_device_ = std::move(replacement.d3d_device_);
         d3d_context_ = std::move(replacement.d3d_context_);
         feature_level_ = replacement.feature_level_;
+    }
+
+    void trim_idle_resources() noexcept {
+        try {
+            if (d3d_context_ != nullptr) {
+                d3d_context_->ClearState();
+                d3d_context_->Flush();
+            }
+
+            Microsoft::WRL::ComPtr<IDXGIDevice3> dxgi_device;
+            if (d3d_device_ != nullptr && SUCCEEDED(d3d_device_.As(&dxgi_device))) {
+                dxgi_device->Trim();
+            }
+        } catch (...) {
+        }
     }
 
   private:
@@ -113,6 +128,10 @@ ID3D11DeviceContext& D3D11RenderDevice::d3d_context() const noexcept {
 
 void D3D11RenderDevice::recreate() {
     impl_->recreate();
+}
+
+void D3D11RenderDevice::trim_idle_resources() noexcept {
+    impl_->trim_idle_resources();
 }
 
 } // namespace winelement::platform::win32

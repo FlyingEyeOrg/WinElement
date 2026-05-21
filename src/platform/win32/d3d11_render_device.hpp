@@ -20,6 +20,7 @@ class D3D11RenderDevice final {
     [[nodiscard]] ID3D11Device& d3d_device() const noexcept;
     [[nodiscard]] ID3D11DeviceContext& d3d_context() const noexcept;
     void recreate();
+    void trim_idle_resources() noexcept;
 
   private:
     class Impl;
