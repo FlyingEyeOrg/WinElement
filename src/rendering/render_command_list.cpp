@@ -66,6 +66,57 @@ template <typename Cache> void trim_cache_entries(Cache& cache, std::size_t max_
     }
 }
 
+template <typename Cache> void prune_unreferenced_prepared_entries(Cache& cache) noexcept {
+    for (auto iterator = cache.begin(); iterator != cache.end();) {
+        auto& entries = iterator->second;
+        entries.erase(std::remove_if(entries.begin(), entries.end(),
+                                     [](const auto& entry) {
+                                         return entry.prepared == nullptr ||
+                                                entry.prepared.use_count() <= 1L;
+                                     }),
+                      entries.end());
+        if (entries.empty()) {
+            iterator = cache.erase(iterator);
+        } else {
+            ++iterator;
+        }
+    }
+}
+
+void prune_unreferenced_text_glyph_entries(
+    std::unordered_map<std::size_t,
+                       std::vector<std::shared_ptr<const PreparedTextGlyphCoverage>>>& cache)
+    noexcept {
+    for (auto iterator = cache.begin(); iterator != cache.end();) {
+        auto& entries = iterator->second;
+        entries.erase(std::remove_if(entries.begin(), entries.end(),
+                                     [](const auto& entry) {
+                                         return entry == nullptr || entry.use_count() <= 1L;
+                                     }),
+                      entries.end());
+        if (entries.empty()) {
+            iterator = cache.erase(iterator);
+        } else {
+            ++iterator;
+        }
+    }
+}
+
+std::size_t prepared_text_glyph_bytes(
+    const std::unordered_map<std::size_t,
+                             std::vector<std::shared_ptr<const PreparedTextGlyphCoverage>>>& cache)
+    noexcept {
+    auto bytes = std::size_t{};
+    for (const auto& [_, entries] : cache) {
+        for (const auto& entry : entries) {
+            if (entry != nullptr) {
+                bytes += entry->pixels.size();
+            }
+        }
+    }
+    return bytes;
+}
+
 class BoundsBuilder final {
   public:
     void add(layout::Point point) noexcept {
@@ -2193,6 +2244,22 @@ void PreparedRenderCache::merge(const PreparedRenderCache& other) {
         }
     }
     trim_cache_entries(prepared_text_glyph_cache_, max_prepared_text_glyph_cache_entries);
+}
+
+void PreparedRenderCache::prune_unreferenced() noexcept {
+    prune_unreferenced_prepared_entries(prepared_geometry_fill_cache_);
+    prune_unreferenced_prepared_entries(prepared_geometry_stroke_cache_);
+    prune_unreferenced_prepared_entries(prepared_geometry_flatten_cache_);
+    prune_unreferenced_text_glyph_entries(prepared_text_glyph_cache_);
+}
+
+PreparedRenderCacheStats PreparedRenderCache::stats() const noexcept {
+    return PreparedRenderCacheStats{
+        .geometry_flatten_entries = cache_entry_count(prepared_geometry_flatten_cache_),
+        .geometry_fill_entries = cache_entry_count(prepared_geometry_fill_cache_),
+        .geometry_stroke_entries = cache_entry_count(prepared_geometry_stroke_cache_),
+        .text_glyph_entries = cache_entry_count(prepared_text_glyph_cache_),
+        .text_glyph_bytes = prepared_text_glyph_bytes(prepared_text_glyph_cache_)};
 }
 
 RenderCommandList::RenderCommandList() = default;

@@ -363,12 +363,18 @@ void RenderScene::clear() noexcept {
     root_.reset();
     command_fingerprint_ = 0U;
     command_count_ = 0U;
+    if (prepared_cache_ != nullptr) {
+        prepared_cache_->prune_unreferenced();
+    }
 }
 
 void RenderScene::set_root(RenderNode root) {
     command_fingerprint_ = root.fingerprint;
     command_count_ = root.commands.command_count();
     root_ = std::make_unique<RenderNode>(std::move(root));
+    if (prepared_cache_ != nullptr) {
+        prepared_cache_->prune_unreferenced();
+    }
 }
 
 RenderNode render_node_from_commands(RenderCommandList command_list, std::string_view debug_name) {
@@ -424,6 +430,9 @@ void RenderScene::update_from_commands(RenderCommandList command_list, std::stri
     command_fingerprint_ = next_fingerprint;
     command_count_ = next_command_count;
     root_ = std::make_unique<RenderNode>(std::move(next_root));
+    if (prepared_cache_ != nullptr) {
+        prepared_cache_->prune_unreferenced();
+    }
 }
 
 bool RenderScene::empty() const noexcept {

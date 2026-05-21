@@ -223,6 +223,18 @@ struct ShowcaseWindowMetrics {
     std::size_t element_count = 0U;
 };
 
+struct ShowcaseRenderMetrics {
+    std::size_t node_count = 0U;
+    std::size_t command_count = 0U;
+    rendering::PreparedRenderCacheStats prepared_cache{};
+};
+
+struct ShowcaseScrollProfile {
+    float scroll_max = 0.0F;
+    ShowcaseRenderMetrics top{};
+    ShowcaseRenderMetrics bottom{};
+};
+
 class LiveSampleCard final : public controls::Panel {
   public:
     using SampleFunction = std::function<LiveSample(animation::AnimationTimePoint)>;
@@ -1621,6 +1633,42 @@ void sync_showcase_window_scrollbar(ShowcaseWindowTree& tree) {
     return total;
 }
 
+[[nodiscard]] ShowcaseRenderMetrics render_metrics_for_scene(
+    const rendering::RenderScene& scene) noexcept {
+    const auto* scene_root = scene.root();
+    return ShowcaseRenderMetrics{
+        .node_count = scene_root != nullptr ? count_nodes(*scene_root) : 0U,
+        .command_count = scene_root != nullptr ? count_commands(*scene_root) : 0U,
+        .prepared_cache =
+            scene.prepared_cache() != nullptr ? scene.prepared_cache()->stats()
+                                             : rendering::PreparedRenderCacheStats{}};
+}
+
+[[nodiscard]] ShowcaseScrollProfile profile_showcase_window_scroll(float width, float height) {
+    auto engine = layout::LayoutEngine{};
+    auto tree = build_showcase_window_tree();
+    tree.root->bind_layout_tree(engine);
+    tree.root->calculate_layout(layout::LayoutConstraints{.width = width, .height = height});
+    sync_showcase_window_scrollbar(tree);
+
+    auto scene = rendering::RenderScene{};
+    auto dirty = rendering::DirtyRegion{};
+    tree.root->commit_render_scene(scene, &dirty);
+
+    auto profile = ShowcaseScrollProfile{};
+    profile.scroll_max = tree.viewport != nullptr ? tree.viewport->max_scroll_offset().y : 0.0F;
+    profile.top = render_metrics_for_scene(scene);
+
+    if (tree.viewport != nullptr) {
+        tree.viewport->set_scroll_offset(layout::Point{0.0F, profile.scroll_max});
+        sync_showcase_window_scrollbar(tree);
+    }
+    dirty = rendering::DirtyRegion{};
+    tree.root->commit_render_scene(scene, &dirty);
+    profile.bottom = render_metrics_for_scene(scene);
+    return profile;
+}
+
 } // namespace
 
 int run_headless_showcase() {
@@ -1636,6 +1684,8 @@ int run_headless_showcase() {
     constexpr auto wide_showcase_window_height = 1034.0F;
     const auto wide_showcase_metrics =
         measure_showcase_window(wide_showcase_window_width, wide_showcase_window_height);
+    const auto maximized_scroll_profile =
+        profile_showcase_window_scroll(wide_showcase_window_width, wide_showcase_window_height);
 
     const auto now = animation::AnimationClockType::now();
     auto animation_active = false;
@@ -1674,6 +1724,21 @@ int run_headless_showcase() {
               << '\n';
     std::cout << "  wide measured content height: "
               << wide_showcase_metrics.measured_content_height << '\n';
+    std::cout << "  maximized scroll bottom: " << maximized_scroll_profile.scroll_max << '\n';
+    std::cout << "  maximized top render nodes: " << maximized_scroll_profile.top.node_count
+              << '\n';
+    std::cout << "  maximized top render commands: " << maximized_scroll_profile.top.command_count
+              << '\n';
+    std::cout << "  maximized top prepared glyphs: "
+              << maximized_scroll_profile.top.prepared_cache.text_glyph_entries << " ("
+              << maximized_scroll_profile.top.prepared_cache.text_glyph_bytes << " bytes)\n";
+    std::cout << "  maximized bottom render nodes: " << maximized_scroll_profile.bottom.node_count
+              << '\n';
+    std::cout << "  maximized bottom render commands: "
+              << maximized_scroll_profile.bottom.command_count << '\n';
+    std::cout << "  maximized bottom prepared glyphs: "
+              << maximized_scroll_profile.bottom.prepared_cache.text_glyph_entries << " ("
+              << maximized_scroll_profile.bottom.prepared_cache.text_glyph_bytes << " bytes)\n";
     std::cout << "  animation active during warmup: " << (animation_active ? "yes" : "no") << '\n';
     std::cout << "  dirty empty: " << (dirty.empty() ? "yes" : "no") << '\n';
     const auto content_height_matches_width =
@@ -1683,7 +1748,9 @@ int run_headless_showcase() {
                  wide_showcase_metrics.measured_content_height) < 1.0F;
     return command_count > 0U && showcase_metrics.scroll_max > 0.0F &&
                    showcase_metrics.scrollbar_max > 0.0F &&
-                   wide_showcase_metrics.scroll_max > 0.0F && content_height_matches_width
+                   wide_showcase_metrics.scroll_max > 0.0F && content_height_matches_width &&
+                   maximized_scroll_profile.scroll_max > 0.0F &&
+                   maximized_scroll_profile.bottom.command_count > 0U
                ? 0
                : 1;
 }

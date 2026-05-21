@@ -3192,6 +3192,7 @@ void UIElement::append_content_commands_subtree(rendering::RenderCommandRecorder
     for (const auto& child : sorted) {
         if (clip_children &&
             !layout::rects_intersect(child->visible_subtree_bounds(), viewport_rect)) {
+            child->discard_cached_render_commands_subtree();
             continue;
         }
         child->append_content_commands_subtree(subtree_recorder);
@@ -3238,6 +3239,7 @@ void UIElement::append_overlay_commands_subtree(rendering::RenderCommandRecorder
     for (const auto& child : sorted) {
         if (clip_children &&
             !layout::rects_intersect(child->visible_subtree_bounds(), viewport_rect)) {
+            child->discard_cached_render_commands_subtree();
             continue;
         }
         child->append_overlay_commands_subtree(subtree_recorder);

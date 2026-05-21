@@ -61,6 +61,14 @@ struct PreparedTextGlyphCoverageList {
         glyphs_by_hash;
 };
 
+struct PreparedRenderCacheStats {
+    std::size_t geometry_flatten_entries = 0U;
+    std::size_t geometry_fill_entries = 0U;
+    std::size_t geometry_stroke_entries = 0U;
+    std::size_t text_glyph_entries = 0U;
+    std::size_t text_glyph_bytes = 0U;
+};
+
 class PreparedRenderCache final {
   public:
     [[nodiscard]] std::shared_ptr<const PreparedGeometryFlatten>
@@ -72,6 +80,8 @@ class PreparedRenderCache final {
     [[nodiscard]] std::shared_ptr<const PreparedTextGlyphCoverageList>
     prepared_text_glyph_coverages(const TextLayout& layout);
     void merge(const PreparedRenderCache& other);
+    void prune_unreferenced() noexcept;
+    [[nodiscard]] PreparedRenderCacheStats stats() const noexcept;
 
   private:
     struct PreparedGeometryFlattenEntry {

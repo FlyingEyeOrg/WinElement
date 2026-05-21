@@ -343,6 +343,38 @@ TEST(RenderContextTests, PreparedRenderCacheSharesGeometryAcrossRecorders) {
     EXPECT_EQ(fill.prepared_fill->flatten, stroke.prepared_stroke->flatten);
 }
 
+TEST(RenderContextTests, RenderScenePrunesPreparedCacheToCurrentRoot) {
+    const auto cache = std::make_shared<PreparedRenderCache>();
+    RenderScene scene(cache);
+
+    {
+        RenderCommandRecorder recorder(cache);
+        recorder.fill_geometry(make_triangle_geometry(), Color::rgba(64, 158, 255));
+        scene.set_root(RenderNode{.kind = RenderNodeKind::Picture,
+                                  .commands = recorder.take_command_list()});
+    }
+
+    auto stats = cache->stats();
+    EXPECT_EQ(stats.geometry_fill_entries, 1U);
+    EXPECT_EQ(stats.geometry_flatten_entries, 1U);
+
+    {
+        RenderCommandRecorder recorder(cache);
+        recorder.fill_geometry(make_quarter_arc_geometry(), Color::rgba(103, 194, 58));
+        scene.set_root(RenderNode{.kind = RenderNodeKind::Picture,
+                                  .commands = recorder.take_command_list()});
+    }
+
+    stats = cache->stats();
+    EXPECT_EQ(stats.geometry_fill_entries, 1U);
+    EXPECT_EQ(stats.geometry_flatten_entries, 1U);
+
+    scene.clear();
+    stats = cache->stats();
+    EXPECT_EQ(stats.geometry_fill_entries, 0U);
+    EXPECT_EQ(stats.geometry_flatten_entries, 0U);
+}
+
 TEST(RenderContextTests, SvgPathParserDoesNotEmitLeadingEmptyFigure) {
     const auto geometry = parse_svg_path("M0 0 L20 0 L20 20 z M30 30 L40 30");
 
