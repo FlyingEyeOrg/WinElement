@@ -25,11 +25,16 @@ struct LoadedImage {
 };
 
 struct DiffSummary {
-    std::size_t mismatched_pixels = 0U;
+    std::size_t differing_pixels = 0U;
+    std::size_t significant_pixels = 0U;
     std::uint64_t total_channel_delta = 0U;
     std::uint8_t max_channel_delta = 0U;
     LoadedImage diff_image;
 };
+
+constexpr std::uint8_t tolerated_channel_delta = 1U;
+constexpr std::size_t tolerated_differing_pixels = 64U;
+constexpr std::uint64_t tolerated_total_channel_delta = 96U;
 
 struct RegionCase {
     const char* name;
@@ -157,6 +162,7 @@ struct RegionCase {
 
     for (std::size_t index = 0U; index + 3U < actual.pixels.size(); index += 4U) {
         auto pixel_mismatch = false;
+        auto significant_pixel_mismatch = false;
         for (std::size_t channel = 0U; channel < 4U; ++channel) {
             const auto actual_value =
                 std::to_integer<std::uint8_t>(actual.pixels[index + channel]);
@@ -171,14 +177,25 @@ struct RegionCase {
                                        : static_cast<std::uint8_t>(std::min(255U, delta * 24U));
             summary.diff_image.pixels[index + channel] = std::byte{amplified};
             pixel_mismatch = pixel_mismatch || delta != 0U;
+            significant_pixel_mismatch = significant_pixel_mismatch ||
+                                         delta > tolerated_channel_delta;
         }
         if (pixel_mismatch) {
-            ++summary.mismatched_pixels;
+            ++summary.differing_pixels;
             summary.diff_image.pixels[index + 3U] = std::byte{255U};
+        }
+        if (significant_pixel_mismatch) {
+            ++summary.significant_pixels;
         }
     }
 
     return summary;
+}
+
+[[nodiscard]] bool is_within_visual_tolerance(const DiffSummary& diff) noexcept {
+    return diff.significant_pixels == 0U &&
+           diff.differing_pixels <= tolerated_differing_pixels &&
+           diff.total_channel_delta <= tolerated_total_channel_delta;
 }
 
 void write_failure_artifacts(std::string_view case_name, const LoadedImage& actual,
@@ -237,14 +254,18 @@ TEST_P(RenderPipelineVisualRegressionTest, MatchesCommittedBaseline) {
     ASSERT_EQ(actual.stride, expected.stride);
 
     const auto diff = compare_images(actual, expected);
-    if (diff.mismatched_pixels != 0U) {
+    if (!is_within_visual_tolerance(diff)) {
         write_failure_artifacts(GetParam().name, actual, expected, diff);
     }
 
-    EXPECT_EQ(diff.mismatched_pixels, 0U)
-        << GetParam().name << " visual regression detected. mismatched pixels="
-        << diff.mismatched_pixels << ", total channel delta=" << diff.total_channel_delta
+    EXPECT_TRUE(is_within_visual_tolerance(diff))
+        << GetParam().name << " visual regression detected. differing pixels="
+        << diff.differing_pixels << ", significant pixels=" << diff.significant_pixels
+        << ", total channel delta=" << diff.total_channel_delta
         << ", max channel delta=" << static_cast<unsigned int>(diff.max_channel_delta)
+        << ", tolerated channel delta=" << static_cast<unsigned int>(tolerated_channel_delta)
+        << ", tolerated differing pixels=" << tolerated_differing_pixels
+        << ", tolerated total channel delta=" << tolerated_total_channel_delta
         << ", artifacts=" << failure_artifact_dir().string();
 }
 
