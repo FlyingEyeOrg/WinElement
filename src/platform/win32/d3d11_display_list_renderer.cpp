@@ -62,7 +62,7 @@ constexpr auto glyph_atlas_width = 1024U;
 constexpr auto glyph_atlas_height = 1024U;
 constexpr auto glyph_atlas_padding = 2U;
 constexpr auto glyph_atlas_bytes_per_pixel = 4U;
-constexpr auto render_worker_text_layout_cache_entries = 64U;
+constexpr auto render_worker_text_layout_cache_entries = 16U;
 constexpr auto geometry_epsilon = 0.0001F;
 constexpr auto contour_cleanup_epsilon = 0.001F;
 constexpr auto geometry_flattening_tolerance = 0.01F;
@@ -2341,10 +2341,10 @@ struct D3D11DisplayListRenderer::RenderPlanCacheState {
         prune_entries(render_plans);
     }
 
-    static constexpr auto max_frame_graphs = 32U;
-    static constexpr auto max_visibility_tiles = 96U;
-    static constexpr auto max_pass_metrics = 32U;
-    static constexpr auto max_render_plans = 32U;
+    static constexpr auto max_frame_graphs = 16U;
+    static constexpr auto max_visibility_tiles = 48U;
+    static constexpr auto max_pass_metrics = 16U;
+    static constexpr auto max_render_plans = 16U;
     std::vector<CachedFrameGraph> frame_graphs;
     std::vector<CachedVisibilityTile> visibility_tiles;
     std::vector<CachedPassMetrics> pass_metrics;
@@ -2360,7 +2360,6 @@ D3D11DisplayListRenderer::D3D11DisplayListRenderer(ID3D11Device& device,
       render_plan_cache_(std::make_unique<RenderPlanCacheState>()),
       resource_updates_allowed_(instance_kind == RendererInstanceKind::Primary) {
     create_pipeline(device);
-    ensure_primary_deferred_context();
 }
 
 D3D11DisplayListRenderer::~D3D11DisplayListRenderer() = default;
@@ -2406,7 +2405,7 @@ void D3D11DisplayListRenderer::prune_frame_caches_if_needed() {
                        }),
         transformed_geometry_fill_cache_.end());
 
-    constexpr auto text_glyph_run_max_idle_frames = 120U;
+    constexpr auto text_glyph_run_max_idle_frames = 60U;
     text_glyph_run_cache_.erase(
         std::remove_if(text_glyph_run_cache_.begin(), text_glyph_run_cache_.end(),
                        [this](const CachedTextGlyphRun& cached) {
@@ -2421,7 +2420,7 @@ void D3D11DisplayListRenderer::prune_frame_caches_if_needed() {
                        }),
         text_glyph_run_cache_.end());
 
-    constexpr auto render_plan_cache_max_idle_frames = 120U;
+    constexpr auto render_plan_cache_max_idle_frames = 60U;
     if (render_plan_cache_ != nullptr) {
         render_plan_cache_->prune_unused(frame_sequence_, render_plan_cache_max_idle_frames);
     }

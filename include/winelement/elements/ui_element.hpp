@@ -421,6 +421,7 @@ class UIElement {
         const std::shared_ptr<rendering::PreparedRenderCache>& prepared_cache) const;
     void discard_cached_render_commands_subtree() const noexcept;
     [[nodiscard]] bool should_cache_render_command_subtree() const noexcept;
+    [[nodiscard]] bool should_cache_render_scene_subtree() const noexcept;
     [[nodiscard]] bool has_render_layer() const noexcept;
     [[nodiscard]] rendering::RenderLayerOptions render_layer_options() const noexcept;
     void calculate_top_layer_layouts(layout::LayoutConstraints constraints,

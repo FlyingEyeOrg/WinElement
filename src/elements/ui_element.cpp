@@ -30,7 +30,7 @@ TextInputHandler::~TextInputHandler() = default;
 namespace {
 
 constexpr auto default_scroll_wheel_step = 48.0F;
-constexpr auto ui_text_layout_cache_entries = 64U;
+constexpr auto ui_text_layout_cache_entries = 24U;
 
 std::uint64_t next_local_theme_generation() noexcept {
     static std::atomic_uint64_t generation{std::uint64_t{1} << 63U};
@@ -3269,7 +3269,7 @@ void UIElement::append_content_scene_subtree(
     }
 
     auto& render_object = ensure_render_state().render_object;
-    const auto cache_subtree_commands = should_cache_render_command_subtree();
+    const auto cache_subtree_commands = should_cache_render_scene_subtree();
     if (cache_subtree_commands &&
         render_object.can_reuse_content(layout_generation_, needs_paint_)) {
         if (parent_recorder != nullptr) {
@@ -3372,7 +3372,7 @@ void UIElement::append_overlay_scene_subtree(
     }
 
     auto& render_object = ensure_render_state().render_object;
-    const auto cache_subtree_commands = should_cache_render_command_subtree();
+    const auto cache_subtree_commands = should_cache_render_scene_subtree();
     if (cache_subtree_commands &&
         render_object.can_reuse_overlay(layout_generation_, needs_paint_)) {
         if (parent_recorder != nullptr) {
@@ -3540,6 +3540,10 @@ void UIElement::discard_cached_render_commands_subtree() const noexcept {
 bool UIElement::should_cache_render_command_subtree() const noexcept {
     return children_.empty() || has_render_layer() || repaint_boundary() ||
            !top_layer_manager_.entries().empty();
+}
+
+bool UIElement::should_cache_render_scene_subtree() const noexcept {
+    return has_render_layer() || repaint_boundary() || !top_layer_manager_.entries().empty();
 }
 
 bool UIElement::has_render_layer() const noexcept {

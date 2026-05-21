@@ -212,7 +212,7 @@ void remember_node_graph(const RenderNode& node, RenderFrameGraph graph) {
         return;
     }
 
-    constexpr auto max_cached_node_graphs = 256U;
+    constexpr auto max_cached_node_graphs = 64U;
     if (cache.entries.size() >= max_cached_node_graphs && !cache.order.empty()) {
         cache.entries.erase(cache.order.front());
         cache.order.pop_front();
