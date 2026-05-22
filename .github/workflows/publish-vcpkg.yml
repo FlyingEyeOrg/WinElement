@@ -72,31 +72,69 @@ jobs:
           $regDir = "${{ runner.temp }}\registry"
           $repoUrl = "https://x-access-token:$env:GITHUB_TOKEN@github.com/${{ github.repository }}.git"
 
-          git clone --single-branch --branch vcpkg-registry $repoUrl $regDir 2>$null
-          if (-not $?) {
+          git ls-remote --exit-code --heads $repoUrl vcpkg-registry | Out-Null
+          $branchCheckExit = $LASTEXITCODE
+
+          if ($branchCheckExit -eq 0) {
+            git clone --single-branch --branch vcpkg-registry $repoUrl $regDir
+          } elseif ($branchCheckExit -eq 2) {
             Write-Host "Registry branch not found, creating new one..."
             New-Item -ItemType Directory -Force -Path $regDir
             Push-Location $regDir
             git init
             git remote add origin $repoUrl
             git switch --orphan vcpkg-registry
-            $env:GIT_AUTHOR_NAME = 'github-actions[bot]'
-            $env:GIT_AUTHOR_EMAIL = 'github-actions[bot]@users.noreply.github.com'
-            $env:GIT_COMMITTER_NAME = 'github-actions[bot]'
-            $env:GIT_COMMITTER_EMAIL = 'github-actions[bot]@users.noreply.github.com'
-            git commit --allow-empty -m "Initialize vcpkg registry"
+            git config user.name 'github-actions[bot]'
+            git config user.email 'github-actions[bot]@users.noreply.github.com'
+            New-Item -ItemType Directory -Force -Path 'versions' | Out-Null
+            '{"default":{}}' | Set-Content 'versions\baseline.json' -NoNewline
+            git add versions\baseline.json
+            git commit -m "Initialize vcpkg registry"
             Pop-Location
+          } else {
+            Write-Error "Failed to check vcpkg-registry branch; git ls-remote exited with $branchCheckExit"
+            exit $branchCheckExit
           }
 
           Push-Location $regDir
-          $authorArg = '--x-add-version-git-author=github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+
+          $registryPortDir = Join-Path $regDir 'ports\winelement'
+          if (Test-Path $registryPortDir) {
+            $resolvedRegDir = (Resolve-Path $regDir).Path.TrimEnd('\') + '\'
+            $resolvedPortDir = (Resolve-Path $registryPortDir).Path
+            if (-not $resolvedPortDir.StartsWith($resolvedRegDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+              throw "Refusing to remove unexpected port directory: $resolvedPortDir"
+            }
+            Remove-Item -LiteralPath $resolvedPortDir -Recurse -Force
+          }
+
+          New-Item -ItemType Directory -Force -Path $registryPortDir | Out-Null
+          Copy-Item "${{ runner.temp }}\ports\winelement\*" $registryPortDir -Force
+
+          $baselinePath = Join-Path $regDir 'versions\baseline.json'
+          if (-not (Test-Path $baselinePath)) {
+            New-Item -ItemType Directory -Force -Path (Split-Path $baselinePath) | Out-Null
+            '{"default":{}}' | Set-Content $baselinePath -NoNewline
+          }
+
+          git add ports\winelement versions\baseline.json
           vcpkg x-add-version winelement `
-            --overlay-ports="${{ runner.temp }}\ports" `
-            $authorArg
+            --x-builtin-ports-root="$regDir\ports" `
+            --x-builtin-registry-versions-dir="$regDir\versions" `
+            --overwrite-version
 
           if ($LASTEXITCODE -eq 0) {
-            git push --set-upstream origin vcpkg-registry
-            Write-Host "Published winelement ${{ env.VERSION }} to vcpkg-registry"
+            git add ports\winelement versions
+            git diff --cached --quiet
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "No vcpkg registry changes to publish"
+            } else {
+              git commit -m "Publish winelement ${{ env.VERSION }} to vcpkg registry"
+              git push --set-upstream origin vcpkg-registry
+              Write-Host "Published winelement ${{ env.VERSION }} to vcpkg-registry"
+            }
           } else {
             Write-Error "vcpkg x-add-version failed with exit code $LASTEXITCODE"
             Pop-Location
