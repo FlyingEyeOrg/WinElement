@@ -10,6 +10,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+include(CMakePackageConfigHelpers)
+include(GNUInstallDirs)
 include(cmake/winelement_target.cmake)
 
 find_package(yoga CONFIG REQUIRED)
@@ -56,4 +58,59 @@ target_link_libraries(winelement
         WinElement::elements
         WinElement::controls
         WinElement::platform
+)
+
+set_target_properties(winelement_core PROPERTIES EXPORT_NAME core)
+set_target_properties(winelement_layout PROPERTIES EXPORT_NAME layout)
+set_target_properties(winelement_rendering PROPERTIES EXPORT_NAME rendering)
+set_target_properties(winelement_animation PROPERTIES EXPORT_NAME animation)
+set_target_properties(winelement_style PROPERTIES EXPORT_NAME style)
+set_target_properties(winelement_elements PROPERTIES EXPORT_NAME elements)
+set_target_properties(winelement_controls PROPERTIES EXPORT_NAME controls)
+set_target_properties(winelement_platform PROPERTIES EXPORT_NAME platform)
+set_target_properties(winelement PROPERTIES EXPORT_NAME winelement)
+
+install(
+    TARGETS
+        winelement_core
+        winelement_layout
+        winelement_rendering
+        winelement_animation
+        winelement_style
+        winelement_elements
+        winelement_controls
+        winelement_platform
+        winelement
+    EXPORT WinElementTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+configure_package_config_file(
+    cmake/WinElementConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/WinElementConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/WinElement
+)
+
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/WinElementConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+install(
+    FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/WinElementConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/WinElementConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/WinElement
+)
+
+install(
+    EXPORT WinElementTargets
+    NAMESPACE WinElement::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/WinElement
 )

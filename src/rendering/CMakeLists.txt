@@ -13,7 +13,8 @@ add_library(WinElement::rendering ALIAS winelement_rendering)
 
 target_include_directories(winelement_rendering
     PUBLIC
-        ${PROJECT_SOURCE_DIR}/include
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
 target_link_libraries(winelement_rendering

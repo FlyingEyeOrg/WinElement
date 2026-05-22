@@ -16,7 +16,8 @@ add_library(WinElement::platform ALIAS winelement_platform)
 
 target_include_directories(winelement_platform
     PUBLIC
-        ${PROJECT_SOURCE_DIR}/include
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
 target_link_libraries(winelement_platform

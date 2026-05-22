@@ -13,8 +13,10 @@ function(winelement_configure_common target visibility)
     )
 
     if(MSVC)
-        set_property(TARGET ${target} PROPERTY MSVC_RUNTIME_LIBRARY
-            "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+        if(NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+            set_property(TARGET ${target} PROPERTY MSVC_RUNTIME_LIBRARY
+                "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+        endif()
         target_compile_options(${target} PRIVATE /W4 /permissive- /Zc:__cplusplus)
         if(WINELEMENT_WARNINGS_AS_ERRORS)
             target_compile_options(${target} PRIVATE /WX)

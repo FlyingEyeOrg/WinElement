@@ -8,7 +8,8 @@ add_library(WinElement::animation ALIAS winelement_animation)
 
 target_include_directories(winelement_animation
     PUBLIC
-        ${PROJECT_SOURCE_DIR}/include
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
 target_link_libraries(winelement_animation

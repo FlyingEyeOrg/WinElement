@@ -23,7 +23,8 @@ add_library(WinElement::controls ALIAS winelement_controls)
 
 target_include_directories(winelement_controls
     PUBLIC
-        ${PROJECT_SOURCE_DIR}/include
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
 target_link_libraries(winelement_controls

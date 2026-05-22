@@ -18,7 +18,8 @@ add_library(WinElement::elements ALIAS winelement_elements)
 
 target_include_directories(winelement_elements
     PUBLIC
-        ${PROJECT_SOURCE_DIR}/include
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
 target_link_libraries(winelement_elements

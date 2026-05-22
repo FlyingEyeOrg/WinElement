@@ -5,29 +5,18 @@
   "description": "A high-performance Windows C++ UI framework with retained rendering, layout, controls, and Element Plus inspired styling.",
   "license": null,
   "supports": "windows",
-  "default-features": [
-    "samples",
-    "tests"
-  ],
   "dependencies": [
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    },
     {
       "name": "yoga",
       "default-features": false
     }
-  ],
-  "features": {
-    "samples": {
-      "description": "Dependencies used by WinElement sample applications.",
-      "dependencies": [
-        "fmt"
-      ]
-    },
-    "tests": {
-      "description": "Dependencies used by WinElement unit and visual regression tests.",
-      "dependencies": [
-        "fmt",
-        "gtest"
-      ]
-    }
-  }
+  ]
 }
