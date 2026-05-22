@@ -13,7 +13,7 @@ namespace winelement::controls {
 
 enum class SwitchSize { Default, Large, Small };
 
-class Switch final : public Control {
+class Switch : public Control {
   public:
     using ChangeHandler = std::function<void(bool)>;
 
@@ -46,6 +46,7 @@ class Switch final : public Control {
     void on_key_event(elements::KeyEvent& event) override;
     [[nodiscard]] bool on_animation_frame(animation::AnimationTimePoint now) override;
     void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override;
+    void apply_property_change(const core::PropertyChange& change) override;
 
   private:
     void update_measure_callback();

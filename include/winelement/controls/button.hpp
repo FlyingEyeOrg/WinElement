@@ -71,7 +71,7 @@ constexpr ButtonFlag& operator&=(ButtonFlag& left, ButtonFlag right) noexcept {
     return (static_cast<std::uint16_t>(value) & static_cast<std::uint16_t>(flag)) != 0U;
 }
 
-class Button final : public Control {
+class Button : public Control {
   public:
     using ClickHandler = std::function<void()>;
 
@@ -135,6 +135,7 @@ class Button final : public Control {
     cursor_for_local_point(layout::Point local_position) const noexcept override;
     [[nodiscard]] bool on_animation_frame(animation::AnimationTimePoint now) override;
     void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override;
+    void apply_property_change(const core::PropertyChange& change) override;
 
   private:
     void update_measure_callback();

@@ -34,7 +34,7 @@ struct SelectOptionGroup {
 enum class SelectSize { Default, Large, Small };
 enum class SelectFilterMode { AsciiCaseInsensitive, UnicodeCaseInsensitive, Custom };
 
-class Select final : public Control {
+class Select : public Control {
   public:
     using ChangeHandler = std::function<void(std::optional<std::size_t>)>;
     using MultiChangeHandler = std::function<void(const std::vector<std::size_t>&)>;
@@ -93,6 +93,7 @@ class Select final : public Control {
     cursor_for_local_point(layout::Point local_position) const noexcept override;
     [[nodiscard]] bool on_animation_frame(animation::AnimationTimePoint now) override;
     void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override;
+    void apply_property_change(const core::PropertyChange& change) override;
 
   private:
     friend class SelectDropdown;

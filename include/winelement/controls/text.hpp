@@ -19,7 +19,7 @@ namespace winelement::controls {
 enum class TextType { Primary, Success, Warning, Danger, Info };
 enum class TextSize { Default, Large, Small };
 
-class Text final : public Control {
+class Text : public Control {
   public:
     Text();
 
@@ -42,6 +42,9 @@ class Text final : public Control {
     [[nodiscard]] bool copyable() const noexcept;
     [[nodiscard]] const std::string& link_target() const noexcept;
     [[nodiscard]] const std::string& text() const noexcept;
+
+  protected:
+    void apply_property_change(const core::PropertyChange& change) override;
 
   private:
     void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override;

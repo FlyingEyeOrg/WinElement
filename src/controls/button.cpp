@@ -1,5 +1,7 @@
 #include <winelement/controls/button.hpp>
 
+#include <winelement/controls/property_keys.hpp>
+
 #include "control_style.hpp"
 
 #include <winelement/elements/all_icons.hpp>
@@ -99,22 +101,12 @@ Button& Button::set_text(std::string_view text) {
 }
 
 Button& Button::set_type(ButtonType type) {
-    if (type_ == type) {
-        return *this;
-    }
-
-    type_ = type;
-    apply_semantic_style();
+    set_property(property_keys::button_type(), type);
     return *this;
 }
 
 Button& Button::set_size(ButtonSize size) {
-    if (size_ == size) {
-        return *this;
-    }
-
-    size_ = size;
-    apply_semantic_style();
+    set_property(property_keys::button_size(), size);
     return *this;
 }
 
@@ -134,37 +126,12 @@ Button& Button::set_disabled(bool disabled) {
 }
 
 Button& Button::set_loading(bool loading) {
-    const auto old_loading = has_flag(flags_, ButtonFlag::Loading);
-    if (old_loading == loading) {
-        return *this;
-    }
-
-    if (loading) {
-        flags_ |= ButtonFlag::Loading;
-        loading_progress_.animate_loop(animation::AnimationDuration{0.9F});
-    } else {
-        flags_ &= ~ButtonFlag::Loading;
-        loading_progress_.set(0.0F);
-    }
-    invalidate_display_text_cache();
-    set_pressed(false);
-    release_pointer_capture();
-    mark_measure_dirty();
-    invalidate_paint();
+    set_property(property_keys::button_loading(), loading);
     return *this;
 }
 
 Button& Button::set_plain(bool plain) {
-    if (has_flag(flags_, ButtonFlag::Plain) == plain) {
-        return *this;
-    }
-
-    if (plain) {
-        flags_ |= ButtonFlag::Plain;
-    } else {
-        flags_ &= ~ButtonFlag::Plain;
-    }
-    apply_semantic_style();
+    set_property(property_keys::button_plain(), plain);
     return *this;
 }
 
@@ -694,6 +661,56 @@ void Button::update_measure_callback() {
                                      min_width),
                             style_storage().min_height};
     });
+}
+
+void Button::apply_property_change(const core::PropertyChange& change) {
+    if (!change.changed) {
+        return;
+    }
+
+    const auto id = change.metadata->id;
+
+    if (id == property_keys::button_type().id()) {
+        auto* v = properties().local_value<ButtonType>(property_keys::button_type());
+        type_ = v ? *v : ButtonType::Default;
+        apply_semantic_style();
+        return;
+    }
+    if (id == property_keys::button_size().id()) {
+        auto* v = properties().local_value<ButtonSize>(property_keys::button_size());
+        size_ = v ? *v : ButtonSize::Default;
+        apply_semantic_style();
+        return;
+    }
+    if (id == property_keys::button_loading().id()) {
+        auto* v = properties().local_value<bool>(property_keys::button_loading());
+        const auto loading = v ? *v : false;
+        if (loading) {
+            flags_ |= ButtonFlag::Loading;
+            loading_progress_.animate_loop(animation::AnimationDuration{0.9F});
+        } else {
+            flags_ &= ~ButtonFlag::Loading;
+            loading_progress_.set(0.0F);
+        }
+        invalidate_display_text_cache();
+        set_pressed(false);
+        release_pointer_capture();
+        mark_measure_dirty();
+        invalidate_paint();
+        return;
+    }
+    if (id == property_keys::button_plain().id()) {
+        auto* v = properties().local_value<bool>(property_keys::button_plain());
+        if (v && *v) {
+            flags_ |= ButtonFlag::Plain;
+        } else {
+            flags_ &= ~ButtonFlag::Plain;
+        }
+        apply_semantic_style();
+        return;
+    }
+
+    UIElement::apply_property_change(change);
 }
 
 void Button::apply_semantic_style() {

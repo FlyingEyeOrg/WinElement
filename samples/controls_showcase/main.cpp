@@ -1763,16 +1763,106 @@ void add_animation_section(controls::StackPanel& root) {
     implicit_demo.replay_animation();
 }
 
+void add_virtualization_section(controls::StackPanel& root) {
+    auto& section = add_section(root, "Virtualization (10 000 items)");
+
+    constexpr float viewport_height = 400.0F;
+    constexpr float item_height = 32.0F;
+    constexpr std::size_t item_count = 10000;
+
+    auto& row = section.append_new_child<controls::StackPanel>();
+    row.set_orientation(controls::Orientation::Horizontal);
+    row.set_gap(12.0F);
+    row.configure_layout([](layout::LayoutElement& item) {
+        item.set_width(layout::Length::percent(100.0F))
+            .set_height(layout::Length::points(viewport_height))
+            .set_flex_shrink(0.0F);
+    });
+
+    auto& viewport = row.append_new_child<controls::Panel>();
+    viewport.set_background(rendering::Color::rgba(255, 255, 255));
+    viewport.set_border(rendering::Color::rgba(220, 223, 230), 1.0F);
+    viewport.set_corner_radius(rendering::CornerRadius::uniform(4.0F));
+    viewport.set_overflow(layout::Overflow::Hidden);
+    viewport.set_scroll_wheel_enabled(true);
+    viewport.configure_layout([](layout::LayoutElement& item) {
+        item.set_width(layout::Length::percent(100.0F))
+            .set_height(layout::Length::points(viewport_height))
+            .set_flex_grow(1.0F)
+            .set_flex_shrink(1.0F);
+    });
+
+    auto virtual_panel = std::make_unique<controls::VirtualizingPanel>();
+    auto* virtual_panel_ptr = virtual_panel.get();
+    virtual_panel->set_item_count(item_count)
+        .set_item_extent(item_height)
+        .set_overscan(6)
+        .set_item_factory([](std::size_t index) {
+            auto item = std::make_unique<controls::Panel>();
+            item->set_background(
+                index % 2 == 0 ? rendering::Color::rgba(250, 250, 252)
+                               : rendering::Color::rgba(255, 255, 255));
+            item->set_border(rendering::Color::rgba(235, 238, 245), 1.0F);
+            item->configure_layout([](layout::LayoutElement& layout) {
+                layout.set_width(layout::Length::percent(100.0F))
+                    .set_height(layout::Length::percent(100.0F))
+                    .set_padding(layout::Edge::Horizontal, layout::Length::points(12.0F))
+                    .set_align_items(layout::Align::Center);
+            });
+            auto& label = item->append_new_child<controls::Text>();
+            label.set_text("Item #" + std::to_string(index));
+            label.set_type(controls::TextType::Info);
+            label.set_font_size(13.0F);
+            return item;
+        });
+    virtual_panel_ptr->set_viewport_extent(viewport_height);
+    viewport.append_child(std::move(virtual_panel));
+
+    auto& scrollbar = row.append_new_child<controls::Scrollbar>();
+    scrollbar.set_orientation(controls::ScrollbarOrientation::Vertical)
+        .set_always_visible(true)
+        .set_min_thumb_extent(24.0F)
+        .set_thickness(8.0F)
+        .set_range(0.0F, static_cast<float>(item_count) * item_height, viewport_height)
+        .set_on_scroll([&viewport, virtual_panel_ptr](float value) {
+            viewport.set_scroll_offset(layout::Point{0.0F, value});
+            virtual_panel_ptr->set_scroll_offset(value);
+            virtual_panel_ptr->refresh_virtualization();
+        });
+    scrollbar.configure_layout([](layout::LayoutElement& item) {
+        item.set_width(layout::Length::points(12.0F))
+            .set_height(layout::Length::percent(100.0F))
+            .set_flex_shrink(0.0F);
+    });
+
+    auto& info = section.append_new_child<controls::Text>();
+    info.set_text("Scroll to test virtualization — only ~" +
+                  std::to_string(static_cast<int>(viewport_height / item_height + 6) * 2) +
+                  " items realized at any time")
+        .set_type(controls::TextType::Info)
+        .set_font_size(12.0F);
+}
+
 constexpr auto showcase_content_padding = 24.0F;
 constexpr auto showcase_content_gap = 18.0F;
 constexpr auto showcase_virtualization_min_overscan = 480.0F;
 
-enum class ShowcaseSectionId { Buttons, Inputs, Choices, Structure, Images, Feedback, Animations };
+enum class ShowcaseSectionId {
+    Buttons,
+    Inputs,
+    Choices,
+    Structure,
+    Images,
+    Feedback,
+    Animations,
+    Virtualization
+};
 
 constexpr auto showcase_section_ids =
-    std::array{ShowcaseSectionId::Buttons,   ShowcaseSectionId::Inputs, ShowcaseSectionId::Choices,
-               ShowcaseSectionId::Structure, ShowcaseSectionId::Images, ShowcaseSectionId::Feedback,
-               ShowcaseSectionId::Animations};
+    std::array{ShowcaseSectionId::Buttons,     ShowcaseSectionId::Inputs,
+               ShowcaseSectionId::Choices,     ShowcaseSectionId::Structure,
+               ShowcaseSectionId::Images,      ShowcaseSectionId::Feedback,
+               ShowcaseSectionId::Animations,  ShowcaseSectionId::Virtualization};
 using ShowcaseSectionHeights = std::array<float, showcase_section_ids.size()>;
 
 struct ShowcaseSectionHeightCacheEntry {
@@ -1827,6 +1917,9 @@ void add_showcase_section(ShowcaseSectionId section, controls::StackPanel& root,
         return;
     case ShowcaseSectionId::Animations:
         add_animation_section(root);
+        return;
+    case ShowcaseSectionId::Virtualization:
+        add_virtualization_section(root);
         return;
     }
 }

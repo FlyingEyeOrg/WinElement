@@ -45,7 +45,7 @@ class RadioGroupContext final {
     bool has_value_ = false;
 };
 
-class Radio final : public Control {
+class Radio : public Control {
   public:
     using ChangeHandler = std::function<void(bool)>;
 
@@ -69,6 +69,7 @@ class Radio final : public Control {
     void on_key_event(elements::KeyEvent& event) override;
     [[nodiscard]] bool on_animation_frame(animation::AnimationTimePoint now) override;
     void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override;
+    void apply_property_change(const core::PropertyChange& change) override;
 
   private:
     friend class RadioGroupContext;

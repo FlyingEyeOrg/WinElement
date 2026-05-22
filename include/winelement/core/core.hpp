@@ -6,4 +6,6 @@
 #include <winelement/core/frame_scheduler.hpp>
 #include <winelement/core/observable.hpp>
 #include <winelement/core/property.hpp>
+#include <winelement/core/property_keys.hpp>
 #include <winelement/core/version.hpp>
+#include <winelement/core/view_model.hpp>

@@ -2,6 +2,7 @@
 
 #include <winelement/animation/timeline.hpp>
 #include <winelement/core/property.hpp>
+#include <winelement/core/property_keys.hpp>
 #include <winelement/elements/binding.hpp>
 #include <winelement/elements/element_descriptor.hpp>
 #include <winelement/elements/input_event.hpp>
@@ -150,6 +151,8 @@ class UIElement {
     [[nodiscard]] const TextClipboardService& text_clipboard_service() const noexcept;
     [[nodiscard]] ElementSnapshot element_snapshot() const;
     [[nodiscard]] RenderObjectSnapshot render_object_snapshot() const;
+    [[nodiscard]] virtual ElementSnapshot compress_subtree() const;
+    virtual void decompress_subtree(const ElementSnapshot& snapshot);
     [[nodiscard]] bool check_thread_access() const noexcept;
     void verify_thread_access() const;
     void bind_layout_tree(layout::LayoutEngine& layout_engine);
@@ -401,6 +404,8 @@ class UIElement {
     virtual void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const;
     virtual void on_paint_overlay(rendering::RenderContext& context,
                                   layout::Rect absolute_frame) const;
+    virtual void on_viewport_enter();
+    virtual void on_viewport_leave();
     UIElement& apply_style_value(style::UIElementStyle style, bool theme_managed);
     void detach_theme_management() noexcept;
     void set_text_input_handler(std::unique_ptr<TextInputHandler> handler) noexcept;
@@ -414,6 +419,9 @@ class UIElement {
     [[nodiscard]] const std::string& text_storage() const noexcept;
     [[nodiscard]] rendering::TextStyle& text_style_storage() noexcept;
     [[nodiscard]] const rendering::TextStyle& text_style_storage() const noexcept;
+
+  protected:
+    virtual void apply_property_change(const core::PropertyChange& change);
 
   private:
     friend class EventRouter;
@@ -438,7 +446,6 @@ class UIElement {
     void dismiss_topmost_on_escape();
     bool light_dismiss_outside(layout::Point position);
     void clear_focus_outside_topmost_modal() noexcept;
-    void apply_property_change(const core::PropertyChange& change);
     UIElement& bind_value(std::uint64_t target_id, const core::PropertyMetadata* target_metadata,
                           Binding binding,
                           std::function<bool(const core::PropertyValue& value)> apply,
@@ -465,6 +472,7 @@ class UIElement {
     void collect_paint_dirty_region_subtree(rendering::DirtyRegion& dirty_region) const;
     void sync_layout_snapshot_subtree(layout::Point parent_content_origin,
                                       std::uint64_t generation) noexcept;
+    void update_viewport_state_subtree(layout::Rect viewport_rect) noexcept;
     void refresh_snapshot_from_current_layout() noexcept;
     void adopt_thread_access(std::thread::id owner_thread_id) noexcept;
     void visit_paint_order_subtree(const VisitCallback& visitor);
@@ -614,6 +622,7 @@ class UIElement {
     TopLayerManager top_layer_manager_;
     bool visible_ : 1 = true;
     bool hit_test_visible_ : 1 = true;
+    bool in_viewport_ : 1 = true;
     bool relayout_boundary_ : 1 = false;
     mutable bool z_order_dirty_ : 1 = false;
     mutable std::unique_ptr<std::vector<UIElement*>> sorted_children_cache_;

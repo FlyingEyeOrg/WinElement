@@ -1,5 +1,6 @@
 #include <winelement/controls/switch.hpp>
 
+#include <winelement/controls/property_keys.hpp>
 #include <winelement/rendering/render_context.hpp>
 
 #include <algorithm>
@@ -29,48 +30,23 @@ Switch::Switch() : Control() {
 }
 
 Switch& Switch::set_checked(bool checked) {
-    if (checked_ == checked) {
-        return *this;
-    }
-
-    checked_ = checked;
-    animate_checked(checked_ ? 1.0F : 0.0F);
-    invalidate_paint();
-    if (change_handler_) {
-        change_handler_(checked_);
-    }
+    set_property(property_keys::switch_checked(), checked);
     return *this;
 }
 
 Switch& Switch::set_disabled(bool disabled) noexcept {
-    if (disabled_ == disabled) {
-        return *this;
-    }
-
     UIElement::set_disabled(disabled);
     invalidate_paint();
     return *this;
 }
 
 Switch& Switch::set_loading(bool loading) noexcept {
-    if (loading_ == loading) {
-        return *this;
-    }
-
-    loading_ = loading;
-    invalidate_paint();
+    set_property(property_keys::switch_loading(), loading);
     return *this;
 }
 
 Switch& Switch::set_size(SwitchSize size) {
-    if (size_ == size) {
-        return *this;
-    }
-
-    size_ = size;
-    update_measure_callback();
-    mark_measure_dirty();
-    invalidate_paint();
+    set_property(property_keys::switch_size(), size);
     return *this;
 }
 
@@ -152,6 +128,41 @@ const std::string& Switch::value() const noexcept {
 
 bool Switch::controlled() const noexcept {
     return controlled_;
+}
+
+void Switch::apply_property_change(const core::PropertyChange& change) {
+    if (!change.changed) {
+        return;
+    }
+
+    const auto id = change.metadata->id;
+
+    if (id == property_keys::switch_checked().id()) {
+        auto* v = properties().local_value<bool>(property_keys::switch_checked());
+        checked_ = v ? *v : false;
+        animate_checked(checked_ ? 1.0F : 0.0F);
+        invalidate_paint();
+        if (change_handler_) {
+            change_handler_(checked_);
+        }
+        return;
+    }
+    if (id == property_keys::switch_loading().id()) {
+        auto* v = properties().local_value<bool>(property_keys::switch_loading());
+        loading_ = v ? *v : false;
+        invalidate_paint();
+        return;
+    }
+    if (id == property_keys::switch_size().id()) {
+        auto* v = properties().local_value<SwitchSize>(property_keys::switch_size());
+        size_ = v ? *v : SwitchSize::Default;
+        update_measure_callback();
+        mark_measure_dirty();
+        invalidate_paint();
+        return;
+    }
+
+    UIElement::apply_property_change(change);
 }
 
 void Switch::on_pointer_event(elements::PointerEvent& event) {

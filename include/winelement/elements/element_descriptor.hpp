@@ -53,6 +53,12 @@ struct ElementSnapshot {
     bool needs_layout = false;
     bool visible = true;
     std::vector<ElementSnapshot> children;
+
+    std::string text_content;
+    std::size_t selection_anchor_byte_offset = 0;
+    std::size_t selection_active_byte_offset = 0;
+    bool has_text_selection = false;
+    layout::Point scroll_offset{};
 };
 
 } // namespace winelement::elements

@@ -1,5 +1,7 @@
 #include <winelement/controls/select.hpp>
 
+#include <winelement/controls/property_keys.hpp>
+
 #include "control_style.hpp"
 #include "popup_menu_surface.hpp"
 
@@ -608,21 +610,7 @@ Select& Select::set_selected_indices(std::vector<std::size_t> indices) {
 }
 
 Select& Select::set_multiple(bool multiple) noexcept {
-    if (multiple_ == multiple) {
-        return *this;
-    }
-    multiple_ = multiple;
-    if (multiple_ && selected_index_ && selected_indices_.empty()) {
-        selected_indices_.push_back(*selected_index_);
-    }
-    if (!multiple_ && selected_indices_.size() > 1U) {
-        selected_indices_.erase(selected_indices_.begin() + 1, selected_indices_.end());
-        selected_index_ = selected_indices_.empty()
-                              ? std::optional<std::size_t>{}
-                              : std::optional<std::size_t>{selected_indices_.front()};
-    }
-    refresh_popup_items();
-    invalidate_paint();
+    set_property(property_keys::select_multiple(), multiple);
     return *this;
 }
 
@@ -745,13 +733,7 @@ Select& Select::set_loading(bool loading) noexcept {
 }
 
 Select& Select::set_size(SelectSize size) {
-    if (size_ == size) {
-        return *this;
-    }
-    size_ = size;
-    update_measure_callback();
-    mark_measure_dirty();
-    invalidate_paint();
+    set_property(property_keys::select_size(), size);
     return *this;
 }
 
@@ -864,6 +846,41 @@ bool Select::loading() const noexcept {
 
 SelectSize Select::size() const noexcept {
     return size_;
+}
+
+void Select::apply_property_change(const core::PropertyChange& change) {
+    if (!change.changed) {
+        return;
+    }
+
+    const auto id = change.metadata->id;
+
+    if (id == property_keys::select_multiple().id()) {
+        auto* v = properties().local_value<bool>(property_keys::select_multiple());
+        multiple_ = v ? *v : false;
+        if (multiple_ && selected_index_ && selected_indices_.empty()) {
+            selected_indices_.push_back(*selected_index_);
+        }
+        if (!multiple_ && selected_indices_.size() > 1U) {
+            selected_indices_.erase(selected_indices_.begin() + 1, selected_indices_.end());
+            selected_index_ = selected_indices_.empty()
+                                  ? std::optional<std::size_t>{}
+                                  : std::optional<std::size_t>{selected_indices_.front()};
+        }
+        refresh_popup_items();
+        invalidate_paint();
+        return;
+    }
+    if (id == property_keys::select_size().id()) {
+        auto* v = properties().local_value<SelectSize>(property_keys::select_size());
+        size_ = v ? *v : SelectSize::Default;
+        update_measure_callback();
+        mark_measure_dirty();
+        invalidate_paint();
+        return;
+    }
+
+    UIElement::apply_property_change(change);
 }
 
 void Select::on_pointer_event(elements::PointerEvent& event) {

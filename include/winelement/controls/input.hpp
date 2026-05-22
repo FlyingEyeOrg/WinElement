@@ -47,7 +47,7 @@ struct InputDisplayTextOffsetMapping {
     std::vector<std::size_t> text_offsets;
 };
 
-class Input final : public Control {
+class Input : public Control {
   public:
     using TextTransform = std::function<std::string(std::string_view)>;
     using TextChangeHandler = std::function<void(std::string_view)>;
@@ -174,6 +174,7 @@ class Input final : public Control {
     void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override;
     void on_paint_overlay(rendering::RenderContext& context,
                           layout::Rect absolute_frame) const override;
+    void apply_property_change(const core::PropertyChange& change) override;
 
   private:
     class TextInputHandlerAdapter;

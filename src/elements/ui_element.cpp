@@ -31,8 +31,6 @@ namespace {
 
 constexpr auto default_scroll_wheel_step = 48.0F;
 constexpr auto ui_text_layout_cache_entries = 24U;
-constexpr auto text_binding_target_id = std::numeric_limits<std::uint64_t>::max() - 1U;
-constexpr auto opacity_binding_target_id = std::numeric_limits<std::uint64_t>::max() - 2U;
 
 std::uint64_t next_local_theme_generation() noexcept {
     static std::atomic_uint64_t generation{std::uint64_t{1} << 63U};
@@ -1249,6 +1247,31 @@ ElementSnapshot UIElement::build_element_snapshot_subtree() const {
     return snapshot;
 }
 
+ElementSnapshot UIElement::compress_subtree() const {
+    auto snapshot = build_element_snapshot_subtree();
+    snapshot.text_content = text_storage();
+    if (text_state_ != nullptr) {
+        snapshot.selection_anchor_byte_offset = text_state_->selection_anchor_byte_offset;
+        snapshot.selection_active_byte_offset = text_state_->selection_active_byte_offset;
+        snapshot.has_text_selection = text_state_->selecting;
+    }
+    snapshot.scroll_offset = scroll_offset_value();
+    return snapshot;
+}
+
+void UIElement::decompress_subtree(const ElementSnapshot& snapshot) {
+    if (!snapshot.text_content.empty()) {
+        set_text(snapshot.text_content);
+    }
+    if (snapshot.has_text_selection) {
+        set_text_selection(snapshot.selection_anchor_byte_offset,
+                           snapshot.selection_active_byte_offset);
+    }
+    if (snapshot.scroll_offset.x != 0.0F || snapshot.scroll_offset.y != 0.0F) {
+        set_scroll_offset(snapshot.scroll_offset);
+    }
+}
+
 RenderObjectSnapshot UIElement::render_object_snapshot() const {
     verify_thread_access();
 
@@ -1322,35 +1345,15 @@ UIElement& UIElement::clear_property(const core::PropertyMetadata& metadata) {
 }
 
 UIElement& UIElement::bind_text(Binding binding) {
-    verify_thread_access();
-    auto apply = [this](const core::PropertyValue& value) {
-        auto text = core::coerce_property_value<std::string>(value);
-        if (!text.has_value()) {
-            return false;
-        }
-        set_text(*text);
-        return true;
-    };
-    return bind_value(text_binding_target_id, nullptr, std::move(binding), std::move(apply), {});
+    return bind_property(core::property_keys::text(), std::move(binding));
 }
 
 UIElement& UIElement::clear_text_binding() {
-    verify_thread_access();
-    clear_binding_target(text_binding_target_id);
-    return *this;
+    return clear_binding(core::property_keys::text());
 }
 
 UIElement& UIElement::bind_opacity(Binding binding) {
-    verify_thread_access();
-    auto apply = [this](const core::PropertyValue& value) {
-        auto opacity = core::coerce_property_value<float>(value);
-        if (!opacity.has_value()) {
-            return false;
-        }
-        set_opacity(*opacity);
-        return true;
-    };
-    return bind_value(opacity_binding_target_id, nullptr, std::move(binding), std::move(apply), {});
+    return bind_property(core::property_keys::opacity(), std::move(binding));
 }
 
 UIElement& UIElement::clear_binding(const core::PropertyMetadata& metadata) {
@@ -1675,6 +1678,85 @@ void UIElement::apply_property_change(const core::PropertyChange& change) {
         return;
     }
 
+    const auto id = change.metadata->id;
+
+    if (id == core::property_keys::visible().id()) {
+        auto* v = property_store().local_value<bool>(core::property_keys::visible());
+        visible_ = v ? *v : true;
+        if (parent_ != nullptr) {
+            parent_->top_layer_manager_.invalidate_cache();
+        }
+        layout_->set_display(visible_ ? layout::Display::Flex : layout::Display::None);
+        if (!visible_) {
+            if (event_router_ != nullptr) {
+                event_router_->on_element_detaching(*this);
+            }
+            if (focus_manager_ != nullptr) {
+                focus_manager_->on_focus_scope_invalidated(*this);
+            }
+        }
+        invalidate_layout();
+        invalidate_paint();
+        return;
+    }
+
+    if (id == core::property_keys::disabled().id()) {
+        auto* v = property_store().local_value<bool>(core::property_keys::disabled());
+        disabled_ = v ? *v : false;
+        set_focusable(!disabled_);
+        if (disabled_) {
+            hovered_ = false;
+        }
+        release_pointer_capture();
+        invalidate_paint();
+        return;
+    }
+
+    if (id == core::property_keys::hit_test_visible().id()) {
+        auto* v = property_store().local_value<bool>(core::property_keys::hit_test_visible());
+        hit_test_visible_ = v ? *v : true;
+        return;
+    }
+
+    if (id == core::property_keys::opacity().id()) {
+        auto* v = property_store().local_value<float>(core::property_keys::opacity());
+        const auto normalized = (v && std::isfinite(*v)) ? std::clamp(*v, 0.0F, 1.0F) : 1.0F;
+        detach_theme_management();
+        record_pending_visual_dirty_bounds();
+        auto visual = style_value().visual;
+        visual.opacity = normalized;
+        mutable_style_value().visual = visual;
+        invalidate_visual();
+        return;
+    }
+
+    if (id == core::property_keys::text().id()) {
+        auto* v = property_store().local_value<std::string>(core::property_keys::text());
+        auto& state = ensure_text_state();
+        state.text = v ? *v : std::string{};
+        state.selection_anchor_byte_offset =
+            rendering::clamp_utf8_boundary(state.text, state.selection_anchor_byte_offset);
+        state.selection_active_byte_offset =
+            rendering::clamp_utf8_boundary(state.text, state.selection_active_byte_offset);
+        if (state.text.empty()) {
+            state.selecting = false;
+            if (event_router_ != nullptr && event_router_->text_selection_owner() == this) {
+                event_router_->set_text_selection_owner(nullptr);
+            }
+            release_pointer_capture();
+        } else if (event_router_ != nullptr) {
+            if (has_text_selection()) {
+                event_router_->set_text_selection_owner(this);
+            } else if (event_router_->text_selection_owner() == this) {
+                event_router_->set_text_selection_owner(nullptr);
+            }
+        }
+        update_intrinsic_text_measure_callback();
+        mark_intrinsic_text_measure_dirty();
+        invalidate_paint();
+        return;
+    }
+
     if (core::has_invalidation(change.invalidation, core::PropertyInvalidation::Semantics)) {
         ensure_semantics_state().dirty = true;
     }
@@ -1724,6 +1806,7 @@ void UIElement::calculate_layout(layout::LayoutConstraints constraints) {
                                 ? std::uint64_t{1}
                                 : layout_generation_ + std::uint64_t{1};
     sync_layout_snapshot_subtree({}, generation);
+    update_viewport_state_subtree(committed_absolute_frame_);
     calculate_top_layer_layouts(constraints, generation);
     mark_layout_clean_subtree();
     if (paint_dirty_root != nullptr && contains(*paint_dirty_root)) {
@@ -1767,28 +1850,7 @@ UIElement& UIElement::mark_measure_dirty() {
 }
 
 UIElement& UIElement::set_visible(bool visible) {
-    verify_thread_access();
-
-    if (visible_ == visible) {
-        return *this;
-    }
-
-    visible_ = visible;
-    if (parent_ != nullptr) {
-        parent_->top_layer_manager_.invalidate_cache();
-    }
-    layout_->set_display(visible_ ? layout::Display::Flex : layout::Display::None);
-    if (!visible_) {
-        if (event_router_ != nullptr) {
-            event_router_->on_element_detaching(*this);
-        }
-        if (focus_manager_ != nullptr) {
-            focus_manager_->on_focus_scope_invalidated(*this);
-        }
-    }
-    invalidate_layout();
-    invalidate_paint();
-    return *this;
+    return set_property(core::property_keys::visible(), visible);
 }
 
 bool UIElement::visible() const noexcept {
@@ -1796,10 +1858,7 @@ bool UIElement::visible() const noexcept {
 }
 
 UIElement& UIElement::set_hit_test_visible(bool hit_test_visible) {
-    verify_thread_access();
-
-    hit_test_visible_ = hit_test_visible;
-    return *this;
+    return set_property(core::property_keys::hit_test_visible(), hit_test_visible);
 }
 
 bool UIElement::hit_test_visible() const noexcept {
@@ -1811,20 +1870,7 @@ bool UIElement::is_hovered() const noexcept {
 }
 
 UIElement& UIElement::set_disabled(bool disabled) {
-    verify_thread_access();
-
-    if (disabled_ == disabled) {
-        return *this;
-    }
-
-    disabled_ = disabled;
-    set_focusable(!disabled_);
-    if (disabled_) {
-        hovered_ = false;
-    }
-    release_pointer_capture();
-    invalidate_paint();
-    return *this;
+    return set_property(core::property_keys::disabled(), disabled);
 }
 
 bool UIElement::disabled() const noexcept {
@@ -1832,20 +1878,8 @@ bool UIElement::disabled() const noexcept {
 }
 
 UIElement& UIElement::set_opacity(float opacity) {
-    verify_thread_access();
-
-    const auto normalized_opacity = std::isfinite(opacity) ? std::clamp(opacity, 0.0F, 1.0F) : 1.0F;
-    auto visual = style_value().visual;
-    if (visual.opacity == normalized_opacity) {
-        return *this;
-    }
-
-    detach_theme_management();
-    record_pending_visual_dirty_bounds();
-    visual.opacity = normalized_opacity;
-    mutable_style_value().visual = visual;
-    invalidate_visual();
-    return *this;
+    const auto normalized = std::isfinite(opacity) ? std::clamp(opacity, 0.0F, 1.0F) : 1.0F;
+    return set_property(core::property_keys::opacity(), normalized);
 }
 
 float UIElement::opacity() const noexcept {
@@ -2475,35 +2509,7 @@ int UIElement::z_index() const noexcept {
 }
 
 UIElement& UIElement::set_text(std::string_view text) {
-    verify_thread_access();
-
-    if (text_storage() == text) {
-        return *this;
-    }
-
-    auto& state = ensure_text_state();
-    state.text = text;
-    state.selection_anchor_byte_offset =
-        rendering::clamp_utf8_boundary(state.text, state.selection_anchor_byte_offset);
-    state.selection_active_byte_offset =
-        rendering::clamp_utf8_boundary(state.text, state.selection_active_byte_offset);
-    if (state.text.empty()) {
-        state.selecting = false;
-        if (event_router_ != nullptr && event_router_->text_selection_owner() == this) {
-            event_router_->set_text_selection_owner(nullptr);
-        }
-        release_pointer_capture();
-    } else if (event_router_ != nullptr) {
-        if (has_text_selection()) {
-            event_router_->set_text_selection_owner(this);
-        } else if (event_router_->text_selection_owner() == this) {
-            event_router_->set_text_selection_owner(nullptr);
-        }
-    }
-    update_intrinsic_text_measure_callback();
-    mark_intrinsic_text_measure_dirty();
-    invalidate_paint();
-    return *this;
+    return set_property(core::property_keys::text(), std::string{text});
 }
 
 const std::string& UIElement::text() const noexcept {
@@ -3418,6 +3424,33 @@ void UIElement::sync_layout_snapshot_subtree(layout::Point parent_content_origin
 
     refresh_scrollable_extent();
 }
+
+void UIElement::update_viewport_state_subtree(layout::Rect viewport_rect) noexcept {
+    const auto clip_rect = clips_children_to_viewport()
+                               ? effective_absolute_child_clip_rect()
+                               : viewport_rect;
+
+    for (auto& child : children_) {
+        const auto was_in = child->in_viewport_;
+        const auto child_bounds = child->visible_subtree_bounds();
+        const auto is_in = layout::rects_intersect(child_bounds, clip_rect);
+        child->in_viewport_ = is_in;
+
+        if (is_in && !was_in) {
+            child->on_viewport_enter();
+        } else if (!is_in && was_in) {
+            child->on_viewport_leave();
+        }
+
+        if (is_in) {
+            child->update_viewport_state_subtree(clip_rect);
+        }
+    }
+}
+
+void UIElement::on_viewport_enter() {}
+
+void UIElement::on_viewport_leave() {}
 
 void UIElement::refresh_scrollable_extent() noexcept {
     const auto viewport = effective_viewport_rect_for(committed_frame_);

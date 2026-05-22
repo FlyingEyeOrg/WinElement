@@ -31,8 +31,10 @@ struct ObservableChange {
 using ObservableObserver = std::function<void(const ObservableChange& change)>;
 using ObservableObserverToken = std::uint64_t;
 
-class ObservableObject final : public std::enable_shared_from_this<ObservableObject> {
+class ObservableObject : public std::enable_shared_from_this<ObservableObject> {
   public:
+    virtual ~ObservableObject() = default;
+
     template <typename T> ObservableObject& set(std::string name, T value) {
         using ValueType = std::decay_t<T>;
         auto iterator = find_entry(name);

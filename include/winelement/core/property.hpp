@@ -365,6 +365,17 @@ class PropertyStore final {
     void clear_observers() noexcept;
     [[nodiscard]] std::size_t local_value_count() const noexcept;
 
+    void copy_local_values_to(PropertyStore& target) const {
+        for (const auto& entry : values_) {
+            auto it = target.find_entry(entry.id);
+            if (it != target.values_.end() && it->id == entry.id) {
+                it->value = entry.value;
+            } else {
+                target.values_.insert(it, PropertyEntry{entry.id, entry.value});
+            }
+        }
+    }
+
   private:
     struct PropertyEntry {
         std::uint64_t id = 0U;

@@ -17,6 +17,7 @@ add_library(winelement_controls STATIC
     switch.cpp
     text.cpp
     virtualization.cpp
+    virtualizing_panel.cpp
 )
 
 add_library(WinElement::controls ALIAS winelement_controls)

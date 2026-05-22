@@ -1,5 +1,7 @@
 #include <winelement/controls/radio.hpp>
 
+#include <winelement/controls/property_keys.hpp>
+
 #include "control_style.hpp"
 
 #include <winelement/rendering/render_context.hpp>
@@ -225,6 +227,10 @@ const std::string& Radio::value() const noexcept {
 
 std::shared_ptr<RadioGroupContext> Radio::group() const noexcept {
     return group_;
+}
+
+void Radio::apply_property_change(const core::PropertyChange& change) {
+    UIElement::apply_property_change(change);
 }
 
 void Radio::on_pointer_event(elements::PointerEvent& event) {

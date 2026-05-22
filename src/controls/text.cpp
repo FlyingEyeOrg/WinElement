@@ -1,5 +1,6 @@
 #include <winelement/controls/text.hpp>
 
+#include <winelement/controls/property_keys.hpp>
 #include <winelement/rendering/render_context.hpp>
 
 #include <algorithm>
@@ -23,52 +24,27 @@ Text& Text::set_text(std::string_view text) {
 }
 
 Text& Text::set_type(TextType type) {
-    if (type_ == type) {
-        return *this;
-    }
-
-    type_ = type;
-    apply_semantic_style();
+    set_property(property_keys::text_type(), type);
     return *this;
 }
 
 Text& Text::set_size(TextSize size) {
-    if (size_ == size) {
-        return *this;
-    }
-
-    size_ = size;
-    apply_semantic_style();
+    set_property(property_keys::text_size(), size);
     return *this;
 }
 
 Text& Text::set_truncated(bool truncated) {
-    if (truncated_ == truncated) {
-        return *this;
-    }
-
-    truncated_ = truncated;
-    apply_semantic_style();
+    set_property(property_keys::text_truncated(), truncated);
     return *this;
 }
 
 Text& Text::set_max_lines(std::size_t max_lines) {
-    if (max_lines_ == max_lines) {
-        return *this;
-    }
-    max_lines_ = max_lines;
-    mark_measure_dirty();
-    invalidate_paint();
+    set_property(property_keys::text_max_lines(), max_lines);
     return *this;
 }
 
 Text& Text::set_selectable(bool selectable) {
-    if (selectable_ == selectable) {
-        return *this;
-    }
-    selectable_ = selectable;
-    set_text_selection_mode(selectable_ ? style::TextSelectionMode::Text
-                                        : style::TextSelectionMode::None);
+    set_property(property_keys::text_selectable(), selectable);
     return *this;
 }
 
@@ -132,6 +108,49 @@ const std::string& Text::link_target() const noexcept {
 
 const std::string& Text::text() const noexcept {
     return text_storage();
+}
+
+void Text::apply_property_change(const core::PropertyChange& change) {
+    if (!change.changed) {
+        return;
+    }
+
+    const auto id = change.metadata->id;
+
+    if (id == property_keys::text_type().id()) {
+        auto* v = properties().local_value<TextType>(property_keys::text_type());
+        type_ = v ? *v : TextType::Primary;
+        apply_semantic_style();
+        return;
+    }
+    if (id == property_keys::text_size().id()) {
+        auto* v = properties().local_value<TextSize>(property_keys::text_size());
+        size_ = v ? *v : TextSize::Default;
+        apply_semantic_style();
+        return;
+    }
+    if (id == property_keys::text_truncated().id()) {
+        auto* v = properties().local_value<bool>(property_keys::text_truncated());
+        truncated_ = v ? *v : false;
+        apply_semantic_style();
+        return;
+    }
+    if (id == property_keys::text_max_lines().id()) {
+        auto* v = properties().local_value<std::size_t>(property_keys::text_max_lines());
+        max_lines_ = v ? *v : 0;
+        mark_measure_dirty();
+        invalidate_paint();
+        return;
+    }
+    if (id == property_keys::text_selectable().id()) {
+        auto* v = properties().local_value<bool>(property_keys::text_selectable());
+        selectable_ = v ? *v : false;
+        set_text_selection_mode(selectable_ ? style::TextSelectionMode::Text
+                                            : style::TextSelectionMode::None);
+        return;
+    }
+
+    UIElement::apply_property_change(change);
 }
 
 void Text::apply_semantic_style() {

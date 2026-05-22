@@ -1,5 +1,7 @@
 #include <winelement/controls/input.hpp>
 
+#include <winelement/controls/property_keys.hpp>
+
 #include "control_style.hpp"
 
 #include <winelement/controls/context_menu.hpp>
@@ -435,36 +437,12 @@ Input& Input::set_text(std::string_view text) {
 }
 
 Input& Input::set_placeholder(std::string_view placeholder) {
-    if (placeholder_ == placeholder) {
-        return *this;
-    }
-
-    placeholder_ = placeholder;
-    mark_measure_dirty();
-    invalidate_paint();
+    set_property(property_keys::input_placeholder(), std::string{placeholder});
     return *this;
 }
 
 Input& Input::set_type(InputType type) noexcept {
-    if (type_ == type) {
-        return *this;
-    }
-
-    type_ = type;
-    if (type_ != InputType::Password) {
-        password_visible_ = false;
-    }
-    if (!textarea()) {
-        vertical_scroll_y_ = 0.0F;
-    }
-    caret_byte_offset_ = rendering::clamp_utf8_boundary(text_storage(), caret_byte_offset_);
-    selection_anchor_byte_offset_ =
-        rendering::clamp_utf8_boundary(text_storage(), selection_anchor_byte_offset_);
-    selection_active_byte_offset_ =
-        rendering::clamp_utf8_boundary(text_storage(), selection_active_byte_offset_);
-    mark_text_transform_generation_changed();
-    mark_measure_dirty();
-    invalidate_paint();
+    set_property(property_keys::input_type(), type);
     return *this;
 }
 
@@ -537,23 +515,12 @@ Input& Input::set_clearable(bool clearable) noexcept {
 }
 
 Input& Input::set_size(InputSize size) noexcept {
-    if (size_ == size) {
-        return *this;
-    }
-
-    size_ = size;
-    mark_measure_dirty();
-    invalidate_paint();
+    set_property(property_keys::input_size(), size);
     return *this;
 }
 
 Input& Input::set_status(InputStatus status) noexcept {
-    if (status_ == status) {
-        return *this;
-    }
-
-    status_ = status;
-    invalidate_paint();
+    set_property(property_keys::input_status(), status);
     return *this;
 }
 
@@ -1240,6 +1207,56 @@ bool Input::text_input_context_menu_hit_test(layout::Point absolute_position) co
 bool Input::handle_text_input_context_menu_pointer(elements::PointerEvent& event) {
     static_cast<void>(event);
     return false;
+}
+
+void Input::apply_property_change(const core::PropertyChange& change) {
+    if (!change.changed) {
+        return;
+    }
+
+    const auto id = change.metadata->id;
+
+    if (id == property_keys::input_type().id()) {
+        auto* v = properties().local_value<InputType>(property_keys::input_type());
+        type_ = v ? *v : InputType::Text;
+        if (type_ != InputType::Password) {
+            password_visible_ = false;
+        }
+        if (!textarea()) {
+            vertical_scroll_y_ = 0.0F;
+        }
+        caret_byte_offset_ = rendering::clamp_utf8_boundary(text_storage(), caret_byte_offset_);
+        selection_anchor_byte_offset_ =
+            rendering::clamp_utf8_boundary(text_storage(), selection_anchor_byte_offset_);
+        selection_active_byte_offset_ =
+            rendering::clamp_utf8_boundary(text_storage(), selection_active_byte_offset_);
+        mark_text_transform_generation_changed();
+        mark_measure_dirty();
+        invalidate_paint();
+        return;
+    }
+    if (id == property_keys::input_size().id()) {
+        auto* v = properties().local_value<InputSize>(property_keys::input_size());
+        size_ = v ? *v : InputSize::Default;
+        mark_measure_dirty();
+        invalidate_paint();
+        return;
+    }
+    if (id == property_keys::input_status().id()) {
+        auto* v = properties().local_value<InputStatus>(property_keys::input_status());
+        status_ = v ? *v : InputStatus::Default;
+        invalidate_paint();
+        return;
+    }
+    if (id == property_keys::input_placeholder().id()) {
+        auto* v = properties().local_value<std::string>(property_keys::input_placeholder());
+        placeholder_ = v ? *v : std::string{};
+        mark_measure_dirty();
+        invalidate_paint();
+        return;
+    }
+
+    UIElement::apply_property_change(change);
 }
 
 void Input::on_pointer_event(elements::PointerEvent& event) {
