@@ -4,6 +4,8 @@
 /bin/
 /obj/
 /vcpkg_installed/
+samples/*/build/
+samples/*/vcpkg_installed/
 
 # CMake
 /CMakeFiles/
