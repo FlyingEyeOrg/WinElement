@@ -14,7 +14,7 @@ int main() {
     auto root = std::make_unique<controls::StackPanel>();
     root->configure_layout([](layout::LayoutElement& item) {
         item.set_size(layout::Length::percent(100.0F), layout::Length::percent(100.0F))
-            .set_justify_content(layout::Justify::Center)
+            .set_justify_content(layout::JustifyContent::Center)
             .set_align_items(layout::Align::Center);
     });
 
