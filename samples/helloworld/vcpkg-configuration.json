@@ -1,8 +1,13 @@
 {
+  "default-registry": {
+    "kind": "builtin",
+    "baseline": "74e6536215718009aae747d86d84b78376bf9e09"
+  },
   "registries": [
     {
       "kind": "git",
       "repository": "https://github.com/FlyingEyeOrg/WinElement",
+      "baseline": "8bbfc21b3742cc1f4a8c3cfe2981cc7abcb0738b",
       "reference": "vcpkg-registry",
       "packages": ["winelement"]
     }
