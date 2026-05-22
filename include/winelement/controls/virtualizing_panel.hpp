@@ -7,7 +7,7 @@
 #include <cstddef>
 #include <functional>
 #include <memory>
-#include <unordered_map>
+#include <optional>
 #include <vector>
 
 namespace winelement::controls {
@@ -31,33 +31,27 @@ class VirtualizingPanel final : public Panel {
 
     [[nodiscard]] std::size_t item_count() const noexcept;
     [[nodiscard]] std::size_t realized_count() const noexcept;
-    [[nodiscard]] std::size_t reusable_container_count() const noexcept;
 
   protected:
     void on_viewport_enter() override;
     void on_viewport_leave() override;
 
   private:
-    struct RealizedItem {
-        std::size_t index = 0;
-        elements::UIElement* element = nullptr;
-    };
-
-    void ensure_spacers();
-    void update_spacer_extent(elements::UIElement& spacer, float extent);
-    [[nodiscard]] std::unique_ptr<elements::UIElement> acquire_reusable(std::size_t index);
-    [[nodiscard]] std::size_t leading_spacer_index() const noexcept;
+    void ensure_pool();
+    void bind_slot(std::size_t slot_index, std::size_t item_index);
+    void unbind_slot(std::size_t slot_index);
 
     VirtualizationPlanner planner_;
-    RecyclePool<elements::UIElement> recycle_pool_;
     ItemFactory item_factory_;
-    std::vector<RealizedItem> realized_;
-    std::unordered_map<std::size_t, elements::ElementSnapshot> snapshots_;
-    elements::UIElement* leading_spacer_ = nullptr;
-    elements::UIElement* trailing_spacer_ = nullptr;
     float scroll_offset_ = 0.0F;
     float viewport_extent_ = 0.0F;
-    bool spacers_ready_ = false;
+
+    struct Slot {
+        elements::UIElement* element = nullptr;
+        std::optional<std::size_t> item_index;
+    };
+    std::vector<Slot> pool_;
+    std::size_t pool_capacity_ = 24;
 };
 
 }  // namespace winelement::controls

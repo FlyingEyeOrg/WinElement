@@ -5,17 +5,12 @@
 namespace winelement::controls {
 
 VirtualizingPanel::VirtualizingPanel() : Panel() {
-    configure_layout([](layout::LayoutElement& item) {
-        item.set_flex_direction(layout::FlexDirection::Column)
-            .set_align_items(layout::Align::Stretch);
-    });
     set_overflow(layout::Overflow::Hidden);
     set_scroll_wheel_enabled(true);
 }
 
 VirtualizingPanel& VirtualizingPanel::set_item_count(std::size_t count) {
     planner_.set_total_count(count);
-    snapshots_.clear();
     return *this;
 }
 
@@ -40,7 +35,7 @@ VirtualizingPanel& VirtualizingPanel::set_item_factory(ItemFactory factory) {
 }
 
 VirtualizingPanel& VirtualizingPanel::set_reusable_container_limit(std::size_t limit) {
-    recycle_pool_.set_capacity(limit);
+    pool_capacity_ = std::max(limit, std::size_t{4});
     return *this;
 }
 
@@ -59,81 +54,32 @@ VirtualizingPanel& VirtualizingPanel::refresh_virtualization() {
         return *this;
     }
 
-    ensure_spacers();
+    ensure_pool();
 
     const auto window =
         planner_.window_for(scroll_offset_, viewport_extent_);
+    const auto item_extent = planner_.item_extent();
 
-    update_spacer_extent(*leading_spacer_, window.leading_spacer);
+    for (std::size_t slot = 0; slot < pool_.size(); ++slot) {
+        if (slot < window.count) {
+            const auto item_index = window.start_index + slot;
+            const auto y = static_cast<float>(item_index) * item_extent;
+            auto& s = pool_[slot];
 
-    std::vector<RealizedItem> keep;
-    keep.reserve(realized_.size());
-
-    for (auto& item : realized_) {
-        if (item.index >= window.start_index &&
-            item.index < window.start_index + window.count) {
-            keep.push_back(item);
+            if (s.item_index != item_index) {
+                bind_slot(slot, item_index);
+            }
+            s.element->set_visible(true);
+            s.element->set_render_transform(
+                rendering::Transform2D::translation(0.0F, y));
         } else {
-            if (item.element != nullptr) {
-                snapshots_[item.index] = item.element->compress_subtree();
-                item.element->clear_children();
-                const auto child_idx = [this, ptr = item.element]() -> std::size_t {
-                    for (std::size_t i = 0; i < child_count(); ++i) {
-                        if (&child_at(i) == ptr) return i;
-                    }
-                    return child_count();
-                }();
-                auto elem = remove_child_at(child_idx);
-                recycle_pool_.release(std::move(elem));
+            auto& s = pool_[slot];
+            if (s.item_index.has_value()) {
+                unbind_slot(slot);
             }
+            s.element->set_visible(false);
         }
     }
-
-    std::swap(realized_, keep);
-
-    const auto base_index = leading_spacer_index() + 1;
-
-    for (std::size_t i = 0; i < window.count; ++i) {
-        const auto idx = window.start_index + i;
-
-        bool already_realized = false;
-        for (const auto& item : realized_) {
-            if (item.index == idx) {
-                already_realized = true;
-                break;
-            }
-        }
-        if (already_realized) {
-            continue;
-        }
-
-        auto element = acquire_reusable(idx);
-        if (element == nullptr) {
-            continue;
-        }
-
-        element->configure_layout([this](layout::LayoutElement& item) {
-            item.set_width(layout::Length::percent(100.0F))
-                .set_height(layout::Length::points(planner_.item_extent()))
-                .set_flex_shrink(0.0F);
-        });
-
-        auto snapshot_it = snapshots_.find(idx);
-        if (snapshot_it != snapshots_.end()) {
-            const auto& snap = snapshot_it->second;
-            if (!snap.text_content.empty() || snap.has_text_selection ||
-                snap.scroll_offset.x != 0.0F || snap.scroll_offset.y != 0.0F) {
-                element->decompress_subtree(snap);
-            }
-        }
-
-        auto* element_ptr = element.get();
-        const auto insert_index = base_index + realized_.size();
-        insert_child(insert_index, std::move(element));
-        realized_.push_back(RealizedItem{idx, element_ptr});
-    }
-
-    update_spacer_extent(*trailing_spacer_, window.trailing_spacer);
 
     return *this;
 }
@@ -143,11 +89,13 @@ std::size_t VirtualizingPanel::item_count() const noexcept {
 }
 
 std::size_t VirtualizingPanel::realized_count() const noexcept {
-    return realized_.size();
-}
-
-std::size_t VirtualizingPanel::reusable_container_count() const noexcept {
-    return recycle_pool_.size();
+    std::size_t count = 0;
+    for (const auto& s : pool_) {
+        if (s.item_index.has_value()) {
+            ++count;
+        }
+    }
+    return count;
 }
 
 void VirtualizingPanel::on_viewport_enter() {
@@ -158,60 +106,59 @@ void VirtualizingPanel::on_viewport_leave() {
     Panel::on_viewport_leave();
 }
 
-void VirtualizingPanel::on_viewport_leave() {
-    Panel::on_viewport_leave();
-}
-
-void VirtualizingPanel::ensure_spacers() {
-    if (spacers_ready_) {
+void VirtualizingPanel::ensure_pool() {
+    if (!pool_.empty()) {
         return;
     }
 
-    auto leading = std::make_unique<elements::UIElement>();
-    leading->configure_layout([](layout::LayoutElement& item) {
-        item.set_width(layout::Length::percent(100.0F))
-            .set_height(layout::Length::points(0.0F))
+    const auto item_extent = planner_.item_extent();
+    const auto total_height =
+        static_cast<float>(planner_.total_count()) * item_extent;
+
+    configure_layout([total_height](layout::LayoutElement& item) {
+        item.set_flex_direction(layout::FlexDirection::Column)
+            .set_align_items(layout::Align::Stretch)
+            .set_height(layout::Length::points(total_height))
             .set_flex_shrink(0.0F);
     });
-    leading_spacer_ = leading.get();
-    append_child(std::move(leading));
 
-    auto trailing = std::make_unique<elements::UIElement>();
-    trailing->configure_layout([](layout::LayoutElement& item) {
-        item.set_width(layout::Length::percent(100.0F))
-            .set_height(layout::Length::points(0.0F))
-            .set_flex_shrink(0.0F);
-    });
-    trailing_spacer_ = trailing.get();
-    append_child(std::move(trailing));
-
-    spacers_ready_ = true;
-}
-
-void VirtualizingPanel::update_spacer_extent(elements::UIElement& spacer, float extent) {
-    spacer.configure_layout([extent](layout::LayoutElement& item) {
-        item.set_width(layout::Length::percent(100.0F))
-            .set_height(layout::Length::points(std::max(0.0F, extent)))
-            .set_flex_shrink(0.0F);
-    });
-}
-
-std::unique_ptr<elements::UIElement>
-VirtualizingPanel::acquire_reusable(std::size_t index) {
-    auto element = recycle_pool_.acquire();
-    if (element == nullptr && item_factory_) {
-        element = item_factory_(index);
+    pool_.reserve(pool_capacity_);
+    for (std::size_t i = 0; i < pool_capacity_; ++i) {
+        auto element = std::make_unique<elements::UIElement>();
+        element->set_visible(false);
+        element->configure_layout([item_extent](layout::LayoutElement& item) {
+            item.set_position_type(layout::PositionType::Absolute)
+                .set_position(layout::Edge::Left, layout::Length::points(0.0F))
+                .set_position(layout::Edge::Top, layout::Length::points(0.0F))
+                .set_width(layout::Length::percent(100.0F))
+                .set_height(layout::Length::points(item_extent))
+                .set_flex_shrink(0.0F);
+        });
+        auto* element_ptr = element.get();
+        append_child(std::move(element));
+        pool_.push_back(Slot{element_ptr, std::nullopt});
     }
-    return element;
 }
 
-std::size_t VirtualizingPanel::leading_spacer_index() const noexcept {
-    for (std::size_t i = 0; i < child_count(); ++i) {
-        if (&child_at(i) == leading_spacer_) {
-            return i;
+void VirtualizingPanel::bind_slot(std::size_t slot_index, std::size_t item_index) {
+    auto& s = pool_[slot_index];
+    unbind_slot(slot_index);
+
+    if (item_factory_) {
+        auto content = item_factory_(item_index);
+        if (content != nullptr) {
+            s.element->append_child(std::move(content));
+            s.item_index = item_index;
         }
     }
-    return 0;
+}
+
+void VirtualizingPanel::unbind_slot(std::size_t slot_index) {
+    auto& s = pool_[slot_index];
+    if (s.item_index.has_value()) {
+        s.element->clear_children();
+        s.item_index = std::nullopt;
+    }
 }
 
 }  // namespace winelement::controls

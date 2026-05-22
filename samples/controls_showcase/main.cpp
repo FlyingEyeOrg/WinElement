@@ -1825,17 +1825,10 @@ void add_virtualization_section(controls::StackPanel& root) {
         .set_min_thumb_extent(24.0F)
         .set_thickness(8.0F)
         .set_range(0.0F, static_cast<float>(item_count) * item_height, viewport_height)
-        .set_on_scroll([&viewport, virtual_panel_ptr, &root](float value) {
+        .set_on_scroll([&viewport, virtual_panel_ptr](float value) {
             viewport.set_scroll_offset(layout::Point{0.0F, value});
             virtual_panel_ptr->set_scroll_offset(value);
             virtual_panel_ptr->refresh_virtualization();
-            auto* layout_root = static_cast<elements::UIElement*>(&root);
-            while (layout_root->parent() != nullptr) {
-                layout_root = layout_root->parent();
-            }
-            const auto frame = layout_root->frame();
-            layout_root->calculate_layout(
-                layout::LayoutConstraints{.width = frame.width, .height = frame.height});
         });
     scrollbar.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::points(12.0F))
