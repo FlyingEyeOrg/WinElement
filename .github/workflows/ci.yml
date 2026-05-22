@@ -14,6 +14,7 @@ jobs:
       - uses: lukka/get-cmake@latest
       - uses: lukka/run-vcpkg@v11
         with:
+          vcpkgConfigurationJsonGlob: vcpkg-configuration.json
           vcpkgJsonGlob: vcpkg.json
       - name: Configure
         run: cmake --preset=vs2022-x64 -DWINELEMENT_WARNINGS_AS_ERRORS=ON
