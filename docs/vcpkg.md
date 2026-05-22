@@ -1,82 +1,79 @@
-# vcpkg Packaging
+# vcpkg 打包
 
-This project is prepared for two vcpkg workflows:
+本项目为两种 vcpkg 工作流做好了准备：
 
-- Manifest mode for local development.
-- A port template under `packaging/vcpkg/winelement` for registry publication.
+- 清单模式：用于本地开发。
+- 端口模板：位于 `packaging/vcpkg/winelement`，用于注册表发布。
 
-The vcpkg documentation describes manifest mode as the recommended workflow for
-most projects, with dependencies declared in `vcpkg.json`. It also requires
-ports to contain both package metadata and build/install instructions through a
-`vcpkg.json` plus `portfile.cmake`.
+vcpkg 文档将清单模式描述为大多数项目的推荐工作流，依赖项在 `vcpkg.json` 中声明。同时，端口需要通过 `vcpkg.json` 和 `portfile.cmake` 包含包元数据以及构建/安装说明。
 
-References:
+参考文档：
 
-- https://learn.microsoft.com/en-us/vcpkg/concepts/manifest-mode
-- https://learn.microsoft.com/en-us/vcpkg/concepts/ports
-- https://learn.microsoft.com/en-us/vcpkg/reference/vcpkg-json
-- https://learn.microsoft.com/en-us/vcpkg/users/versioning
+- https://learn.microsoft.com/zh-cn/vcpkg/concepts/manifest-mode
+- https://learn.microsoft.com/zh-cn/vcpkg/concepts/ports
+- https://learn.microsoft.com/zh-cn/vcpkg/reference/vcpkg-json
+- https://learn.microsoft.com/zh-cn/vcpkg/users/versioning
 
-## Local Development
+## 本地开发
 
-Install the normal library dependency:
+安装常规库依赖：
 
 ```powershell
 vcpkg install
 ```
 
-Install dependencies for tests and samples:
+安装测试和示例的依赖：
 
 ```powershell
 vcpkg install --x-feature=tests --x-feature=samples
 ```
 
-Then configure with the vcpkg toolchain:
+然后使用 vcpkg 工具链进行配置：
 
 ```powershell
 cmake --preset vs2022-x64
 cmake --build build\vs2022-x64 --config Release
 ```
 
-## Installed CMake Package
+## 已安装的 CMake 包
 
-WinElement now installs:
+WinElement 现在安装以下内容：
 
-- Static libraries.
-- Public headers.
-- `WinElementTargets.cmake`.
-- `WinElementConfig.cmake`.
-- `WinElementConfigVersion.cmake`.
+- 静态库。
+- 公共头文件。
+- `WinElementTargets.cmake`。
+- `WinElementConfig.cmake`。
+- `WinElementConfigVersion.cmake`。
 
-Consumer usage:
+消费者使用方式：
 
 ```cmake
 find_package(WinElement CONFIG REQUIRED)
 target_link_libraries(app PRIVATE WinElement::winelement)
 ```
 
-Fine-grained usage:
+细粒度使用方式：
 
 ```cmake
 target_link_libraries(app PRIVATE WinElement::controls WinElement::platform)
 ```
 
-## Testing The Install Locally
+## 本地测试安装
 
 ```powershell
 cmake --build build\vs2022-x64 --config Release
 cmake --install build\vs2022-x64 --config Release --prefix build\install\winelement
 ```
 
-Then point a consumer project at:
+然后将消费者项目指向：
 
 ```powershell
 -DCMAKE_PREFIX_PATH=E:\users\lanxf01\Desktop\cpplib\WinElement\build\install\winelement
 ```
 
-## Registry Port Template
+## 注册表端口模板
 
-The template lives here:
+模板位于：
 
 ```text
 packaging/vcpkg/winelement/
@@ -84,29 +81,25 @@ packaging/vcpkg/winelement/
   portfile.cmake
 ```
 
-Before submitting to the official vcpkg registry:
+提交到官方 vcpkg 注册表之前：
 
-1. Replace `REPO lanxf01/WinElement` in `portfile.cmake` with the actual GitHub repository.
-2. Create a release tag matching the package version, for example `v0.1.0`.
-3. Replace `SHA512 0` with the real archive hash reported by vcpkg.
-4. Add a repository `LICENSE` file or decide the correct SPDX license expression.
-5. If only vcpkg packaging changes, increment `port-version`; if upstream code changes, update `version-semver` and reset `port-version`.
-6. Run vcpkg's port validation for the target triplets you intend to support.
+1. 将 `portfile.cmake` 中的 `REPO lanxf01/WinElement` 替换为实际的 GitHub 仓库。
+2. 创建与包版本匹配的发布标签，例如 `v0.1.0`。
+3. 将 `SHA512 0` 替换为 vcpkg 报告的实际归档哈希值。
+4. 添加仓库的 `LICENSE` 文件或确定正确的 SPDX 许可表达式。
+5. 如果仅更改 vcpkg 打包，递增 `port-version`；如果上游代码变更，更新 `version-semver` 并重置 `port-version`。
+6. 对目标 triplet 运行 vcpkg 的端口验证。
 
-## Current Package Boundaries
+## 当前包边界
 
-The package is Windows-only:
+该包仅支持 Windows：
 
 ```json
 "supports": "windows"
 ```
 
-Only `yoga` is required for the library package. `fmt` and `gtest` are feature
-dependencies for samples and tests, not runtime dependencies for consumers.
+库包仅需要 `yoga`。`fmt` 和 `gtest` 是示例和测试的特性依赖，而非消费者的运行时依赖。
 
-## License Note
+## 许可说明
 
-The current repository does not include a license file. The manifests therefore
-use `license: null`. This is valid vcpkg metadata, but official publication
-still requires a clear copyright file in the installed package. Choose and add a
-real license before public redistribution.
+当前仓库不包含许可文件。因此清单使用 `license: null`。这是有效的 vcpkg 元数据，但官方发布仍然需要在安装包中包含清晰的版权文件。在公开发布之前，请选择并添加实际许可。

@@ -1,75 +1,57 @@
-# Design
+# 设计
 
-WinElement is designed around a retained UI tree with explicit invalidation and
-platform-neutral render command recording.
+WinElement 围绕保留式 UI 树设计，具有显式失效和平台无关的渲染命令录制机制。
 
-## Design Goals
+## 设计目标
 
-- Smooth resizing and scrolling.
-- Low idle CPU usage.
-- Memory usage that scales with visible UI and bounded caches.
-- Controls that feel close to Element Plus while staying native to C++.
-- Testable rendering and layout without requiring a live window.
+- 流畅的尺寸调整和滚动。
+- 低空闲 CPU 占用。
+- 内存使用量与可见 UI 和有界缓存成比例。
+- 控件感觉接近 Element Plus，同时保持 C++ 原生风格。
+- 可测试的渲染和布局，无需实时窗口。
 
-## Retained Tree
+## 保留式树
 
-The UI tree is retained by `UIElement`. Elements keep layout, style, input, and
-render cache metadata. Dirty flags decide which work needs to run on the next
-frame.
+UI 树由 `UIElement` 保留。元素持有布局、样式、输入和渲染缓存元数据。脏标志决定下一帧需要执行哪些工作。
 
-This avoids rebuilding the full tree for every frame and lets clean subtrees
-reuse command caches.
+这避免了为每一帧重建整棵树，并允许干净的子树复用命令缓存。
 
-## Invalidation Model
+## 失效模型
 
-Invalidation is explicit:
+失效是显式的：
 
-- Layout invalidation schedules measurement and layout.
-- Paint invalidation refreshes render commands.
-- Style invalidation detaches or reapplies theme-managed style.
-- Semantics invalidation marks accessibility snapshots dirty.
+- 布局失效：调度测量和布局。
+- 绘制失效：刷新渲染命令。
+- 样式失效：分离或重新应用主题管理的样式。
+- 语义失效：标记辅助功能快照为脏。
 
-Property metadata declares invalidation intent, so custom properties can
-participate in the same pipeline.
+属性元数据声明失效意图，使自定义属性可以参与同一管道。
 
-## Styling
+## 样式
 
-Styles are value objects. Controls read style tokens during paint and state
-transitions. Themes map string class names to `UIElementStyle` values.
+样式是值对象。控件在绘制和状态转换期间读取样式令牌。主题将字符串类名映射到 `UIElementStyle` 值。
 
-The theme system intentionally keeps inheritance simple. Local themes cascade
-through the element tree, while individual style classes remain explicit and
-cacheable.
+主题系统有意保持继承关系简单。本地主题通过元素树级联，而各个样式类保持显式和可缓存。
 
-## Rendering
+## 渲染
 
-Rendering is split into two steps:
+渲染分为两步：
 
-1. Record a platform-neutral `RenderCommandList` or `RenderScene`.
-2. Submit it to the platform renderer.
+1. 录制平台无关的 `RenderCommandList` 或 `RenderScene`。
+2. 提交给平台渲染器。
 
-The D3D11 backend can reuse prepared resources, text glyphs, geometries, and
-retained layer metadata. The render frame graph groups commands into passes for
-better scheduling and diagnostics.
+D3D11 后端可以复用已准备的资源、文本字形、几何体和保留的图层元数据。渲染帧图将命令分组为渲染通道，以获得更好的调度和诊断能力。
 
-## Controls
+## 控件
 
-Controls should avoid owning platform details. They render through
-`RenderContext`, expose stateful C++ methods, and use the base element for
-layout, focus, pointer, theme, and paint invalidation.
+控件应避免持有平台细节。它们通过 `RenderContext` 进行渲染，暴露有状态的 C++ 方法，并使用基元素处理布局、焦点、指针、主题和绘制失效。
 
-Complex controls should split reusable policy out of rendering code. For
-example, virtualization planning is separate from `ItemsControl` container
-creation.
+复杂控件应将可复用策略从渲染代码中分离。例如，虚拟化规划与 `ItemsControl` 容器创建是分离的。
 
-## Public API Stability
+## 公共 API 稳定性
 
-Public headers should be small, direct, and useful. Unused experimental helpers
-should not be exported through umbrella headers. If an API is not used by the
-framework or samples, it needs either tests and documentation or removal.
+公共头文件应保持小巧、直接且有用。未使用的实验性辅助不应通过聚合头文件导出。如果 API 未被框架或示例使用，则要么需要测试和文档，要么需要移除。
 
-## Packaging
+## 打包
 
-The installed CMake package exports `WinElement::` targets and a
-`WinElementConfig.cmake` file. Applications should use `find_package(WinElement
-CONFIG REQUIRED)` instead of relying on source-tree paths.
+安装后的 CMake 包导出 `WinElement::` 目标和 `WinElementConfig.cmake` 文件。应用应使用 `find_package(WinElement CONFIG REQUIRED)` 而不是依赖源码树路径。

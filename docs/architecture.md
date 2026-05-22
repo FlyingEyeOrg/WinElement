@@ -1,9 +1,8 @@
-# Architecture
+# 架构
 
-WinElement is split into layers. Higher layers depend on lower layers, and
-lower layers must not depend on controls or platform windowing.
+WinElement 按层划分。上层依赖下层，下层不得依赖控件或平台窗口。
 
-## Layer Graph
+## 层依赖图
 
 ```text
 platform
@@ -16,89 +15,71 @@ platform
           core
 ```
 
-The top-level `WinElement::winelement` target links the full stack for
-applications that do not need fine-grained linking.
+顶层 `WinElement::winelement` 目标链接了整个堆栈，适用于不需要精细链接的应用。
 
-## Core
+## Core（核心层）
 
-The core layer contains generic primitives:
+核心层包含通用原语：
 
-- Geometry and color value types.
-- Frame scheduling.
-- Small local caches.
-- Typed property storage.
+- 几何体和颜色值类型。
+- 帧调度。
+- 小型本地缓存。
+- 类型化属性存储。
 
-No UI tree knowledge should be added to core.
+不应向核心层添加 UI 树相关的知识。
 
-## Layout
+## Layout（布局层）
 
-The layout layer wraps Yoga and provides WinElement-friendly layout types. It is
-responsible for measurement, flex layout, grid planning, scroll bounds, and
-layout cache helpers.
+布局层封装了 Yoga，并提供对 WinElement 友好的布局类型。负责测量、flex 布局、网格规划、滚动边界和布局缓存辅助。
 
-The UI tree owns `LayoutElement` attachment. Controls should modify layout
-through `configure_layout()` instead of reaching around ownership boundaries.
+UI 树拥有 `LayoutElement` 的挂载关系。控件应通过 `configure_layout()` 修改布局，而不应绕过所有权边界。
 
-## Rendering
+## Rendering（渲染层）
 
-The rendering layer is platform-neutral. It records draw commands, scenes,
-frame graph metadata, text layout commands, image resource references, and
-compositor promotion intent.
+渲染层与平台无关。它记录绘制命令、场景、帧图元数据、文本布局命令、图像资源引用和合成器提升意图。
 
-Platform renderers consume these command streams. This separation keeps tests
-fast and lets headless verification run without opening a window.
+平台渲染器消费这些命令流。这种分离使测试保持快速，并允许无头验证无需打开窗口即可运行。
 
-## Animation
+## Animation（动画层）
 
-Animation owns timeline sampling, keyframes, transitions, and simple physics
-simulation. It writes values through callbacks or through typed properties.
+动画层负责时间轴采样、关键帧、过渡和简单物理模拟。通过回调或类型化属性写入值。
 
-Animations do not directly mutate platform resources. The element layer applies
-invalidations after animation writes.
+动画不会直接修改平台资源。元素层在动画写入后应用失效标记。
 
-## Style
+## Style（样式层）
 
-The style layer provides `UIElementStyle`, semantic tokens, built-in Element
-Plus inspired styles, theme classes, dark theme variants, and computed style
-caching.
+样式层提供 `UIElementStyle`、语义令牌、内置的 Element Plus 风格样式、主题类、深色主题变体和计算样式缓存。
 
-Themes carry a generation number. Mutating a style class advances the
-generation only when the value actually changed, which prevents stale cache
-reuse without causing unnecessary invalidation.
+主题携带 generation 编号。只有在值实际发生变化时，样式类变更才会推进 generation，这防止了过期缓存被复用，同时避免了不必要的失效。
 
-## Elements
+## Elements（元素层）
 
-`UIElement` is the retained tree primitive. It owns:
+`UIElement` 是保留式树结构原语。它管理：
 
-- Parent and child relationships.
-- Layout tree binding.
-- Theme class and local theme state.
-- Paint and layout invalidation.
-- Hit testing and routed input.
-- Top layer ownership.
-- Render command cache.
-- Property store.
+- 父子关系。
+- 布局树绑定。
+- 主题类和本地主题状态。
+- 绘制和布局失效。
+- 命中测试和路由输入。
+- 顶层图层所有权。
+- 渲染命令缓存。
+- 属性存储。
 
-Managers such as `EventRouter`, `FocusManager`, `PopupManager`, and
-`ThemeManager` operate on `UIElement` but keep their own policy logic out of
-controls.
+`EventRouter`、`FocusManager`、`PopupManager` 和 `ThemeManager` 等管理器操作 `UIElement`，但将各自的策略逻辑保留在控件之外。
 
-## Controls
+## Controls（控件层）
 
-Controls are focused wrappers over `UIElement`. A control should:
+控件是 `UIElement` 的专注封装。一个控件应：
 
-- Expose a useful stateful API.
-- Use style tokens instead of hard-coded drawing rules where possible.
-- Reuse layout, input, theme, and rendering primitives from lower layers.
-- Avoid storing duplicate state already represented by `UIElement`.
+- 暴露有用的有状态 API。
+- 尽可能使用样式令牌而非硬编码绘制规则。
+- 复用来自下层的布局、输入、主题和渲染原语。
+- 避免存储 `UIElement` 已经表示的重复状态。
 
-`ItemsControl` is the primary virtualization boundary. It realizes only the
-visible window plus overscan and recycles containers through a bounded pool.
+`ItemsControl` 是主要的虚拟化边界。它仅实现可见窗口范围加上过扫区域，并通过有界对象池回收容器。
 
-## Platform
+## Platform（平台层）
 
-The platform layer owns Win32 windows, dispatch, text services, resource
-loading, render threading, DirectComposition, and the D3D11 renderer.
+平台层管理 Win32 窗口、分发、文本服务、资源加载、渲染线程、DirectComposition 和 D3D11 渲染器。
 
-This layer may depend on the full UI stack, but cross-platform abstractions
-should stay in lower layers.
+该层可能依赖完整的 UI 堆栈，但跨平台抽象应保留在下层。

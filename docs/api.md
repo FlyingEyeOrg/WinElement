@@ -1,19 +1,19 @@
-# API Overview
+# API 概述
 
-WinElement exposes layered CMake targets and matching umbrella headers.
+WinElement 提供分层的 CMake 目标和对应的聚合头文件。
 
-## Core
+## Core（核心）
 
-Header: `#include <winelement/core.hpp>`
+头文件：`#include <winelement/core.hpp>`
 
-Key APIs:
+关键 API：
 
-- `core::FrameScheduler`: priority frame task queue with coalescing.
-- `core::Property<T>` and `core::PropertyStore`: typed custom properties for UI state and implicit animations.
-- `core::LruCache<Key, Value>`: small-capacity cache used by layout and style subsystems.
-- Geometry primitives: `core::Point`, `core::Size`, `core::Rect`, `core::Color`, `core::Transform2D`.
+- `core::FrameScheduler`：带合并功能的优先级帧任务队列。
+- `core::Property<T>` 和 `core::PropertyStore`：用于 UI 状态和隐式动画的类型化自定义属性。
+- `core::LruCache<Key, Value>`：用于布局和样式子系统的小容量缓存。
+- 几何体原语：`core::Point`、`core::Size`、`core::Rect`、`core::Color`、`core::Transform2D`。
 
-Typed property example:
+类型化属性示例：
 
 ```cpp
 const winelement::core::Property<float>& progress_property() {
@@ -27,25 +27,24 @@ element.animate_property(progress_property(), 1.0F);
 auto progress = element.properties().value(progress_property(), 0.0F);
 ```
 
-## Layout
+## Layout（布局）
 
-Header: `#include <winelement/layout.hpp>`
+头文件：`#include <winelement/layout.hpp>`
 
-Key APIs:
+关键 API：
 
 - `layout::LayoutEngine`
 - `layout::LayoutElement`
-- `layout::Length`, `layout::Edge`, `layout::FlexDirection`, `layout::Overflow`
+- `layout::Length`、`layout::Edge`、`layout::FlexDirection`、`layout::Overflow`
 - `layout::GridLayoutPlanner`
 
-Most controls expose `configure_layout()` so callers can work with
-`LayoutElement` without directly managing layout tree ownership.
+大多数控件提供 `configure_layout()`，使调用者无需直接管理布局树所有权即可使用 `LayoutElement`。
 
-## Rendering
+## Rendering（渲染）
 
-Header: `#include <winelement/rendering.hpp>`
+头文件：`#include <winelement/rendering.hpp>`
 
-Key APIs:
+关键 API：
 
 - `rendering::RenderCommandList`
 - `rendering::RenderScene`
@@ -54,14 +53,13 @@ Key APIs:
 - `rendering::RenderFrameGraph`
 - `rendering::CompositorPromotionPlan`
 
-Rendering code records command streams first, then platform backends translate
-them into D3D11 work.
+渲染代码首先记录命令流，然后由平台后端将其转换为 D3D11 工作负载。
 
-## Animation
+## Animation（动画）
 
-Header: `#include <winelement/animation.hpp>`
+头文件：`#include <winelement/animation.hpp>`
 
-Key APIs:
+关键 API：
 
 - `animation::Timeline`
 - `animation::KeyframeTrack<T>`
@@ -70,26 +68,25 @@ Key APIs:
 - `animation::SpringSimulation`
 - `animation::FrictionSimulation`
 
-## Style
+## Style（样式）
 
-Header: `#include <winelement/style.hpp>`
+头文件：`#include <winelement/style.hpp>`
 
-Key APIs:
+关键 API：
 
 - `style::UIElementStyle`
 - `style::Theme`
-- `style::set_theme`, `style::make_default_theme`, `style::make_dark_theme`
+- `style::set_theme`、`style::make_default_theme`、`style::make_dark_theme`
 - `style::set_theme_style_class`
 - `style::ComputedStyleCache`
 
-Themes are versioned by `Theme::generation`, so style caches and already-applied
-theme metadata can detect real style changes.
+主题通过 `Theme::generation` 进行版本管理，样式类变更仅在值实际发生变化时才推进 generation，从而防止缓存失效的同时避免不必要的重计算。
 
-## Elements
+## Elements（元素）
 
-Header: `#include <winelement/elements.hpp>`
+头文件：`#include <winelement/elements.hpp>`
 
-Key APIs:
+关键 API：
 
 - `elements::UIElement`
 - `elements::ThemeManager`
@@ -98,15 +95,13 @@ Key APIs:
 - `elements::PopupManager`
 - `elements::PlacementEngine`
 
-`UIElement` owns tree structure, layout attachment, style application, hit
-testing, command cache invalidation, top layer integration, and text editing
-hooks.
+`UIElement` 管理树结构、布局挂载、样式应用、命中测试、命令缓存失效、顶层图层集成和文本编辑钩子。
 
-## Controls
+## Controls（控件）
 
-Header: `#include <winelement/controls.hpp>`
+头文件：`#include <winelement/controls.hpp>`
 
-Important controls:
+重要控件：
 
 - `controls::Panel`
 - `controls::StackPanel`
@@ -117,17 +112,15 @@ Important controls:
 - `controls::ItemsControl`
 - `controls::Image`
 - `controls::Scrollbar`
-- `controls::Dialog`, `Message`, `MessageBox`, `Loading`
+- `controls::Dialog`、`Message`、`MessageBox`、`Loading`
 
-Controls are normal `UIElement` subclasses. They should expose domain-specific
-state while delegating common style, layout, input, and rendering behavior to
-the element layer.
+控件是普通的 `UIElement` 子类。它们应暴露领域相关的状态，同时将通用的样式、布局、输入和渲染行为委托给元素层处理。
 
-## Platform
+## Platform（平台）
 
-Header: `#include <winelement/platform.hpp>`
+头文件：`#include <winelement/platform.hpp>`
 
-Key APIs:
+关键 API：
 
 - `platform::Application`
 - `platform::Window`
@@ -135,5 +128,4 @@ Key APIs:
 - `platform::ImageLoader`
 - `platform::RenderThreadPool`
 
-The platform layer is currently Windows-only and uses Win32, D3D11, DirectWrite,
-DirectComposition, WIC, and IMM.
+平台层目前仅支持 Windows，使用 Win32、D3D11、DirectWrite、DirectComposition、WIC 和 IMM。
