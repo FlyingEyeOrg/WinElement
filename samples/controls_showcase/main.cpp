@@ -1797,23 +1797,28 @@ void add_virtualization_section(controls::StackPanel& root) {
     virtual_panel->set_item_count(item_count)
         .set_item_extent(item_height)
         .set_overscan(6)
-        .set_item_factory([](std::size_t index) {
-            auto item = std::make_unique<controls::Panel>();
-            item->set_background(
-                index % 2 == 0 ? rendering::Color::rgba(250, 250, 252)
-                               : rendering::Color::rgba(255, 255, 255));
-            item->set_border(rendering::Color::rgba(235, 238, 245), 1.0F);
-            item->configure_layout([](layout::LayoutElement& layout) {
+        .set_slot_factory([]() {
+            auto slot = std::make_unique<controls::Panel>();
+            slot->set_background(rendering::Color::rgba(255, 255, 255));
+            slot->set_border(rendering::Color::rgba(235, 238, 245), 1.0F);
+            slot->configure_layout([](layout::LayoutElement& layout) {
                 layout.set_width(layout::Length::percent(100.0F))
                     .set_height(layout::Length::percent(100.0F))
                     .set_padding(layout::Edge::Horizontal, layout::Length::points(12.0F))
                     .set_align_items(layout::Align::Center);
             });
-            auto& label = item->append_new_child<controls::Text>();
+            slot->append_new_child<controls::Text>()
+                .set_type(controls::TextType::Info)
+                .set_font_size(13.0F);
+            return slot;
+        })
+        .set_item_binder([](elements::UIElement& slot, std::size_t index) {
+            auto& panel = static_cast<controls::Panel&>(slot);
+            panel.set_background(
+                index % 2 == 0 ? rendering::Color::rgba(250, 250, 252)
+                               : rendering::Color::rgba(255, 255, 255));
+            auto& label = static_cast<controls::Text&>(panel.child_at(0));
             label.set_text("Item #" + std::to_string(index));
-            label.set_type(controls::TextType::Info);
-            label.set_font_size(13.0F);
-            return item;
         });
     virtual_panel_ptr->set_viewport_extent(viewport_height);
     viewport.append_child(std::move(virtual_panel));

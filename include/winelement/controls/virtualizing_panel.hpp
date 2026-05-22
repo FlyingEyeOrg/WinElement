@@ -2,7 +2,6 @@
 
 #include <winelement/controls/panel.hpp>
 #include <winelement/controls/virtualization.hpp>
-#include <winelement/elements/element_descriptor.hpp>
 
 #include <cstddef>
 #include <functional>
@@ -14,7 +13,8 @@ namespace winelement::controls {
 
 class VirtualizingPanel final : public Panel {
   public:
-    using ItemFactory = std::function<std::unique_ptr<elements::UIElement>(std::size_t index)>;
+    using ItemBinder = std::function<void(elements::UIElement& slot, std::size_t index)>;
+    using SlotFactory = std::function<std::unique_ptr<elements::UIElement>()>;
 
     VirtualizingPanel();
 
@@ -22,15 +22,15 @@ class VirtualizingPanel final : public Panel {
     VirtualizingPanel& set_item_extent(float extent);
     VirtualizingPanel& set_item_extents(std::vector<float> extents);
     VirtualizingPanel& set_overscan(std::size_t overscan);
-    VirtualizingPanel& set_item_factory(ItemFactory factory);
-    VirtualizingPanel& set_reusable_container_limit(std::size_t limit);
+    VirtualizingPanel& set_slot_factory(SlotFactory factory);
+    VirtualizingPanel& set_item_binder(ItemBinder binder);
+    VirtualizingPanel& set_pool_capacity(std::size_t capacity);
 
     VirtualizingPanel& set_scroll_offset(float offset);
     VirtualizingPanel& set_viewport_extent(float extent);
     VirtualizingPanel& refresh_virtualization();
 
     [[nodiscard]] std::size_t item_count() const noexcept;
-    [[nodiscard]] std::size_t realized_count() const noexcept;
 
   protected:
     void on_viewport_enter() override;
@@ -38,11 +38,10 @@ class VirtualizingPanel final : public Panel {
 
   private:
     void ensure_pool();
-    void bind_slot(std::size_t slot_index, std::size_t item_index);
-    void unbind_slot(std::size_t slot_index);
 
     VirtualizationPlanner planner_;
-    ItemFactory item_factory_;
+    SlotFactory slot_factory_;
+    ItemBinder item_binder_;
     float scroll_offset_ = 0.0F;
     float viewport_extent_ = 0.0F;
 

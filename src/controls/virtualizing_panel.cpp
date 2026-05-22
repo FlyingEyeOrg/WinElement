@@ -29,13 +29,18 @@ VirtualizingPanel& VirtualizingPanel::set_overscan(std::size_t overscan) {
     return *this;
 }
 
-VirtualizingPanel& VirtualizingPanel::set_item_factory(ItemFactory factory) {
-    item_factory_ = std::move(factory);
+VirtualizingPanel& VirtualizingPanel::set_slot_factory(SlotFactory factory) {
+    slot_factory_ = std::move(factory);
     return *this;
 }
 
-VirtualizingPanel& VirtualizingPanel::set_reusable_container_limit(std::size_t limit) {
-    pool_capacity_ = std::max(limit, std::size_t{4});
+VirtualizingPanel& VirtualizingPanel::set_item_binder(ItemBinder binder) {
+    item_binder_ = std::move(binder);
+    return *this;
+}
+
+VirtualizingPanel& VirtualizingPanel::set_pool_capacity(std::size_t capacity) {
+    pool_capacity_ = std::max(capacity, std::size_t{4});
     return *this;
 }
 
@@ -61,22 +66,20 @@ VirtualizingPanel& VirtualizingPanel::refresh_virtualization() {
     const auto item_extent = planner_.item_extent();
 
     for (std::size_t slot = 0; slot < pool_.size(); ++slot) {
+        auto& s = pool_[slot];
+
         if (slot < window.count) {
             const auto item_index = window.start_index + slot;
             const auto y = static_cast<float>(item_index) * item_extent;
-            auto& s = pool_[slot];
 
-            if (s.item_index != item_index) {
-                bind_slot(slot, item_index);
+            if (s.item_index != item_index && item_binder_) {
+                item_binder_(*s.element, item_index);
+                s.item_index = item_index;
             }
             s.element->set_visible(true);
             s.element->set_render_transform(
                 rendering::Transform2D::translation(0.0F, y));
         } else {
-            auto& s = pool_[slot];
-            if (s.item_index.has_value()) {
-                unbind_slot(slot);
-            }
             s.element->set_visible(false);
         }
     }
@@ -86,16 +89,6 @@ VirtualizingPanel& VirtualizingPanel::refresh_virtualization() {
 
 std::size_t VirtualizingPanel::item_count() const noexcept {
     return planner_.total_count();
-}
-
-std::size_t VirtualizingPanel::realized_count() const noexcept {
-    std::size_t count = 0;
-    for (const auto& s : pool_) {
-        if (s.item_index.has_value()) {
-            ++count;
-        }
-    }
-    return count;
 }
 
 void VirtualizingPanel::on_viewport_enter() {
@@ -122,9 +115,11 @@ void VirtualizingPanel::ensure_pool() {
             .set_flex_shrink(0.0F);
     });
 
-    pool_.reserve(pool_capacity_);
-    for (std::size_t i = 0; i < pool_capacity_; ++i) {
-        auto element = std::make_unique<elements::UIElement>();
+    const auto capacity = std::min(pool_capacity_, planner_.total_count());
+    pool_.reserve(capacity);
+    for (std::size_t i = 0; i < capacity; ++i) {
+        auto element = slot_factory_ ? slot_factory_()
+                                     : std::make_unique<elements::UIElement>();
         element->set_visible(false);
         element->configure_layout([item_extent](layout::LayoutElement& item) {
             item.set_position_type(layout::PositionType::Absolute)
@@ -134,30 +129,10 @@ void VirtualizingPanel::ensure_pool() {
                 .set_height(layout::Length::points(item_extent))
                 .set_flex_shrink(0.0F);
         });
+
         auto* element_ptr = element.get();
         append_child(std::move(element));
         pool_.push_back(Slot{element_ptr, std::nullopt});
-    }
-}
-
-void VirtualizingPanel::bind_slot(std::size_t slot_index, std::size_t item_index) {
-    auto& s = pool_[slot_index];
-    unbind_slot(slot_index);
-
-    if (item_factory_) {
-        auto content = item_factory_(item_index);
-        if (content != nullptr) {
-            s.element->append_child(std::move(content));
-            s.item_index = item_index;
-        }
-    }
-}
-
-void VirtualizingPanel::unbind_slot(std::size_t slot_index) {
-    auto& s = pool_[slot_index];
-    if (s.item_index.has_value()) {
-        s.element->clear_children();
-        s.item_index = std::nullopt;
     }
 }
 
