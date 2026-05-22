@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <functional>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 namespace winelement::controls {
@@ -29,7 +30,6 @@ class VirtualizingPanel final : public Panel {
     VirtualizingPanel& refresh_virtualization();
 
     [[nodiscard]] std::size_t item_count() const noexcept;
-    [[nodiscard]] std::size_t realized_start_index() const noexcept;
     [[nodiscard]] std::size_t realized_count() const noexcept;
     [[nodiscard]] std::size_t reusable_container_count() const noexcept;
 
@@ -38,27 +38,26 @@ class VirtualizingPanel final : public Panel {
     void on_viewport_leave() override;
 
   private:
-    struct Slot {
-        std::size_t item_index = 0;
-        float extent = 0.0F;
-        elements::UIElement* spacer = nullptr;
-        elements::UIElement* realized = nullptr;
-        elements::ElementSnapshot snapshot;
+    struct RealizedItem {
+        std::size_t index = 0;
+        elements::UIElement* element = nullptr;
     };
 
-    void realize_slot(Slot& slot);
-    void unrealize_slot(Slot& slot);
-    void sync_slot_spacer(Slot& slot);
-    [[nodiscard]] std::unique_ptr<elements::UIElement> acquire_reusable();
-    void release_reusable(std::unique_ptr<elements::UIElement> element);
-    void build_slots();
+    void ensure_spacers();
+    void update_spacer_extent(elements::UIElement& spacer, float extent);
+    [[nodiscard]] std::unique_ptr<elements::UIElement> acquire_reusable(std::size_t index);
+    [[nodiscard]] std::size_t leading_spacer_index() const noexcept;
 
     VirtualizationPlanner planner_;
     RecyclePool<elements::UIElement> recycle_pool_;
     ItemFactory item_factory_;
-    std::vector<Slot> slots_;
+    std::vector<RealizedItem> realized_;
+    std::unordered_map<std::size_t, elements::ElementSnapshot> snapshots_;
+    elements::UIElement* leading_spacer_ = nullptr;
+    elements::UIElement* trailing_spacer_ = nullptr;
     float scroll_offset_ = 0.0F;
     float viewport_extent_ = 0.0F;
+    bool spacers_ready_ = false;
 };
 
 }  // namespace winelement::controls
