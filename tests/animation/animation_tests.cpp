@@ -144,7 +144,7 @@ TEST(AnimationTests, StoryboardPrunesFinishedChannelsAfterTick) {
 }
 
 TEST(AnimationTests, PropertyAnimationsWriteThroughPropertyStore) {
-    auto opacity_property = winelement::core::make_property_metadata<float>(
+    auto opacity_property = winelement::core::make_property<float>(
         "opacity", winelement::core::PropertyInvalidation::Paint);
     winelement::core::PropertyStore store;
     auto invalidated = false;
@@ -166,6 +166,53 @@ TEST(AnimationTests, PropertyAnimationsWriteThroughPropertyStore) {
     EXPECT_TRUE(storyboard.tick(start + std::chrono::milliseconds(500)));
     EXPECT_TRUE(invalidated);
     EXPECT_NEAR(store.value(opacity_property, 0.0F), 0.5F, 0.03F);
+}
+
+TEST(AnimationTests, PropertyStoreKeepsValuesCompactOrderedAndSkipsNoopNotifications) {
+    auto width_property = winelement::core::make_property<float>(
+        "width", winelement::core::PropertyInvalidation::Layout |
+                     winelement::core::PropertyInvalidation::Paint);
+    auto opacity_property = winelement::core::make_property<float>(
+        "opacity", winelement::core::PropertyInvalidation::Paint);
+    winelement::core::PropertyStore store;
+    store.reserve(2U);
+
+    auto notification_count = 0U;
+    auto last_change = winelement::core::PropertyChange{};
+    store.add_observer([&](const winelement::core::PropertyChange& change) {
+        ++notification_count;
+        last_change = change;
+    });
+
+    const auto width_change = store.set_value(width_property, 120.0F);
+    EXPECT_TRUE(width_change.changed);
+    EXPECT_FALSE(width_change.had_local_value);
+    EXPECT_TRUE(winelement::core::has_invalidation(width_change.invalidation,
+                                                   winelement::core::PropertyInvalidation::Layout));
+
+    const auto opacity_change = store.set_value(opacity_property, 0.5F);
+    EXPECT_TRUE(opacity_change.changed);
+    EXPECT_EQ(store.local_value_count(), 2U);
+    EXPECT_EQ(notification_count, 2U);
+    EXPECT_TRUE(last_change.metadata != nullptr);
+
+    EXPECT_FLOAT_EQ(store.value(width_property, 0.0F), 120.0F);
+    ASSERT_NE(store.local_value(opacity_property), nullptr);
+    EXPECT_FLOAT_EQ(*store.local_value(opacity_property), 0.5F);
+
+    const auto unchanged = store.set_value(width_property, 120.0F);
+    EXPECT_FALSE(unchanged.changed);
+    EXPECT_EQ(unchanged.invalidation, winelement::core::PropertyInvalidation::None);
+    EXPECT_EQ(notification_count, 2U);
+
+    EXPECT_TRUE(store.has_local_value(width_property));
+    const auto cleared = store.clear_value(width_property);
+    EXPECT_TRUE(cleared.changed);
+    EXPECT_TRUE(cleared.had_local_value);
+    EXPECT_EQ(notification_count, 3U);
+    EXPECT_FALSE(store.has_local_value(width_property));
+    EXPECT_FLOAT_EQ(store.value(width_property, 12.0F), 12.0F);
+    EXPECT_FLOAT_EQ(store.value(opacity_property, 0.0F), 0.5F);
 }
 
 TEST(AnimationTests, StoryboardKeepsInfiniteAnimationsRunning) {

@@ -461,9 +461,9 @@ class LiveSampleCard final : public controls::Panel {
     float fill_progress_ = -1.0F;
 };
 
-[[nodiscard]] const core::PropertyMetadata& implicit_demo_progress_property() {
-    static const auto metadata = core::make_property_metadata<float>(
-        "showcase.implicit_demo_progress", core::PropertyInvalidation::Paint);
+[[nodiscard]] const core::Property<float>& implicit_demo_progress_property() {
+    static const auto metadata = core::make_property<float>("showcase.implicit_demo_progress",
+                                                            core::PropertyInvalidation::Paint);
     return metadata;
 }
 
@@ -511,13 +511,13 @@ class ImplicitPropertyDemoPanel final : public controls::Panel {
         });
         replay.set_on_click([this]() { replay_animation(); });
 
-        set_property<float>(implicit_demo_progress_property(), 0.0F);
+        set_property(implicit_demo_progress_property(), 0.0F);
         sync_visuals();
     }
 
     void replay_animation() {
-        set_property<float>(implicit_demo_progress_property(), 0.0F);
-        animate_property<float>(
+        set_property(implicit_demo_progress_property(), 0.0F);
+        animate_property(
             implicit_demo_progress_property(), 1.0F,
             animation::AnimationTiming{.duration = animation::AnimationDuration{0.7F},
                                        .iteration_count = 4.0F,
@@ -536,8 +536,8 @@ class ImplicitPropertyDemoPanel final : public controls::Panel {
 
   private:
     void sync_visuals() {
-        const auto progress = std::clamp(
-            properties().value<float>(implicit_demo_progress_property(), 0.0F), 0.0F, 1.0F);
+        const auto progress =
+            std::clamp(properties().value(implicit_demo_progress_property(), 0.0F), 0.0F, 1.0F);
         if (fill_ != nullptr && std::abs(progress - fill_progress_) >= 0.005F) {
             fill_progress_ = progress;
             fill_->set_progress(fill_progress_);

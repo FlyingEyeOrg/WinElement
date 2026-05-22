@@ -160,6 +160,13 @@ class UIElement {
         apply_property_change(change);
         return *this;
     }
+    template <typename T, typename U>
+    UIElement& set_property(const core::Property<T>& property, U&& value) {
+        verify_thread_access();
+        const auto change = property_store().set_value(property, std::forward<U>(value));
+        apply_property_change(change);
+        return *this;
+    }
     template <typename T>
     UIElement&
     animate_property(const core::PropertyMetadata& metadata, T target_value,
@@ -177,7 +184,18 @@ class UIElement {
         animations.play(animation::AnimationClockType::now());
         return *this;
     }
+    template <typename T>
+    UIElement&
+    animate_property(const core::Property<T>& property, T target_value,
+                     animation::AnimationTiming timing = animation::make_transition_timing(),
+                     T default_value = T{}) {
+        return animate_property<T>(property.metadata, std::move(target_value), std::move(timing),
+                                   std::move(default_value));
+    }
     UIElement& clear_property(const core::PropertyMetadata& metadata);
+    template <typename T> UIElement& clear_property(const core::Property<T>& property) {
+        return clear_property(property.metadata);
+    }
     [[nodiscard]] bool
     tick_animations(animation::AnimationTimePoint now = animation::AnimationClockType::now());
     [[nodiscard]] bool has_running_animations() const noexcept;

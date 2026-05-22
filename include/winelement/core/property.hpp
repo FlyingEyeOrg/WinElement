@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -12,7 +13,6 @@
 #include <type_traits>
 #include <typeindex>
 #include <typeinfo>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -77,6 +77,36 @@ make_property_metadata(std::string name,
                             .value_type = std::type_index(typeid(T)),
                             .invalidation = invalidation,
                             .inherits = inherits};
+}
+
+template <typename T> struct Property {
+    using value_type = std::decay_t<T>;
+
+    PropertyMetadata metadata;
+
+    [[nodiscard]] const PropertyMetadata& descriptor() const noexcept {
+        return metadata;
+    }
+
+    [[nodiscard]] std::uint64_t id() const noexcept {
+        return metadata.id;
+    }
+
+    [[nodiscard]] std::string_view name() const noexcept {
+        return metadata.name;
+    }
+
+    [[nodiscard]] operator const PropertyMetadata&() const noexcept {
+        return metadata;
+    }
+};
+
+template <typename T>
+[[nodiscard]] Property<std::decay_t<T>>
+make_property(std::string name, PropertyInvalidation invalidation = PropertyInvalidation::None,
+              bool inherits = false) {
+    return Property<std::decay_t<T>>{.metadata = make_property_metadata<std::decay_t<T>>(
+                                         std::move(name), invalidation, inherits)};
 }
 
 struct PropertyChange {
@@ -246,11 +276,11 @@ class PropertyStore final {
     [[nodiscard]] T value(const PropertyMetadata& metadata, const T& default_value = T{}) const {
         verify_type<T>(metadata);
         verify_id(metadata);
-        const auto iterator = values_.find(metadata.id);
-        if (iterator == values_.end()) {
+        const auto iterator = find_entry(metadata.id);
+        if (iterator == values_.end() || iterator->id != metadata.id) {
             return default_value;
         }
-        const auto* value = iterator->second.template get<T>();
+        const auto* value = iterator->value.template get<T>();
         if (value == nullptr) {
             throw std::invalid_argument("property value type does not match metadata");
         }
@@ -258,48 +288,81 @@ class PropertyStore final {
     }
 
     template <typename T>
+    [[nodiscard]] T value(const Property<T>& property, const T& default_value = T{}) const {
+        return value<T>(property.metadata, default_value);
+    }
+
+    template <typename T>
     [[nodiscard]] const T* local_value(const PropertyMetadata& metadata) const {
         verify_type<T>(metadata);
         verify_id(metadata);
-        const auto iterator = values_.find(metadata.id);
-        if (iterator == values_.end()) {
+        const auto iterator = find_entry(metadata.id);
+        if (iterator == values_.end() || iterator->id != metadata.id) {
             return nullptr;
         }
-        return iterator->second.template get<T>();
+        return iterator->value.template get<T>();
+    }
+
+    template <typename T> [[nodiscard]] const T* local_value(const Property<T>& property) const {
+        return local_value<T>(property.metadata);
     }
 
     template <typename T> PropertyChange set_value(const PropertyMetadata& metadata, T value) {
-        verify_type<T>(metadata);
+        using ValueType = std::decay_t<T>;
+        verify_type<ValueType>(metadata);
         verify_id(metadata);
         auto change = PropertyChange{.metadata = &metadata,
                                      .changed = true,
                                      .had_local_value = false,
                                      .invalidation = metadata.invalidation};
-        const auto iterator = values_.find(metadata.id);
-        if (iterator != values_.end()) {
+        const auto iterator = find_entry(metadata.id);
+        if (iterator != values_.end() && iterator->id == metadata.id) {
             change.had_local_value = true;
-            if (const auto* current = iterator->second.template get<T>();
+            if (const auto* current = iterator->value.template get<ValueType>();
                 current != nullptr && values_equal(*current, value)) {
                 change.changed = false;
                 change.invalidation = PropertyInvalidation::None;
                 return change;
             }
-            iterator->second.template emplace<T>(std::move(value));
+            iterator->value.template emplace<ValueType>(std::move(value));
         } else {
-            values_.emplace(metadata.id, PropertyValue{std::move(value)});
+            values_.insert(iterator, PropertyEntry{.id = metadata.id,
+                                                   .value = PropertyValue{std::move(value)}});
         }
 
         notify(change);
         return change;
     }
 
+    template <typename T, typename U>
+    PropertyChange set_value(const Property<T>& property, U&& value) {
+        using ValueType = typename Property<T>::value_type;
+        return set_value<ValueType>(property.metadata, ValueType(std::forward<U>(value)));
+    }
+
     [[nodiscard]] bool has_local_value(const PropertyMetadata& metadata) const noexcept;
+    template <typename T>
+    [[nodiscard]] bool has_local_value(const Property<T>& property) const noexcept {
+        return has_local_value(property.metadata);
+    }
     PropertyChange clear_value(const PropertyMetadata& metadata);
+    template <typename T> PropertyChange clear_value(const Property<T>& property) {
+        return clear_value(property.metadata);
+    }
     void clear() noexcept;
+    void reserve(std::size_t local_value_capacity);
     void add_observer(Observer observer);
     [[nodiscard]] std::size_t local_value_count() const noexcept;
 
   private:
+    struct PropertyEntry {
+        std::uint64_t id = 0U;
+        PropertyValue value;
+    };
+
+    using ValueIterator = std::vector<PropertyEntry>::iterator;
+    using ConstValueIterator = std::vector<PropertyEntry>::const_iterator;
+
     template <typename T> static void verify_type(const PropertyMetadata& metadata) {
         if (metadata.value_type != std::type_index(typeid(T))) {
             throw std::invalid_argument("property value type does not match metadata");
@@ -320,9 +383,23 @@ class PropertyStore final {
         }
     }
 
+    [[nodiscard]] ValueIterator find_entry(std::uint64_t id) noexcept {
+        return std::lower_bound(values_.begin(), values_.end(), id,
+                                [](const PropertyEntry& entry, std::uint64_t property_id) {
+                                    return entry.id < property_id;
+                                });
+    }
+
+    [[nodiscard]] ConstValueIterator find_entry(std::uint64_t id) const noexcept {
+        return std::lower_bound(values_.begin(), values_.end(), id,
+                                [](const PropertyEntry& entry, std::uint64_t property_id) {
+                                    return entry.id < property_id;
+                                });
+    }
+
     void notify(const PropertyChange& change);
 
-    std::unordered_map<std::uint64_t, PropertyValue> values_;
+    std::vector<PropertyEntry> values_;
     std::vector<Observer> observers_;
 };
 

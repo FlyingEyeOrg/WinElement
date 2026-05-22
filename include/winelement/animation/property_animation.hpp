@@ -18,8 +18,7 @@ make_property_animation(core::PropertyStore& store, const core::PropertyMetadata
                         PropertyInvalidationHandler invalidation_handler = {}) {
     return make_keyframe_animation<T>(
         std::move(track), timing,
-        [&store, &metadata,
-         invalidation_handler = std::move(invalidation_handler)](const T& value) {
+        [&store, metadata, invalidation_handler = std::move(invalidation_handler)](const T& value) {
             const auto change = store.set_value<T>(metadata, value);
             if (invalidation_handler) {
                 invalidation_handler(change);

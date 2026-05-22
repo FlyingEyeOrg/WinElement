@@ -3,7 +3,12 @@
 namespace winelement::core {
 
 bool PropertyStore::has_local_value(const PropertyMetadata& metadata) const noexcept {
-    return metadata.id != 0U && values_.find(metadata.id) != values_.end();
+    if (metadata.id == 0U) {
+        return false;
+    }
+
+    const auto iterator = find_entry(metadata.id);
+    return iterator != values_.end() && iterator->id == metadata.id;
 }
 
 PropertyChange PropertyStore::clear_value(const PropertyMetadata& metadata) {
@@ -12,8 +17,8 @@ PropertyChange PropertyStore::clear_value(const PropertyMetadata& metadata) {
                                  .had_local_value = false,
                                  .invalidation = PropertyInvalidation::None};
     verify_id(metadata);
-    const auto iterator = values_.find(metadata.id);
-    if (iterator == values_.end()) {
+    const auto iterator = find_entry(metadata.id);
+    if (iterator == values_.end() || iterator->id != metadata.id) {
         return change;
     }
 
@@ -27,6 +32,10 @@ PropertyChange PropertyStore::clear_value(const PropertyMetadata& metadata) {
 
 void PropertyStore::clear() noexcept {
     values_.clear();
+}
+
+void PropertyStore::reserve(std::size_t local_value_capacity) {
+    values_.reserve(local_value_capacity);
 }
 
 void PropertyStore::add_observer(Observer observer) {
