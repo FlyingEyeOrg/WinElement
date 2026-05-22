@@ -80,14 +80,19 @@ jobs:
             git init
             git remote add origin $repoUrl
             git switch --orphan vcpkg-registry
+            $env:GIT_AUTHOR_NAME = 'github-actions[bot]'
+            $env:GIT_AUTHOR_EMAIL = 'github-actions[bot]@users.noreply.github.com'
+            $env:GIT_COMMITTER_NAME = 'github-actions[bot]'
+            $env:GIT_COMMITTER_EMAIL = 'github-actions[bot]@users.noreply.github.com'
             git commit --allow-empty -m "Initialize vcpkg registry"
             Pop-Location
           }
 
           Push-Location $regDir
+          $authorArg = '--x-add-version-git-author=github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
           vcpkg x-add-version winelement `
             --overlay-ports="${{ runner.temp }}\ports" `
-            --x-add-version-git-author="github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+            $authorArg
 
           if ($LASTEXITCODE -eq 0) {
             git push --set-upstream origin vcpkg-registry
