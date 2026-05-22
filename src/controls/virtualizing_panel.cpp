@@ -152,7 +152,10 @@ std::size_t VirtualizingPanel::reusable_container_count() const noexcept {
 
 void VirtualizingPanel::on_viewport_enter() {
     Panel::on_viewport_enter();
-    refresh_virtualization();
+}
+
+void VirtualizingPanel::on_viewport_leave() {
+    Panel::on_viewport_leave();
 }
 
 void VirtualizingPanel::on_viewport_leave() {
