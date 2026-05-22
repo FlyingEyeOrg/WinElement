@@ -985,6 +985,30 @@ TEST(BasicControlsTests, ItemsControlVirtualizedScrollReusesOverlappingContent) 
     EXPECT_EQ(items.child_at(4U).child_at(0U).text(), "5:5");
 }
 
+TEST(BasicControlsTests, ItemsControlRefreshesFromObservableStringList) {
+    auto engine = create_unrounded_engine();
+    auto source = std::make_shared<winelement::core::ObservableStringList>(
+        std::vector<std::string>{"Alpha", "Beta", "Gamma"});
+    ItemsControl items;
+    items.bind_layout_tree(engine);
+    items.set_virtualized(true).set_realized_range(0U, 2U);
+    items.bind_items(source);
+
+    EXPECT_EQ(items.item_count(), 3U);
+    EXPECT_EQ(items.child_count(), 2U);
+    ASSERT_EQ(items.child_at(0U).child_count(), 1U);
+    EXPECT_EQ(items.child_at(0U).child_at(0U).text(), "Alpha");
+
+    source->replace(0U, "Delta");
+    EXPECT_EQ(items.item_count(), 3U);
+    ASSERT_EQ(items.child_at(0U).child_count(), 1U);
+    EXPECT_EQ(items.child_at(0U).child_at(0U).text(), "Delta");
+
+    source->append("Epsilon");
+    EXPECT_EQ(items.item_count(), 4U);
+    EXPECT_EQ(items.child_count(), 2U);
+}
+
 TEST(BasicControlsTests, ButtonHandlesPointerAndKeyboardClick) {
     auto engine = create_unrounded_engine();
     Panel root;

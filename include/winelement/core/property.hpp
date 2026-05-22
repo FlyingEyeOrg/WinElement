@@ -190,6 +190,14 @@ class PropertyValue final {
         return static_cast<T*>(pointer_);
     }
 
+    [[nodiscard]] bool empty() const noexcept {
+        return vtable_ == nullptr;
+    }
+
+    [[nodiscard]] std::type_index value_type() const noexcept {
+        return vtable_ != nullptr ? std::type_index(*vtable_->type) : std::type_index(typeid(void));
+    }
+
     void reset() noexcept {
         if (vtable_ != nullptr) {
             vtable_->destroy(*this);
@@ -271,6 +279,7 @@ class PropertyValue final {
 class PropertyStore final {
   public:
     using Observer = std::function<void(const PropertyChange& change)>;
+    using ObserverToken = std::uint64_t;
 
     template <typename T>
     [[nodiscard]] T value(const PropertyMetadata& metadata, const T& default_value = T{}) const {
@@ -351,7 +360,9 @@ class PropertyStore final {
     }
     void clear() noexcept;
     void reserve(std::size_t local_value_capacity);
-    void add_observer(Observer observer);
+    ObserverToken add_observer(Observer observer);
+    void remove_observer(ObserverToken token) noexcept;
+    void clear_observers() noexcept;
     [[nodiscard]] std::size_t local_value_count() const noexcept;
 
   private:
@@ -400,7 +411,13 @@ class PropertyStore final {
     void notify(const PropertyChange& change);
 
     std::vector<PropertyEntry> values_;
-    std::vector<Observer> observers_;
+    struct ObserverEntry {
+        ObserverToken token = 0U;
+        Observer observer;
+    };
+
+    std::vector<ObserverEntry> observers_;
+    ObserverToken next_observer_token_ = 1U;
 };
 
 } // namespace winelement::core

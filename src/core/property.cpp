@@ -1,5 +1,7 @@
 #include <winelement/core/property.hpp>
 
+#include <algorithm>
+
 namespace winelement::core {
 
 bool PropertyStore::has_local_value(const PropertyMetadata& metadata) const noexcept {
@@ -38,10 +40,30 @@ void PropertyStore::reserve(std::size_t local_value_capacity) {
     values_.reserve(local_value_capacity);
 }
 
-void PropertyStore::add_observer(Observer observer) {
-    if (observer) {
-        observers_.push_back(std::move(observer));
+PropertyStore::ObserverToken PropertyStore::add_observer(Observer observer) {
+    if (!observer) {
+        return 0U;
     }
+    auto token = next_observer_token_++;
+    if (token == 0U) {
+        token = next_observer_token_++;
+    }
+    observers_.push_back(ObserverEntry{.token = token, .observer = std::move(observer)});
+    return token;
+}
+
+void PropertyStore::remove_observer(ObserverToken token) noexcept {
+    if (token == 0U) {
+        return;
+    }
+    observers_.erase(
+        std::remove_if(observers_.begin(), observers_.end(),
+                       [token](const ObserverEntry& entry) { return entry.token == token; }),
+        observers_.end());
+}
+
+void PropertyStore::clear_observers() noexcept {
+    observers_.clear();
 }
 
 std::size_t PropertyStore::local_value_count() const noexcept {
@@ -49,8 +71,11 @@ std::size_t PropertyStore::local_value_count() const noexcept {
 }
 
 void PropertyStore::notify(const PropertyChange& change) {
-    for (const auto& observer : observers_) {
-        observer(change);
+    const auto observers = observers_;
+    for (const auto& entry : observers) {
+        if (entry.observer) {
+            entry.observer(change);
+        }
     }
 }
 

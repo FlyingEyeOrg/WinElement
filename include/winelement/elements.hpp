@@ -1,5 +1,6 @@
 #pragma once
 
+#include <winelement/elements/binding.hpp>
 #include <winelement/elements/command_cache.hpp>
 #include <winelement/elements/declarative.hpp>
 #include <winelement/elements/devtools.hpp>
@@ -17,3 +18,4 @@
 #include <winelement/elements/top_layer_manager.hpp>
 #include <winelement/elements/ui_element.hpp>
 #include <winelement/elements/uia_adapter.hpp>
+#include <winelement/elements/virtual_element.hpp>

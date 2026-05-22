@@ -12,6 +12,7 @@ add_library(winelement_elements STATIC
     theme_manager.cpp
     top_layer_manager.cpp
     ui_element.cpp
+    virtual_element.cpp
 )
 
 add_library(WinElement::elements ALIAS winelement_elements)

@@ -33,6 +33,7 @@ add_subdirectory(src/platform)
 
 if(WINELEMENT_BUILD_SAMPLES)
     find_package(fmt CONFIG REQUIRED)
+    add_subdirectory(samples/helloworld)
     add_subdirectory(samples/render_pipeline_demo)
     add_subdirectory(samples/render_pipeline_perf)
     add_subdirectory(samples/controls_showcase)

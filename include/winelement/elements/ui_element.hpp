@@ -2,6 +2,7 @@
 
 #include <winelement/animation/timeline.hpp>
 #include <winelement/core/property.hpp>
+#include <winelement/elements/binding.hpp>
 #include <winelement/elements/element_descriptor.hpp>
 #include <winelement/elements/input_event.hpp>
 #include <winelement/elements/render_object.hpp>
@@ -82,6 +83,7 @@ class UIElement {
     struct StyleState;
     struct TextState;
     struct PropertyState;
+    struct BindingState;
     struct AnimationState;
     struct SemanticsElementState;
     struct RenderState;
@@ -154,6 +156,10 @@ class UIElement {
 
     [[nodiscard]] core::PropertyStore& properties() noexcept;
     [[nodiscard]] const core::PropertyStore& properties() const noexcept;
+    UIElement& set_data_context(std::shared_ptr<core::ObservableObject> context);
+    UIElement& clear_data_context() noexcept;
+    [[nodiscard]] std::shared_ptr<core::ObservableObject> data_context() const noexcept;
+    [[nodiscard]] bool has_local_data_context() const noexcept;
     template <typename T> UIElement& set_property(const core::PropertyMetadata& metadata, T value) {
         verify_thread_access();
         const auto change = property_store().set_value<T>(metadata, std::move(value));
@@ -196,6 +202,38 @@ class UIElement {
     template <typename T> UIElement& clear_property(const core::Property<T>& property) {
         return clear_property(property.metadata);
     }
+    template <typename T>
+    UIElement& bind_property(const core::Property<T>& property, Binding binding) {
+        verify_thread_access();
+        auto metadata = property.metadata;
+        auto apply = [this, metadata](const core::PropertyValue& value) mutable {
+            auto converted = core::coerce_property_value<T>(value);
+            if (!converted.has_value()) {
+                return false;
+            }
+            const auto change = property_store().set_value<T>(metadata, std::move(*converted));
+            apply_property_change(change);
+            return change.changed;
+        };
+        auto push_source = [this, metadata](core::ObservableObject& source,
+                                            const core::BindingExpression& expression) mutable {
+            const auto* value = property_store().local_value<T>(metadata);
+            if (value != nullptr) {
+                static_cast<void>(core::set_binding_expression_value(source, expression,
+                                                                     core::PropertyValue{*value}));
+            }
+        };
+        return bind_value(metadata.id, &metadata, std::move(binding), std::move(apply),
+                          std::move(push_source));
+    }
+    UIElement& bind_text(Binding binding);
+    UIElement& clear_text_binding();
+    UIElement& bind_opacity(Binding binding);
+    UIElement& clear_binding(const core::PropertyMetadata& metadata);
+    template <typename T> UIElement& clear_binding(const core::Property<T>& property) {
+        return clear_binding(property.metadata);
+    }
+    void clear_bindings() noexcept;
     [[nodiscard]] bool
     tick_animations(animation::AnimationTimePoint now = animation::AnimationClockType::now());
     [[nodiscard]] bool has_running_animations() const noexcept;
@@ -401,6 +439,18 @@ class UIElement {
     bool light_dismiss_outside(layout::Point position);
     void clear_focus_outside_topmost_modal() noexcept;
     void apply_property_change(const core::PropertyChange& change);
+    UIElement& bind_value(std::uint64_t target_id, const core::PropertyMetadata* target_metadata,
+                          Binding binding,
+                          std::function<bool(const core::PropertyValue& value)> apply,
+                          std::function<void(core::ObservableObject& source,
+                                             const core::BindingExpression& expression)>
+                              push_source);
+    void clear_binding_target(std::uint64_t target_id) noexcept;
+    void refresh_binding(std::uint64_t binding_id);
+    void refresh_bindings();
+    void refresh_data_context_bindings_subtree();
+    void push_binding_target_change(std::uint64_t binding_id, const core::PropertyChange& change);
+    void clear_bindings_noexcept() noexcept;
     void sanitize_pending_top_layer_result(RoutedEventResult& result) const noexcept;
     void flush_pending_top_layer_removals();
     void mark_layout_clean_subtree() noexcept;
@@ -496,8 +546,8 @@ class UIElement {
     [[nodiscard]] bool top_layer_entry_contains_logical(const TopLayerEntry& entry,
                                                         const UIElement& element) const noexcept;
     [[nodiscard]] bool tick_animations_subtree(animation::AnimationTimePoint now);
-    [[nodiscard]] bool tick_animations_subtree(
-        animation::AnimationTimePoint now, const std::optional<layout::Rect>& clip_rect);
+    [[nodiscard]] bool tick_animations_subtree(animation::AnimationTimePoint now,
+                                               const std::optional<layout::Rect>& clip_rect);
     [[nodiscard]] bool contains(const UIElement& element) const noexcept;
     [[nodiscard]] UIElement& top_layer_host() noexcept;
     [[nodiscard]] const UIElement& top_layer_host() const noexcept;
@@ -513,6 +563,8 @@ class UIElement {
     [[nodiscard]] ElementSnapshot build_element_snapshot_subtree() const;
     [[nodiscard]] SemanticsNode build_semantics_node_subtree() const;
     [[nodiscard]] core::PropertyStore& property_store() noexcept;
+    [[nodiscard]] BindingState& ensure_binding_state();
+    [[nodiscard]] const BindingState* binding_state() const noexcept;
     [[nodiscard]] animation::Storyboard& implicit_property_animations() noexcept;
     [[nodiscard]] StyleState& ensure_style_state();
     [[nodiscard]] TextState& ensure_text_state();
@@ -579,6 +631,7 @@ class UIElement {
     std::unique_ptr<StyleState> style_state_;
     std::unique_ptr<TextState> text_state_;
     std::unique_ptr<PropertyState> property_state_;
+    std::unique_ptr<BindingState> binding_state_;
     std::unique_ptr<AnimationState> animation_state_;
     std::unique_ptr<SemanticsElementState> semantics_state_;
     mutable std::unique_ptr<RenderState> render_state_;

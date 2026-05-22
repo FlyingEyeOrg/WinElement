@@ -1089,6 +1089,72 @@ void add_choice_scroll_section(controls::StackPanel& root) {
             .set_min_height(layout::Length::points(150.0F))
             .set_flex_shrink(0.0F);
     });
+
+    auto view_model = std::make_shared<core::ObservableObject>();
+    view_model->set("headline", std::string{"MVVM bound virtual content"});
+    view_model->set("status",
+                    std::string{"Observable source, retained binding, keyed virtual tree"});
+
+    auto& mvvm_panel = section.append_new_child<controls::StackPanel>();
+    mvvm_panel.set_gap(8.0F);
+    mvvm_panel.configure_layout([](layout::LayoutElement& item) {
+        item.set_width(layout::Length::points(520.0F))
+            .set_min_height(layout::Length::points(260.0F))
+            .set_flex_shrink(0.0F);
+    });
+    auto& bound_title = mvvm_panel.append_new_child<controls::Text>();
+    bound_title.set_type(controls::TextType::Primary)
+        .set_size(controls::TextSize::Large)
+        .bind_text(elements::Binding::path("headline").with_source(view_model));
+    auto& bound_status = mvvm_panel.append_new_child<controls::Text>();
+    bound_status.set_type(controls::TextType::Info)
+        .set_size(controls::TextSize::Small)
+        .bind_text(elements::Binding::path("status").with_source(view_model));
+    view_model->set("status", std::string{"Bindings update without rebuilding the visual subtree"});
+
+    auto observable_items = std::make_shared<core::ObservableStringList>();
+    auto mvvm_rows = std::vector<std::string>{};
+    mvvm_rows.reserve(48U);
+    for (auto index = 0U; index < 48U; ++index) {
+        mvvm_rows.push_back("Observable row " + std::to_string(index + 1U));
+    }
+    observable_items->reset(std::move(mvvm_rows));
+
+    auto& mvvm_items = mvvm_panel.append_new_child<controls::ItemsControl>();
+    mvvm_items.bind_items(observable_items)
+        .set_reusable_container_limit(12U)
+        .set_item_factory([](controls::ItemsControl::ItemContext context) {
+            auto row = std::make_unique<controls::StackPanel>();
+            row->set_gap(2.0F);
+            row->append_new_child<controls::Text>()
+                .set_text(std::string{context.item})
+                .set_type(controls::TextType::Primary);
+            row->append_new_child<controls::Text>()
+                .set_text("Realized item " + std::to_string(context.index + 1U))
+                .set_type(controls::TextType::Info)
+                .set_size(controls::TextSize::Small);
+            return row;
+        })
+        .set_virtualized(true)
+        .set_virtualization_window(84.0F, 112.0F, 28.0F, 1U);
+    mvvm_items.configure_layout([](layout::LayoutElement& item) {
+        item.set_width(layout::Length::points(420.0F))
+            .set_min_height(layout::Length::points(136.0F))
+            .set_flex_shrink(0.0F);
+    });
+
+    auto& virtual_host = mvvm_panel.append_new_child<controls::StackPanel>();
+    virtual_host.set_gap(4.0F);
+    auto virtual_children = std::vector<elements::VirtualElement>{};
+    for (auto index = 0U; index < 3U; ++index) {
+        virtual_children.push_back(elements::make_virtual_element<controls::Text>(
+            "metric-" + std::to_string(index), [index](controls::Text& text) {
+                text.set_text("Virtual metric " + std::to_string(index + 1U))
+                    .set_type(index == 0U ? controls::TextType::Success : controls::TextType::Info)
+                    .set_size(controls::TextSize::Small);
+            }));
+    }
+    elements::ElementReconciler{}.reconcile_children(virtual_host, virtual_children);
 }
 
 void add_structure_text_path_section(controls::StackPanel& root) {

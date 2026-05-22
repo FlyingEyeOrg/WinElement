@@ -1,5 +1,5 @@
-#include <winelement/elements.hpp>
 #include <winelement/animation.hpp>
+#include <winelement/elements.hpp>
 #include <winelement/layout.hpp>
 
 #include <winelement/rendering.hpp>
@@ -9,6 +9,8 @@
 #include <chrono>
 #include <future>
 #include <memory>
+#include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -21,6 +23,7 @@ using namespace winelement::elements;
 using namespace winelement::layout;
 using namespace winelement::rendering;
 using namespace winelement::style;
+namespace core = winelement::core;
 
 struct ScopedThemeReset {
     ~ScopedThemeReset() {
@@ -3386,6 +3389,62 @@ TEST(UIElementTests, FrameRateMonitorAndUiaAdapterExposeDebugSnapshots) {
     EXPECT_EQ(automation.control_type, AutomationControlType::Edit);
     EXPECT_EQ(automation.name, "Search");
     EXPECT_EQ(automation.value, "element");
+}
+
+TEST(UIElementTests, DataContextBindingUpdatesTextAndCanDetach) {
+    auto view_model = std::make_shared<core::ObservableObject>();
+    view_model->set("title", std::string{"Ready"});
+
+    UIElement element;
+    element.bind_text(Binding::path("title"));
+    element.set_data_context(view_model);
+
+    EXPECT_EQ(element.text(), "Ready");
+
+    view_model->set("title", std::string{"Running"});
+    EXPECT_EQ(element.text(), "Running");
+
+    element.clear_text_binding();
+    view_model->set("title", std::string{"Stopped"});
+    EXPECT_EQ(element.text(), "Running");
+}
+
+TEST(UIElementTests, TwoWayPropertyBindingPushesTargetChangesToSource) {
+    const auto title_property =
+        core::make_property<std::string>("test.title", core::PropertyInvalidation::Paint);
+    auto view_model = std::make_shared<core::ObservableObject>();
+    view_model->set("title", std::string{"Model"});
+
+    UIElement element;
+    element.set_data_context(view_model);
+    element.bind_property(title_property, Binding::path("title", BindingMode::TwoWay));
+
+    const auto initial_value = element.properties().value(title_property, std::string{});
+    EXPECT_EQ(initial_value, "Model");
+
+    element.set_property(title_property, std::string{"Element"});
+    const auto source_value = view_model->get<std::string>("title");
+    EXPECT_EQ(source_value, std::optional<std::string>{"Element"});
+}
+
+TEST(UIElementTests, ElementReconcilerReusesKeyedVirtualChildren) {
+    UIElement parent;
+    ElementReconciler reconciler;
+
+    auto first = make_virtual_element<UIElement>(
+        "row-1", [](UIElement& element) { element.set_text("First"); });
+    reconciler.reconcile_children(parent, std::span<const VirtualElement>{&first, 1U});
+    ASSERT_EQ(parent.child_count(), 1U);
+    auto* first_child = &parent.child_at(0U);
+    EXPECT_EQ(first_child->text(), "First");
+
+    auto next = make_virtual_element<UIElement>(
+        "row-1", [](UIElement& element) { element.set_text("Updated"); });
+    reconciler.reconcile_children(parent, std::span<const VirtualElement>{&next, 1U});
+
+    ASSERT_EQ(parent.child_count(), 1U);
+    EXPECT_EQ(&parent.child_at(0U), first_child);
+    EXPECT_EQ(parent.child_at(0U).text(), "Updated");
 }
 
 } // namespace

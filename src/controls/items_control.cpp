@@ -205,9 +205,12 @@ ItemsControl::ItemsControl() : Control() {
     configure_items_layout(*this);
 }
 
-ItemsControl::~ItemsControl() = default;
+ItemsControl::~ItemsControl() {
+    unbind_observable_items();
+}
 
 ItemsControl& ItemsControl::set_items(std::vector<std::string> items) {
+    unbind_observable_items();
     items_source_ = nullptr;
     items_ = std::move(items);
     ++items_revision_;
@@ -217,8 +220,21 @@ ItemsControl& ItemsControl::set_items(std::vector<std::string> items) {
 }
 
 ItemsControl& ItemsControl::bind_items(ItemsSource source) {
+    unbind_observable_items();
     items_source_ = std::move(source);
     return refresh_items();
+}
+
+ItemsControl& ItemsControl::bind_items(std::shared_ptr<core::ObservableStringList> source) {
+    unbind_observable_items();
+    items_source_ = nullptr;
+    observable_items_source_ = std::move(source);
+    if (observable_items_source_ != nullptr) {
+        observable_items_token_ = observable_items_source_->add_observer(
+            [this](const core::ObservableChange&) { refresh_observable_items(); });
+    }
+    refresh_observable_items();
+    return *this;
 }
 
 ItemsControl& ItemsControl::set_item_factory(ItemFactory factory) {
@@ -405,6 +421,9 @@ ItemsControl& ItemsControl::refresh_items() {
         items_ = items_source_();
         ++items_revision_;
         prune_selection_to_item_count();
+    } else if (observable_items_source_ != nullptr) {
+        refresh_observable_items();
+        return *this;
     }
     update_realized_children();
     return *this;
@@ -578,6 +597,25 @@ void ItemsControl::reorder_from_item(std::size_t from_index, std::size_t to_inde
     if (reorder_handler_) {
         reorder_handler_(from_index, to_index);
     }
+}
+
+void ItemsControl::unbind_observable_items() noexcept {
+    if (observable_items_source_ != nullptr && observable_items_token_ != 0U) {
+        observable_items_source_->remove_observer(observable_items_token_);
+    }
+    observable_items_source_.reset();
+    observable_items_token_ = 0U;
+}
+
+void ItemsControl::refresh_observable_items() {
+    if (observable_items_source_ != nullptr) {
+        items_ = observable_items_source_->items();
+    } else {
+        items_.clear();
+    }
+    ++items_revision_;
+    prune_selection_to_item_count();
+    update_realized_children();
 }
 
 void ItemsControl::prune_selection_to_item_count() {

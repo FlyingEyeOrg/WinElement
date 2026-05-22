@@ -1,5 +1,7 @@
 add_library(winelement_core STATIC
+    binding_expression.cpp
     frame_scheduler.cpp
+    observable.cpp
     property.cpp
 )
 

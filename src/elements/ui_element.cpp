@@ -31,6 +31,8 @@ namespace {
 
 constexpr auto default_scroll_wheel_step = 48.0F;
 constexpr auto ui_text_layout_cache_entries = 24U;
+constexpr auto text_binding_target_id = std::numeric_limits<std::uint64_t>::max() - 1U;
+constexpr auto opacity_binding_target_id = std::numeric_limits<std::uint64_t>::max() - 2U;
 
 std::uint64_t next_local_theme_generation() noexcept {
     static std::atomic_uint64_t generation{std::uint64_t{1} << 63U};
@@ -250,6 +252,40 @@ struct UIElement::PropertyState {
     core::PropertyStore properties;
 };
 
+struct UIElement::BindingState {
+    struct ObjectSubscription {
+        std::weak_ptr<core::ObservableObject> source;
+        core::ObservableObserverToken token = 0U;
+    };
+
+    struct ListSubscription {
+        std::weak_ptr<core::ObservableObjectList> source;
+        core::ObservableObserverToken token = 0U;
+    };
+
+    struct BindingRecord {
+        std::uint64_t id = 0U;
+        std::uint64_t target_id = 0U;
+        std::optional<core::PropertyMetadata> target_metadata;
+        Binding binding;
+        std::function<bool(const core::PropertyValue& value)> apply;
+        std::function<void(core::ObservableObject& source,
+                           const core::BindingExpression& expression)>
+            push_source;
+        std::vector<ObjectSubscription> object_subscriptions;
+        std::vector<ListSubscription> list_subscriptions;
+        core::PropertyStore::ObserverToken target_token = 0U;
+        bool updating_target : 1 = false;
+        bool updating_source : 1 = false;
+        bool applied_once : 1 = false;
+    };
+
+    std::shared_ptr<core::ObservableObject> local_data_context;
+    std::vector<BindingRecord> records;
+    std::uint64_t next_binding_id = 1U;
+    bool has_local_data_context : 1 = false;
+};
+
 struct UIElement::AnimationState {
     animation::Storyboard implicit_property_animations;
 };
@@ -353,6 +389,17 @@ core::PropertyStore& UIElement::property_store() noexcept {
         property_state_ = std::make_unique<PropertyState>();
     }
     return property_state_->properties;
+}
+
+UIElement::BindingState& UIElement::ensure_binding_state() {
+    if (binding_state_ == nullptr) {
+        binding_state_ = std::make_unique<BindingState>();
+    }
+    return *binding_state_;
+}
+
+const UIElement::BindingState* UIElement::binding_state() const noexcept {
+    return binding_state_.get();
 }
 
 animation::Storyboard& UIElement::implicit_property_animations() noexcept {
@@ -483,6 +530,7 @@ UIElement::UIElement()
 
 UIElement::~UIElement() noexcept {
     try {
+        clear_bindings_noexcept();
         clear_layout_callbacks_recursive_noexcept();
         for (auto& entry : top_layer_manager_.entries()) {
             if (entry.element != nullptr) {
@@ -597,6 +645,7 @@ UIElement& UIElement::insert_child(std::size_t index, std::unique_ptr<UIElement>
     if (focus_manager_ != nullptr) {
         (*inserted)->attach_focus_manager(*focus_manager_);
     }
+    (*inserted)->refresh_data_context_bindings_subtree();
     invalidate_layout();
     return **inserted;
 }
@@ -1230,6 +1279,39 @@ const core::PropertyStore& UIElement::properties() const noexcept {
     return property_state_ != nullptr ? property_state_->properties : empty_property_store();
 }
 
+UIElement& UIElement::set_data_context(std::shared_ptr<core::ObservableObject> context) {
+    verify_thread_access();
+    auto& state = ensure_binding_state();
+    state.local_data_context = std::move(context);
+    state.has_local_data_context = true;
+    refresh_data_context_bindings_subtree();
+    return *this;
+}
+
+UIElement& UIElement::clear_data_context() noexcept {
+    try {
+        if (binding_state_ != nullptr) {
+            binding_state_->local_data_context.reset();
+            binding_state_->has_local_data_context = false;
+            refresh_data_context_bindings_subtree();
+        }
+    } catch (...) {
+        assert(false && "UIElement::clear_data_context must not throw");
+    }
+    return *this;
+}
+
+std::shared_ptr<core::ObservableObject> UIElement::data_context() const noexcept {
+    if (binding_state_ != nullptr && binding_state_->has_local_data_context) {
+        return binding_state_->local_data_context;
+    }
+    return parent_ != nullptr ? parent_->data_context() : nullptr;
+}
+
+bool UIElement::has_local_data_context() const noexcept {
+    return binding_state_ != nullptr && binding_state_->has_local_data_context;
+}
+
 UIElement& UIElement::clear_property(const core::PropertyMetadata& metadata) {
     verify_thread_access();
     const auto change = property_state_ != nullptr
@@ -1239,15 +1321,335 @@ UIElement& UIElement::clear_property(const core::PropertyMetadata& metadata) {
     return *this;
 }
 
+UIElement& UIElement::bind_text(Binding binding) {
+    verify_thread_access();
+    auto apply = [this](const core::PropertyValue& value) {
+        auto text = core::coerce_property_value<std::string>(value);
+        if (!text.has_value()) {
+            return false;
+        }
+        set_text(*text);
+        return true;
+    };
+    return bind_value(text_binding_target_id, nullptr, std::move(binding), std::move(apply), {});
+}
+
+UIElement& UIElement::clear_text_binding() {
+    verify_thread_access();
+    clear_binding_target(text_binding_target_id);
+    return *this;
+}
+
+UIElement& UIElement::bind_opacity(Binding binding) {
+    verify_thread_access();
+    auto apply = [this](const core::PropertyValue& value) {
+        auto opacity = core::coerce_property_value<float>(value);
+        if (!opacity.has_value()) {
+            return false;
+        }
+        set_opacity(*opacity);
+        return true;
+    };
+    return bind_value(opacity_binding_target_id, nullptr, std::move(binding), std::move(apply), {});
+}
+
+UIElement& UIElement::clear_binding(const core::PropertyMetadata& metadata) {
+    verify_thread_access();
+    clear_binding_target(metadata.id);
+    return *this;
+}
+
+void UIElement::clear_bindings() noexcept {
+    clear_bindings_noexcept();
+}
+
+UIElement& UIElement::bind_value(
+    std::uint64_t target_id, const core::PropertyMetadata* target_metadata, Binding binding,
+    std::function<bool(const core::PropertyValue& value)> apply,
+    std::function<void(core::ObservableObject& source, const core::BindingExpression& expression)>
+        push_source) {
+    if (target_id == 0U) {
+        throw std::invalid_argument("binding target id must be non-zero");
+    }
+    if (!apply) {
+        throw std::invalid_argument("binding target apply callback must not be empty");
+    }
+
+    auto& state = ensure_binding_state();
+    clear_binding_target(target_id);
+
+    auto binding_id = state.next_binding_id++;
+    if (binding_id == 0U) {
+        binding_id = state.next_binding_id++;
+    }
+
+    auto record = BindingState::BindingRecord{.id = binding_id,
+                                              .target_id = target_id,
+                                              .binding = std::move(binding),
+                                              .apply = std::move(apply),
+                                              .push_source = std::move(push_source)};
+    if (target_metadata != nullptr) {
+        record.target_metadata = *target_metadata;
+    }
+    if (record.binding.mode == BindingMode::TwoWay && record.target_metadata.has_value() &&
+        record.push_source) {
+        record.target_token =
+            property_store().add_observer([this, binding_id](const core::PropertyChange& change) {
+                push_binding_target_change(binding_id, change);
+            });
+    }
+
+    state.records.push_back(std::move(record));
+    refresh_binding(binding_id);
+    return *this;
+}
+
+void UIElement::clear_binding_target(std::uint64_t target_id) noexcept {
+    if (binding_state_ == nullptr) {
+        return;
+    }
+
+    auto& records = binding_state_->records;
+    for (auto iterator = records.begin(); iterator != records.end();) {
+        if (iterator->target_id != target_id) {
+            ++iterator;
+            continue;
+        }
+        for (const auto& subscription : iterator->object_subscriptions) {
+            if (auto source = subscription.source.lock()) {
+                source->remove_observer(subscription.token);
+            }
+        }
+        for (const auto& subscription : iterator->list_subscriptions) {
+            if (auto source = subscription.source.lock()) {
+                source->remove_observer(subscription.token);
+            }
+        }
+        if (iterator->target_token != 0U && property_state_ != nullptr) {
+            property_state_->properties.remove_observer(iterator->target_token);
+        }
+        iterator = records.erase(iterator);
+    }
+}
+
+void UIElement::refresh_binding(std::uint64_t binding_id) {
+    if (binding_state_ == nullptr) {
+        return;
+    }
+
+    const auto find_record = [this, binding_id]() {
+        return std::find_if(binding_state_->records.begin(), binding_state_->records.end(),
+                            [binding_id](const BindingState::BindingRecord& record) {
+                                return record.id == binding_id;
+                            });
+    };
+    auto record_iterator = find_record();
+    if (record_iterator == binding_state_->records.end()) {
+        return;
+    }
+
+    auto& record = *record_iterator;
+    if (record.binding.mode == BindingMode::OneTime && record.applied_once) {
+        return;
+    }
+
+    for (const auto& subscription : record.object_subscriptions) {
+        if (auto source = subscription.source.lock()) {
+            source->remove_observer(subscription.token);
+        }
+    }
+    for (const auto& subscription : record.list_subscriptions) {
+        if (auto source = subscription.source.lock()) {
+            source->remove_observer(subscription.token);
+        }
+    }
+    record.object_subscriptions.clear();
+    record.list_subscriptions.clear();
+
+    auto source = record.binding.source;
+    if (source == nullptr && record.binding.use_data_context) {
+        source = data_context();
+    }
+    if (source == nullptr) {
+        return;
+    }
+
+    if (record.binding.mode != BindingMode::OneTime) {
+        const auto subscribe_object = [this, binding_id, &record](
+                                          const std::shared_ptr<core::ObservableObject>& object) {
+            if (object == nullptr) {
+                return;
+            }
+            const auto token = object->add_observer(
+                [this, binding_id](const core::ObservableChange&) { refresh_binding(binding_id); });
+            record.object_subscriptions.push_back(
+                BindingState::ObjectSubscription{.source = object, .token = token});
+        };
+        const auto subscribe_list = [this, binding_id, &record](
+                                        const std::shared_ptr<core::ObservableObjectList>& list) {
+            if (list == nullptr) {
+                return;
+            }
+            const auto token = list->add_observer(
+                [this, binding_id](const core::ObservableChange&) { refresh_binding(binding_id); });
+            record.list_subscriptions.push_back(
+                BindingState::ListSubscription{.source = list, .token = token});
+        };
+
+        auto current_object = source;
+        auto current_list = std::shared_ptr<core::ObservableObjectList>{};
+        subscribe_object(current_object);
+        for (const auto& segment : record.binding.expression.path) {
+            switch (segment.kind) {
+            case core::BindingPathSegmentKind::Property: {
+                if (current_object == nullptr) {
+                    current_list.reset();
+                    break;
+                }
+                const auto* value = current_object->value(segment.property);
+                current_object.reset();
+                current_list.reset();
+                if (value != nullptr) {
+                    if (const auto* object = value->get<core::ObservableObjectPtr>()) {
+                        current_object = *object;
+                        subscribe_object(current_object);
+                    } else if (const auto* list =
+                                   value->get<std::shared_ptr<core::ObservableObjectList>>()) {
+                        current_list = *list;
+                        subscribe_list(current_list);
+                    }
+                }
+                break;
+            }
+            case core::BindingPathSegmentKind::Index:
+                if (current_list != nullptr && segment.index < current_list->size()) {
+                    current_object = current_list->at(segment.index);
+                    current_list.reset();
+                    subscribe_object(current_object);
+                } else {
+                    current_object.reset();
+                    current_list.reset();
+                }
+                break;
+            }
+        }
+    }
+
+    auto value = core::evaluate_binding_expression(*source, record.binding.expression);
+    if (!value.has_value()) {
+        return;
+    }
+    if (record.binding.converter) {
+        auto converted = record.binding.converter(
+            *value, record.target_metadata.has_value() ? &*record.target_metadata : nullptr);
+        if (!converted.has_value()) {
+            return;
+        }
+        value = std::move(converted);
+    }
+
+    record.updating_target = true;
+    try {
+        static_cast<void>(record.apply(*value));
+        record.applied_once = true;
+        record.updating_target = false;
+    } catch (...) {
+        record.updating_target = false;
+        throw;
+    }
+}
+
+void UIElement::refresh_bindings() {
+    if (binding_state_ == nullptr || binding_state_->records.empty()) {
+        return;
+    }
+    auto binding_ids = std::vector<std::uint64_t>{};
+    binding_ids.reserve(binding_state_->records.size());
+    for (const auto& record : binding_state_->records) {
+        binding_ids.push_back(record.id);
+    }
+    for (const auto id : binding_ids) {
+        refresh_binding(id);
+    }
+}
+
+void UIElement::refresh_data_context_bindings_subtree() {
+    refresh_bindings();
+    for (auto& child : children_) {
+        if (!child->has_local_data_context()) {
+            child->refresh_data_context_bindings_subtree();
+        }
+    }
+    for (auto& entry : top_layer_manager_.entries()) {
+        if (entry.element != nullptr && !entry.element->has_local_data_context()) {
+            entry.element->refresh_data_context_bindings_subtree();
+        }
+    }
+}
+
+void UIElement::push_binding_target_change(std::uint64_t binding_id,
+                                           const core::PropertyChange& change) {
+    if (binding_state_ == nullptr || !change.changed || change.metadata == nullptr) {
+        return;
+    }
+    auto iterator = std::find_if(binding_state_->records.begin(), binding_state_->records.end(),
+                                 [binding_id](const BindingState::BindingRecord& record) {
+                                     return record.id == binding_id;
+                                 });
+    if (iterator == binding_state_->records.end() || iterator->updating_target ||
+        iterator->updating_source || !iterator->target_metadata.has_value() ||
+        iterator->target_metadata->id != change.metadata->id || !iterator->push_source) {
+        return;
+    }
+
+    auto source = iterator->binding.source;
+    if (source == nullptr && iterator->binding.use_data_context) {
+        source = data_context();
+    }
+    if (source == nullptr) {
+        return;
+    }
+
+    iterator->updating_source = true;
+    try {
+        iterator->push_source(*source, iterator->binding.expression);
+        iterator->updating_source = false;
+    } catch (...) {
+        iterator->updating_source = false;
+        throw;
+    }
+}
+
+void UIElement::clear_bindings_noexcept() noexcept {
+    if (binding_state_ == nullptr) {
+        return;
+    }
+    for (auto& record : binding_state_->records) {
+        for (const auto& subscription : record.object_subscriptions) {
+            if (auto source = subscription.source.lock()) {
+                source->remove_observer(subscription.token);
+            }
+        }
+        for (const auto& subscription : record.list_subscriptions) {
+            if (auto source = subscription.source.lock()) {
+                source->remove_observer(subscription.token);
+            }
+        }
+        if (record.target_token != 0U && property_state_ != nullptr) {
+            property_state_->properties.remove_observer(record.target_token);
+        }
+    }
+    binding_state_->records.clear();
+}
+
 bool UIElement::tick_animations(animation::AnimationTimePoint now) {
     verify_thread_access();
     auto& host = top_layer_host();
     ++host.animation_tick_depth_;
     try {
-        const auto active =
-            tick_animations_subtree(now, layout_generation_ == 0U
-                                             ? std::optional<layout::Rect>{}
-                                             : std::optional<layout::Rect>{committed_absolute_frame_});
+        const auto active = tick_animations_subtree(
+            now, layout_generation_ == 0U ? std::optional<layout::Rect>{}
+                                          : std::optional<layout::Rect>{committed_absolute_frame_});
         --host.animation_tick_depth_;
         if (host.animation_tick_depth_ == 0U) {
             host.flush_pending_top_layer_removals();
@@ -3472,7 +3874,8 @@ bool UIElement::tick_animations_subtree(animation::AnimationTimePoint now,
 
     auto child_clip_rect = clip_rect;
     if (subtree_visible && clips_children_to_viewport()) {
-        child_clip_rect = intersect_clip_rect(child_clip_rect, effective_absolute_child_clip_rect());
+        child_clip_rect =
+            intersect_clip_rect(child_clip_rect, effective_absolute_child_clip_rect());
     }
 
     if (subtree_visible && clip_rect_has_area(child_clip_rect)) {

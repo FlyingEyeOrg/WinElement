@@ -2,6 +2,7 @@
 
 #include <winelement/controls/control.hpp>
 #include <winelement/controls/virtualization.hpp>
+#include <winelement/core/observable.hpp>
 #include <winelement/style/ui_element_style.hpp>
 
 #include <cstddef>
@@ -44,6 +45,7 @@ class ItemsControl final : public Control {
 
     ItemsControl& set_items(std::vector<std::string> items);
     ItemsControl& bind_items(ItemsSource source);
+    ItemsControl& bind_items(std::shared_ptr<core::ObservableStringList> source);
     ItemsControl& set_item_factory(ItemFactory factory);
     ItemsControl& set_selection_mode(SelectionMode mode);
     ItemsControl& set_selected_index(std::optional<std::size_t> index);
@@ -85,6 +87,8 @@ class ItemsControl final : public Control {
     void refresh_realized_containers();
     void select_index_from_item(std::size_t index);
     void reorder_from_item(std::size_t from_index, std::size_t to_index);
+    void unbind_observable_items() noexcept;
+    void refresh_observable_items();
     void prune_selection_to_item_count();
     [[nodiscard]] std::optional<std::size_t> first_selected_multi_index() const noexcept;
     [[nodiscard]] bool is_index_selected(std::size_t index) const;
@@ -94,6 +98,8 @@ class ItemsControl final : public Control {
 
     std::vector<std::string> items_;
     ItemsSource items_source_;
+    std::shared_ptr<core::ObservableStringList> observable_items_source_;
+    core::ObservableObserverToken observable_items_token_ = 0U;
     ItemFactory item_factory_;
     SelectionChangedHandler selection_changed_handler_;
     MultiSelectionChangedHandler multi_selection_changed_handler_;
