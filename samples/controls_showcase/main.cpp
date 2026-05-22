@@ -1817,6 +1817,7 @@ void add_virtualization_section(controls::StackPanel& root) {
         });
     virtual_panel_ptr->set_viewport_extent(viewport_height);
     viewport.append_child(std::move(virtual_panel));
+    virtual_panel_ptr->refresh_virtualization();
 
     auto& scrollbar = row.append_new_child<controls::Scrollbar>();
     scrollbar.set_orientation(controls::ScrollbarOrientation::Vertical)
