@@ -76,6 +76,59 @@ TEST(StyleTests, ComputedStyleResolverAndCacheTrackThemeGeneration) {
     EXPECT_EQ(cached->value.background, Color::rgba(1, 2, 3));
 }
 
+TEST(StyleTests, ThemeFactoryGenerationsIdentifyDistinctThemeVersions) {
+    const auto light = make_default_theme();
+    const auto dark = make_dark_theme();
+
+    EXPECT_NE(light.generation, 0U);
+    EXPECT_NE(dark.generation, 0U);
+    EXPECT_NE(light.generation, dark.generation);
+}
+
+TEST(StyleTests, ThemeStyleClassMutationsAdvanceGenerationOnlyWhenChanged) {
+    auto theme = make_default_theme();
+    auto style = require_theme_style(theme, theme_class::button);
+    const auto initial_generation = theme.generation;
+
+    set_theme_style_class(theme, "sample.versioned", style);
+    EXPECT_GT(theme.generation, initial_generation);
+
+    const auto inserted_generation = theme.generation;
+    set_theme_style_class(theme, "sample.versioned", style);
+    EXPECT_EQ(theme.generation, inserted_generation);
+
+    style.background = Color::rgba(9, 8, 7);
+    set_theme_style_class(theme, "sample.versioned", style);
+    EXPECT_GT(theme.generation, inserted_generation);
+
+    const auto updated_generation = theme.generation;
+    EXPECT_FALSE(remove_theme_style_class(theme, "missing.versioned"));
+    EXPECT_EQ(theme.generation, updated_generation);
+
+    EXPECT_TRUE(remove_theme_style_class(theme, "sample.versioned"));
+    EXPECT_GT(theme.generation, updated_generation);
+}
+
+TEST(StyleTests, ComputedStyleCacheMissesAfterThemeClassMutation) {
+    auto theme = make_default_theme();
+    auto style = require_theme_style(theme, theme_class::button);
+    style.background = Color::rgba(1, 2, 3);
+    set_theme_style_class(theme, "sample.cached", style);
+
+    auto computed = resolve_computed_style(theme, "sample.cached", default_panel_style());
+    ComputedStyleCache cache(4U);
+    cache.store(computed);
+    ASSERT_TRUE(cache.find(computed.key).has_value());
+
+    style.background = Color::rgba(4, 5, 6);
+    set_theme_style_class(theme, "sample.cached", style);
+
+    const auto updated = resolve_computed_style(theme, "sample.cached", default_panel_style());
+    EXPECT_NE(updated.key.theme_generation, computed.key.theme_generation);
+    EXPECT_FALSE(cache.find(updated.key).has_value());
+    EXPECT_EQ(updated.value.background, Color::rgba(4, 5, 6));
+}
+
 TEST(StyleTests, ThemeCarriesSystemColorsAndMaterialTokens) {
     auto theme = make_default_theme();
     theme.system_colors.accent = Color::rgba(12, 34, 56);

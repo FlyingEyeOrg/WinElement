@@ -4,6 +4,7 @@
 #include <winelement/style/element_colors.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <memory>
 #include <stdexcept>
@@ -29,6 +30,15 @@ namespace {
     shadow.offset.x = std::isfinite(shadow.offset.x) ? shadow.offset.x : 0.0F;
     shadow.offset.y = std::isfinite(shadow.offset.y) ? shadow.offset.y : 0.0F;
     return shadow;
+}
+
+[[nodiscard]] std::uint64_t next_theme_generation() noexcept {
+    static std::atomic_uint64_t generation{1U};
+    return generation.fetch_add(1U, std::memory_order_relaxed);
+}
+
+void mark_theme_changed(Theme& theme) noexcept {
+    theme.generation = next_theme_generation();
 }
 
 [[nodiscard]] UIElementStyle make_default_button_style() noexcept {
@@ -777,13 +787,13 @@ const Theme& current_theme() {
 }
 
 void set_theme(Theme theme) {
-    theme.generation = active_theme_storage().generation + 1;
+    mark_theme_changed(theme);
     active_theme_storage() = std::move(theme);
 }
 
 void reset_theme() {
     auto theme = make_default_theme();
-    theme.generation = active_theme_storage().generation + 1;
+    mark_theme_changed(theme);
     active_theme_storage() = std::move(theme);
 }
 
@@ -810,7 +820,19 @@ void set_theme_style_class(Theme& theme, std::string_view style_class, UIElement
         throw std::invalid_argument("theme style class must not be empty");
     }
 
-    theme.style_classes.insert_or_assign(std::string(style_class), std::move(style));
+    const auto iterator = theme.style_classes.find(style_class);
+    if (iterator == theme.style_classes.end()) {
+        theme.style_classes.emplace(std::string(style_class), std::move(style));
+        mark_theme_changed(theme);
+        return;
+    }
+
+    if (iterator->second == style) {
+        return;
+    }
+
+    iterator->second = std::move(style);
+    mark_theme_changed(theme);
 }
 
 bool remove_theme_style_class(Theme& theme, std::string_view style_class) noexcept {
@@ -820,6 +842,7 @@ bool remove_theme_style_class(Theme& theme, std::string_view style_class) noexce
     }
 
     theme.style_classes.erase(iterator);
+    mark_theme_changed(theme);
     return true;
 }
 
