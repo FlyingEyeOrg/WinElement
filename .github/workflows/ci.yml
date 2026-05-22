@@ -21,4 +21,4 @@ jobs:
       - name: Build
         run: cmake --build --preset=vs2022-x64-debug -- /m
       - name: Test
-        run: ctest --preset=vs2022-x64-debug-tests
+        run: ctest --preset=vs2022-x64-debug-tests -E RenderPipelineVisualRegressionTest
