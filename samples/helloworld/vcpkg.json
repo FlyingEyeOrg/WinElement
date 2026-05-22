@@ -1,0 +1,8 @@
+{
+  "name": "winelement-helloworld",
+  "version-semver": "1.0.0",
+  "description": "Hello World sample consuming WinElement via vcpkg custom registry",
+  "dependencies": [
+    "winelement"
+  ]
+}

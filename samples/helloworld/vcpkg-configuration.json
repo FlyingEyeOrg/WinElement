@@ -1,0 +1,10 @@
+{
+  "registries": [
+    {
+      "kind": "git",
+      "repository": "https://github.com/FlyingEyeOrg/WinElement",
+      "reference": "vcpkg-registry",
+      "packages": ["winelement"]
+    }
+  ]
+}

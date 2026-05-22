@@ -1,6 +1,6 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
-    REPO lanxf01/WinElement
+    REPO FlyingEyeOrg/WinElement
     REF "v${VERSION}"
     SHA512 0
     HEAD_REF main

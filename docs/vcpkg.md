@@ -89,7 +89,7 @@ cmake --install build\vs2022-x64 --config Release --prefix build\install\winelem
   "registries": [
     {
       "kind": "git",
-      "repository": "https://github.com/lanxf01/WinElement",
+      "repository": "https://github.com/FlyingEyeOrg/WinElement",
       "reference": "vcpkg-registry",
       "packages": ["winelement"]
     }
