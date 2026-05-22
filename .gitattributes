@@ -1,0 +1,3 @@
+# vcpkg port files must use LF line endings
+packaging/vcpkg/**/vcpkg.json text eol=lf
+packaging/vcpkg/**/portfile.cmake text eol=lf

@@ -120,6 +120,7 @@ jobs:
           }
 
           git add ports\winelement versions\baseline.json
+          vcpkg format-manifest "$registryPortDir\vcpkg.json"
           vcpkg x-add-version winelement `
             --x-builtin-ports-root="$regDir\ports" `
             --x-builtin-registry-versions-dir="$regDir\versions" `
