@@ -6314,13 +6314,13 @@ void D3D11DisplayListRenderer::draw_image(
     const auto v0 = source.y / texture_height;
     const auto u1 = (source.x + source.width) / texture_width;
     const auto v1 = (source.y + source.height) / texture_height;
-    const std::vector<Vertex> vertices{
-        {top_left.x, top_left.y, 1.0F, 1.0F, 1.0F, alpha, u0, v0},
-        {top_right.x, top_right.y, 1.0F, 1.0F, 1.0F, alpha, u1, v0},
-        {bottom_right.x, bottom_right.y, 1.0F, 1.0F, 1.0F, alpha, u1, v1},
-        {top_left.x, top_left.y, 1.0F, 1.0F, 1.0F, alpha, u0, v0},
-        {bottom_right.x, bottom_right.y, 1.0F, 1.0F, 1.0F, alpha, u1, v1},
-        {bottom_left.x, bottom_left.y, 1.0F, 1.0F, 1.0F, alpha, u0, v1}};
+    const std::array<Vertex, 6U> vertices{
+        {{top_left.x, top_left.y, 1.0F, 1.0F, 1.0F, alpha, u0, v0},
+         {top_right.x, top_right.y, 1.0F, 1.0F, 1.0F, alpha, u1, v0},
+         {bottom_right.x, bottom_right.y, 1.0F, 1.0F, 1.0F, alpha, u1, v1},
+         {top_left.x, top_left.y, 1.0F, 1.0F, 1.0F, alpha, u0, v0},
+         {bottom_right.x, bottom_right.y, 1.0F, 1.0F, 1.0F, alpha, u1, v1},
+         {bottom_left.x, bottom_left.y, 1.0F, 1.0F, 1.0F, alpha, u0, v1}}};
     submit_vertices(vertices, texture->view.Get(),
                     texture->format == rendering::RenderResourceFormat::Alpha8
                         ? TextureSamplingMode::AlphaCoverage

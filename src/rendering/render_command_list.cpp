@@ -84,9 +84,8 @@ template <typename Cache> void prune_unreferenced_prepared_entries(Cache& cache)
 }
 
 void prune_unreferenced_text_glyph_entries(
-    std::unordered_map<std::size_t,
-                       std::vector<std::shared_ptr<const PreparedTextGlyphCoverage>>>& cache)
-    noexcept {
+    std::unordered_map<std::size_t, std::vector<std::shared_ptr<const PreparedTextGlyphCoverage>>>&
+        cache) noexcept {
     for (auto iterator = cache.begin(); iterator != cache.end();) {
         auto& entries = iterator->second;
         entries.erase(std::remove_if(entries.begin(), entries.end(),
@@ -104,8 +103,8 @@ void prune_unreferenced_text_glyph_entries(
 
 std::size_t prepared_text_glyph_bytes(
     const std::unordered_map<std::size_t,
-                             std::vector<std::shared_ptr<const PreparedTextGlyphCoverage>>>& cache)
-    noexcept {
+                             std::vector<std::shared_ptr<const PreparedTextGlyphCoverage>>>&
+        cache) noexcept {
     auto bytes = std::size_t{};
     for (const auto& [_, entries] : cache) {
         for (const auto& entry : entries) {
@@ -728,12 +727,10 @@ void append_prepared_quadratic(std::vector<layout::Point>& points, layout::Point
         const auto control_end = point_lerp(work.control, work.end, 0.5F);
         const auto middle = point_lerp(start_control, control_end, 0.5F);
         const auto next_depth = work.depth + 1U;
-        stack.push_back(
-            QuadraticWork{.start = middle, .control = control_end, .end = work.end,
-                          .depth = next_depth});
-        stack.push_back(
-            QuadraticWork{.start = work.start, .control = start_control, .end = middle,
-                          .depth = next_depth});
+        stack.push_back(QuadraticWork{
+            .start = middle, .control = control_end, .end = work.end, .depth = next_depth});
+        stack.push_back(QuadraticWork{
+            .start = work.start, .control = start_control, .end = middle, .depth = next_depth});
     }
 }
 
@@ -749,16 +746,14 @@ void append_prepared_cubic(std::vector<layout::Point>& points, layout::Point sta
 
     std::vector<CubicWork> stack;
     stack.reserve(32U);
-    stack.push_back(CubicWork{.start = start, .control1 = control1, .control2 = control2,
-                              .end = end});
+    stack.push_back(
+        CubicWork{.start = start, .control1 = control1, .control2 = control2, .end = end});
     while (!stack.empty()) {
         const auto work = stack.back();
         stack.pop_back();
-        const auto flatness =
-            std::max(point_line_distance(work.control1, work.start, work.end),
-                     point_line_distance(work.control2, work.start, work.end));
-        if (work.depth >= max_curve_flattening_depth ||
-            flatness <= geometry_flattening_tolerance) {
+        const auto flatness = std::max(point_line_distance(work.control1, work.start, work.end),
+                                       point_line_distance(work.control2, work.start, work.end));
+        if (work.depth >= max_curve_flattening_depth || flatness <= geometry_flattening_tolerance) {
             points.push_back(work.end);
             continue;
         }
@@ -1794,15 +1789,13 @@ struct DrawBatchKey {
     hash_combine(state_seed, static_cast<int>(opcode.opcode));
     switch (opcode.opcode) {
     case RenderCommandType::DrawLine: {
-        const auto& payload =
-            command_list.payload_by_index<DrawLineCommand>(opcode.payload_index);
+        const auto& payload = command_list.payload_by_index<DrawLineCommand>(opcode.payload_index);
         hash_color(state_seed, payload.color);
         hash_combine(state_seed, payload.stroke_width);
         break;
     }
     case RenderCommandType::FillRect: {
-        const auto& payload =
-            command_list.payload_by_index<FillRectCommand>(opcode.payload_index);
+        const auto& payload = command_list.payload_by_index<FillRectCommand>(opcode.payload_index);
         hash_color(state_seed, payload.color);
         break;
     }
@@ -1876,16 +1869,14 @@ struct DrawBatchKey {
         break;
     }
     case RenderCommandType::DrawImage: {
-        const auto& payload =
-            command_list.payload_by_index<DrawImageCommand>(opcode.payload_index);
+        const auto& payload = command_list.payload_by_index<DrawImageCommand>(opcode.payload_index);
         hash_combine(resource_seed, payload.resource_id.value);
         hash_combine(state_seed, payload.options.opacity);
         hash_rect(state_seed, payload.options.source);
         break;
     }
     case RenderCommandType::DrawText: {
-        const auto& payload =
-            command_list.payload_by_index<DrawTextCommand>(opcode.payload_index);
+        const auto& payload = command_list.payload_by_index<DrawTextCommand>(opcode.payload_index);
         hash_text_style(state_seed, payload.style);
         hash_combine(resource_seed, payload.text_view());
         break;
@@ -1909,8 +1900,7 @@ struct DrawBatchKey {
         break;
     }
     case RenderCommandType::PushLayer: {
-        const auto& payload =
-            command_list.payload_by_index<PushLayerCommand>(opcode.payload_index);
+        const auto& payload = command_list.payload_by_index<PushLayerCommand>(opcode.payload_index);
         hash_combine(state_seed, payload.options.opacity);
         hash_combine(state_seed, payload.options.clips_to_bounds);
         break;
@@ -2213,12 +2203,10 @@ void PreparedRenderCache::merge(const PreparedRenderCache& other) {
                 if (entry == nullptr) {
                     continue;
                 }
-                const auto exists =
-                    std::any_of(target_entries.begin(), target_entries.end(),
-                                [&](const auto& target) {
-                                    return target != nullptr &&
-                                           same_prepared_text_key(*target, *entry);
-                                });
+                const auto exists = std::any_of(
+                    target_entries.begin(), target_entries.end(), [&](const auto& target) {
+                        return target != nullptr && same_prepared_text_key(*target, *entry);
+                    });
                 if (!exists) {
                     target_entries.push_back(entry);
                 }
@@ -2427,34 +2415,29 @@ void RenderCommandList::invalidate_cached_views() const noexcept {
 }
 
 RenderCommandList::CapacitySnapshot RenderCommandList::capacity_snapshot() const noexcept {
-    return CapacitySnapshot{.opcodes = opcodes_.capacity(),
-                            .opcode_payload_indices = opcode_payload_indices_.capacity(),
-                            .push_clip_payloads = push_clip_payloads_.capacity(),
-                            .push_geometry_clip_payloads =
-                                push_geometry_clip_payloads_.capacity(),
-                            .push_layer_payloads = push_layer_payloads_.capacity(),
-                            .draw_line_payloads = draw_line_payloads_.capacity(),
-                            .fill_rect_payloads = fill_rect_payloads_.capacity(),
-                            .fill_pixel_snapped_rect_payloads =
-                                fill_pixel_snapped_rect_payloads_.capacity(),
-                            .stroke_pixel_snapped_rect_payloads =
-                                stroke_pixel_snapped_rect_payloads_.capacity(),
-                            .stroke_rect_payloads = stroke_rect_payloads_.capacity(),
-                            .fill_rounded_rect_payloads =
-                                fill_rounded_rect_payloads_.capacity(),
-                            .stroke_rounded_rect_payloads =
-                                stroke_rounded_rect_payloads_.capacity(),
-                            .fill_ellipse_payloads = fill_ellipse_payloads_.capacity(),
-                            .stroke_ellipse_payloads = stroke_ellipse_payloads_.capacity(),
-                            .fill_geometry_payloads = fill_geometry_payloads_.capacity(),
-                            .stroke_geometry_payloads = stroke_geometry_payloads_.capacity(),
-                            .draw_image_payloads = draw_image_payloads_.capacity(),
-                            .draw_text_payloads = draw_text_payloads_.capacity(),
-                            .draw_text_layout_payloads =
-                                draw_text_layout_payloads_.capacity(),
-                            .draw_box_shadow_payloads = draw_box_shadow_payloads_.capacity(),
-                            .text_parameters = text_parameters_.capacity(),
-                            .text_layout_parameters = text_layout_parameters_.capacity()};
+    return CapacitySnapshot{
+        .opcodes = opcodes_.capacity(),
+        .opcode_payload_indices = opcode_payload_indices_.capacity(),
+        .push_clip_payloads = push_clip_payloads_.capacity(),
+        .push_geometry_clip_payloads = push_geometry_clip_payloads_.capacity(),
+        .push_layer_payloads = push_layer_payloads_.capacity(),
+        .draw_line_payloads = draw_line_payloads_.capacity(),
+        .fill_rect_payloads = fill_rect_payloads_.capacity(),
+        .fill_pixel_snapped_rect_payloads = fill_pixel_snapped_rect_payloads_.capacity(),
+        .stroke_pixel_snapped_rect_payloads = stroke_pixel_snapped_rect_payloads_.capacity(),
+        .stroke_rect_payloads = stroke_rect_payloads_.capacity(),
+        .fill_rounded_rect_payloads = fill_rounded_rect_payloads_.capacity(),
+        .stroke_rounded_rect_payloads = stroke_rounded_rect_payloads_.capacity(),
+        .fill_ellipse_payloads = fill_ellipse_payloads_.capacity(),
+        .stroke_ellipse_payloads = stroke_ellipse_payloads_.capacity(),
+        .fill_geometry_payloads = fill_geometry_payloads_.capacity(),
+        .stroke_geometry_payloads = stroke_geometry_payloads_.capacity(),
+        .draw_image_payloads = draw_image_payloads_.capacity(),
+        .draw_text_payloads = draw_text_payloads_.capacity(),
+        .draw_text_layout_payloads = draw_text_layout_payloads_.capacity(),
+        .draw_box_shadow_payloads = draw_box_shadow_payloads_.capacity(),
+        .text_parameters = text_parameters_.capacity(),
+        .text_layout_parameters = text_layout_parameters_.capacity()};
 }
 
 void RenderCommandList::reserve(CapacitySnapshot capacities) {
@@ -2496,8 +2479,9 @@ void RenderCommandList::reserve_for_append(const RenderCommandList& command_list
                                 command_list.draw_line_payloads_.size());
     fill_rect_payloads_.reserve(fill_rect_payloads_.size() +
                                 command_list.fill_rect_payloads_.size());
-    fill_pixel_snapped_rect_payloads_.reserve(fill_pixel_snapped_rect_payloads_.size() +
-                                              command_list.fill_pixel_snapped_rect_payloads_.size());
+    fill_pixel_snapped_rect_payloads_.reserve(
+        fill_pixel_snapped_rect_payloads_.size() +
+        command_list.fill_pixel_snapped_rect_payloads_.size());
     stroke_pixel_snapped_rect_payloads_.reserve(
         stroke_pixel_snapped_rect_payloads_.size() +
         command_list.stroke_pixel_snapped_rect_payloads_.size());
@@ -2579,10 +2563,8 @@ void RenderCommandList::append_opcode(RenderCommandType type, std::uint32_t payl
     invalidate_cached_views();
 }
 
-void RenderCommandList::append_opcode_unchecked(RenderCommandType type,
-                                                std::uint32_t payload_index,
-                                                layout::Rect bounds,
-                                                std::size_t payload_hash) {
+void RenderCommandList::append_opcode_unchecked(RenderCommandType type, std::uint32_t payload_index,
+                                                layout::Rect bounds, std::size_t payload_hash) {
     bounds_ = layout::union_rects(bounds_, bounds);
     auto seed = static_cast<std::size_t>(fingerprint_);
     hash_combine(seed, static_cast<int>(type));
@@ -2596,11 +2578,10 @@ void RenderCommandList::append_opcode_unchecked(RenderCommandType type,
     hash_rect(signature_seed, bounds);
     hash_combine(signature_seed, payload_hash);
     change_signature_ = static_cast<std::uint64_t>(signature_seed);
-    opcodes_.push_back(RenderOpcodeRecord{
-        .opcode = type,
-        .payload_index = payload_index,
-        .bounds = bounds,
-        .owner = opcode_owner_.get()});
+    opcodes_.push_back(RenderOpcodeRecord{.opcode = type,
+                                          .payload_index = payload_index,
+                                          .bounds = bounds,
+                                          .owner = opcode_owner_.get()});
     opcode_payload_indices_.push_back(payload_index);
 }
 
@@ -2781,11 +2762,11 @@ void RenderCommandList::append(FillGeometryCommand command) {
 void RenderCommandList::append(StrokeGeometryCommand command) {
     const auto hash = payload_fingerprint(command);
     command.prepared_stroke = cached_prepared_geometry_stroke(command.geometry);
-    const auto prepared_bounds =
-        command.prepared_stroke != nullptr ? command.prepared_stroke->bounds
-                                           : geometry_bounds(command.geometry);
-    const auto bounds = layout::inflate_rect(prepared_bounds,
-                                             std::max(command.style.width, 0.0F) * 0.5F);
+    const auto prepared_bounds = command.prepared_stroke != nullptr
+                                     ? command.prepared_stroke->bounds
+                                     : geometry_bounds(command.geometry);
+    const auto bounds =
+        layout::inflate_rect(prepared_bounds, std::max(command.style.width, 0.0F) * 0.5F);
     const auto index = static_cast<std::uint32_t>(stroke_geometry_payloads_.size());
     stroke_geometry_payloads_.push_back(std::move(command));
     append_opcode(RenderCommandType::StrokeGeometry, index, bounds, hash);
@@ -3067,6 +3048,115 @@ void RenderCommandList::append(RenderCommandList&& command_list) {
     append(static_cast<const RenderCommandList&>(command_list));
 }
 
+void RenderCommandList::append_command_from(const RenderCommandList& command_list,
+                                            std::size_t opcode_index) {
+    const auto& opcode = command_list.opcodes_.at(opcode_index);
+    if (prepared_cache_ != command_list.prepared_cache_ &&
+        command_list.prepared_cache_ != nullptr) {
+        ensure_prepared_cache().merge(*command_list.prepared_cache_);
+    }
+
+    switch (opcode.opcode) {
+    case RenderCommandType::Save:
+        append(SaveCommand{});
+        break;
+    case RenderCommandType::Restore:
+        append(RestoreCommand{});
+        break;
+    case RenderCommandType::PushClip:
+        append(command_list.payload_by_index<PushClipCommand>(opcode.payload_index));
+        break;
+    case RenderCommandType::PopClip:
+        append(PopClipCommand{});
+        break;
+    case RenderCommandType::PushGeometryClip:
+        append(command_list.payload_by_index<PushGeometryClipCommand>(opcode.payload_index));
+        break;
+    case RenderCommandType::PopGeometryClip:
+        append(PopGeometryClipCommand{});
+        break;
+    case RenderCommandType::PushLayer:
+        append(command_list.payload_by_index<PushLayerCommand>(opcode.payload_index));
+        break;
+    case RenderCommandType::PopLayer:
+        append(PopLayerCommand{});
+        break;
+    case RenderCommandType::DrawLine:
+        append(command_list.payload_by_index<DrawLineCommand>(opcode.payload_index));
+        break;
+    case RenderCommandType::FillRect:
+        append(command_list.payload_by_index<FillRectCommand>(opcode.payload_index));
+        break;
+    case RenderCommandType::FillPixelSnappedRect:
+        append(command_list.payload_by_index<FillPixelSnappedRectCommand>(opcode.payload_index));
+        break;
+    case RenderCommandType::StrokePixelSnappedRect:
+        append(command_list.payload_by_index<StrokePixelSnappedRectCommand>(opcode.payload_index));
+        break;
+    case RenderCommandType::StrokeRect:
+        append(command_list.payload_by_index<StrokeRectCommand>(opcode.payload_index));
+        break;
+    case RenderCommandType::FillRoundedRect:
+        append(command_list.payload_by_index<FillRoundedRectCommand>(opcode.payload_index));
+        break;
+    case RenderCommandType::StrokeRoundedRect:
+        append(command_list.payload_by_index<StrokeRoundedRectCommand>(opcode.payload_index));
+        break;
+    case RenderCommandType::FillEllipse:
+        append(command_list.payload_by_index<FillEllipseCommand>(opcode.payload_index));
+        break;
+    case RenderCommandType::StrokeEllipse:
+        append(command_list.payload_by_index<StrokeEllipseCommand>(opcode.payload_index));
+        break;
+    case RenderCommandType::FillGeometry:
+        append(command_list.payload_by_index<FillGeometryCommand>(opcode.payload_index));
+        break;
+    case RenderCommandType::StrokeGeometry:
+        append(command_list.payload_by_index<StrokeGeometryCommand>(opcode.payload_index));
+        break;
+    case RenderCommandType::DrawImage:
+        append(command_list.payload_by_index<DrawImageCommand>(opcode.payload_index));
+        break;
+    case RenderCommandType::DrawText: {
+        auto command = command_list.payload_by_index<DrawTextCommand>(opcode.payload_index);
+        if (command.text_handle.value > 0U &&
+            command.text_handle.value <= command_list.text_parameters_.size()) {
+            const auto handle =
+                store_text(command_list.text_parameters_[command.text_handle.value - 1U]);
+            command.text_handle = handle;
+            command.text = text_parameter(handle);
+        } else if (!command.text.empty()) {
+            const auto handle =
+                store_text(std::make_shared<const std::string>(command.text_view()));
+            command.text_handle = handle;
+            command.text = text_parameter(handle);
+        }
+        append(command);
+        break;
+    }
+    case RenderCommandType::DrawTextLayout: {
+        auto command = command_list.payload_by_index<DrawTextLayoutCommand>(opcode.payload_index);
+        if (command.layout_handle.value > 0U &&
+            command.layout_handle.value <= command_list.text_layout_parameters_.size()) {
+            const auto handle = store_text_layout(
+                command_list.text_layout_parameters_[command.layout_handle.value - 1U]);
+            command.layout_handle = handle;
+            command.layout = text_layout_parameter(handle);
+        } else if (command.layout != nullptr) {
+            const auto handle =
+                store_text_layout(std::make_shared<const TextLayout>(*command.layout));
+            command.layout_handle = handle;
+            command.layout = text_layout_parameter(handle);
+        }
+        append(command);
+        break;
+    }
+    case RenderCommandType::DrawBoxShadow:
+        append(command_list.payload_by_index<DrawBoxShadowCommand>(opcode.payload_index));
+        break;
+    }
+}
+
 bool RenderCommandList::empty() const noexcept {
     return opcodes_.empty();
 }
@@ -3305,7 +3395,8 @@ std::shared_ptr<const std::string> RenderCommandRecorder::intern_text(std::strin
     return storage;
 }
 
-std::shared_ptr<const TextLayout> RenderCommandRecorder::share_text_layout(const TextLayout& layout) {
+std::shared_ptr<const TextLayout>
+RenderCommandRecorder::share_text_layout(const TextLayout& layout) {
     return std::make_shared<const TextLayout>(layout);
 }
 
@@ -3480,9 +3571,8 @@ void RenderCommandRecorder::draw_text_layout(const TextLayout& layout, layout::P
     flush_pending_saves();
     auto storage = share_text_layout(layout);
     const auto handle = command_list_.store_text_layout(storage);
-    command_list_.append(DrawTextLayoutCommand{.layout_handle = handle,
-                                               .layout = storage.get(),
-                                               .origin = origin});
+    command_list_.append(
+        DrawTextLayoutCommand{.layout_handle = handle, .layout = storage.get(), .origin = origin});
 }
 
 const RenderCommandList& RenderCommandRecorder::command_list() const noexcept {
@@ -3512,6 +3602,21 @@ void RenderCommandRecorder::append(const RenderCommandList& command_list) {
 void RenderCommandRecorder::append(RenderCommandList&& command_list) {
     flush_pending_saves();
     command_list_.append(std::move(command_list));
+}
+
+void RenderCommandRecorder::append_command(const RenderCommandList& command_list,
+                                           std::size_t opcode_index) {
+    const auto type = command_list.opcodes().at(opcode_index).opcode;
+    if (type == RenderCommandType::Save) {
+        save();
+        return;
+    }
+    if (type == RenderCommandType::Restore) {
+        restore();
+        return;
+    }
+    flush_pending_saves();
+    command_list_.append_command_from(command_list, opcode_index);
 }
 
 } // namespace winelement::rendering

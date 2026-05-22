@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <cmath>
 #include <iterator>
-#include <unordered_map>
 #include <utility>
 
 namespace winelement::controls {
@@ -184,6 +183,11 @@ class ItemsControlItemContainer final : public elements::UIElement {
 };
 
 namespace {
+
+struct RealizedSurvivor {
+    std::size_t item_index = 0U;
+    std::unique_ptr<elements::UIElement> child;
+};
 
 void configure_items_layout(elements::UIElement& element) {
     element.configure_layout([](layout::LayoutElement& item) {
@@ -498,26 +502,34 @@ void ItemsControl::update_realized_children() {
     const auto count =
         virtualized_ ? std::min(realized_count_, items_.size() - start) : items_.size();
 
-    std::unordered_map<std::size_t, std::unique_ptr<elements::UIElement>> survivors;
-    survivors.reserve(count);
+    std::vector<RealizedSurvivor> survivors;
+    survivors.reserve(std::min(count, child_count()));
     while (child_count() > 0U) {
         auto child = remove_child_at(child_count() - 1U);
         auto* container = dynamic_cast<ItemsControlItemContainer*>(child.get());
         if (container != nullptr && container->item_index() >= start &&
             container->item_index() < start + count) {
-            survivors.emplace(container->item_index(), std::move(child));
+            survivors.push_back(
+                RealizedSurvivor{.item_index = container->item_index(), .child = std::move(child)});
         } else {
             recycle_container(std::move(child));
         }
     }
+    std::sort(survivors.begin(), survivors.end(),
+              [](const RealizedSurvivor& left, const RealizedSurvivor& right) noexcept {
+                  return left.item_index < right.item_index;
+              });
 
+    auto survivor_iterator = survivors.begin();
     for (std::size_t visible_index = 0; visible_index < count; ++visible_index) {
         const auto item_index = start + visible_index;
-        auto existing = survivors.find(item_index);
         std::unique_ptr<elements::UIElement> container;
-        if (existing != survivors.end()) {
-            container = std::move(existing->second);
-            survivors.erase(existing);
+        while (survivor_iterator != survivors.end() && survivor_iterator->item_index < item_index) {
+            ++survivor_iterator;
+        }
+        if (survivor_iterator != survivors.end() && survivor_iterator->item_index == item_index &&
+            survivor_iterator->child != nullptr) {
+            container = std::move(survivor_iterator->child);
         } else {
             auto reusable = take_reusable_container();
             if (reusable) {
@@ -530,9 +542,8 @@ void ItemsControl::update_realized_children() {
         append_child(std::move(container));
     }
 
-    for (auto& [item_index, child] : survivors) {
-        static_cast<void>(item_index);
-        recycle_container(std::move(child));
+    for (auto& survivor : survivors) {
+        recycle_container(std::move(survivor.child));
     }
 }
 

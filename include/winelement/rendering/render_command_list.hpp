@@ -347,7 +347,8 @@ class RenderCommandList final {
     [[nodiscard]] const std::vector<std::shared_ptr<const TextLayout>>&
     text_layout_parameters() const noexcept;
     [[nodiscard]] std::string_view text_parameter(RenderTextHandle handle) const noexcept;
-    [[nodiscard]] const TextLayout* text_layout_parameter(RenderTextLayoutHandle handle) const noexcept;
+    [[nodiscard]] const TextLayout*
+    text_layout_parameter(RenderTextLayoutHandle handle) const noexcept;
     template <typename Payload>
     [[nodiscard]] const Payload& payload(std::size_t opcode_index) const;
     template <typename Payload>
@@ -390,6 +391,7 @@ class RenderCommandList final {
     void append_draw_images(std::span<const DrawImageCommand> commands);
     void append(const RenderCommandList& command_list);
     void append(RenderCommandList&& command_list);
+    void append_command_from(const RenderCommandList& command_list, std::size_t opcode_index);
     void append_opcode(RenderCommandType type, std::uint32_t payload_index, layout::Rect bounds,
                        std::size_t payload_hash);
     void append_opcode_unchecked(RenderCommandType type, std::uint32_t payload_index,
@@ -407,7 +409,8 @@ class RenderCommandList final {
     cached_prepared_text_glyph_coverages(const TextLayout& layout);
     [[nodiscard]] PreparedRenderCache& ensure_prepared_cache();
     [[nodiscard]] RenderTextHandle store_text(std::shared_ptr<const std::string> text);
-    [[nodiscard]] RenderTextLayoutHandle store_text_layout(std::shared_ptr<const TextLayout> layout);
+    [[nodiscard]] RenderTextLayoutHandle
+    store_text_layout(std::shared_ptr<const TextLayout> layout);
 
     struct CapacitySnapshot {
         std::size_t opcodes = 0;
@@ -514,6 +517,7 @@ class RenderCommandRecorder final : public RenderContext {
     [[nodiscard]] RenderCommandList take_command_list() noexcept;
     void append(const RenderCommandList& command_list);
     void append(RenderCommandList&& command_list);
+    void append_command(const RenderCommandList& command_list, std::size_t opcode_index);
 
   private:
     [[nodiscard]] std::shared_ptr<const std::string> intern_text(std::string_view text);

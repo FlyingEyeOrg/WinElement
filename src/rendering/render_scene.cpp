@@ -46,111 +46,7 @@ void hash_transform(std::size_t& seed, Transform2D transform) noexcept {
 
 void append_command(RenderCommandRecorder& recorder, const RenderCommandList& source,
                     std::size_t opcode_index) {
-    const auto& opcode = source.opcodes().at(opcode_index);
-    switch (opcode.opcode) {
-    case RenderCommandType::Save:
-        recorder.save();
-        break;
-    case RenderCommandType::Restore:
-        recorder.restore();
-        break;
-    case RenderCommandType::PushClip:
-        recorder.push_clip(source.payload<PushClipCommand>(opcode_index).rect);
-        break;
-    case RenderCommandType::PopClip:
-        recorder.pop_clip();
-        break;
-    case RenderCommandType::PushGeometryClip:
-        recorder.push_geometry_clip(source.payload<PushGeometryClipCommand>(opcode_index).geometry);
-        break;
-    case RenderCommandType::PopGeometryClip:
-        recorder.pop_geometry_clip();
-        break;
-    case RenderCommandType::PushLayer:
-        recorder.push_layer(source.payload<PushLayerCommand>(opcode_index).options);
-        break;
-    case RenderCommandType::PopLayer:
-        recorder.pop_layer();
-        break;
-    case RenderCommandType::DrawLine: {
-        const auto& payload = source.payload<DrawLineCommand>(opcode_index);
-        recorder.draw_line(payload.start, payload.end, payload.color, payload.stroke_width);
-        break;
-    }
-    case RenderCommandType::FillRect: {
-        const auto& payload = source.payload<FillRectCommand>(opcode_index);
-        recorder.fill_rect(payload.rect, payload.color);
-        break;
-    }
-    case RenderCommandType::FillPixelSnappedRect: {
-        const auto& payload = source.payload<FillPixelSnappedRectCommand>(opcode_index);
-        recorder.fill_pixel_snapped_rect(payload.rect, payload.color);
-        break;
-    }
-    case RenderCommandType::StrokePixelSnappedRect: {
-        const auto& payload = source.payload<StrokePixelSnappedRectCommand>(opcode_index);
-        recorder.stroke_pixel_snapped_rect(payload.rect, payload.color, payload.stroke_width);
-        break;
-    }
-    case RenderCommandType::StrokeRect: {
-        const auto& payload = source.payload<StrokeRectCommand>(opcode_index);
-        recorder.stroke_rect(payload.rect, payload.color, payload.stroke_width);
-        break;
-    }
-    case RenderCommandType::FillRoundedRect: {
-        const auto& payload = source.payload<FillRoundedRectCommand>(opcode_index);
-        recorder.fill_rounded_rect(payload.rect, payload.radius, payload.color);
-        break;
-    }
-    case RenderCommandType::StrokeRoundedRect: {
-        const auto& payload = source.payload<StrokeRoundedRectCommand>(opcode_index);
-        recorder.stroke_rounded_rect(payload.rect, payload.radius, payload.color,
-                                     payload.stroke_width);
-        break;
-    }
-    case RenderCommandType::FillEllipse: {
-        const auto& payload = source.payload<FillEllipseCommand>(opcode_index);
-        recorder.fill_ellipse(payload.rect, payload.color);
-        break;
-    }
-    case RenderCommandType::StrokeEllipse: {
-        const auto& payload = source.payload<StrokeEllipseCommand>(opcode_index);
-        recorder.stroke_ellipse(payload.rect, payload.color, payload.stroke_width);
-        break;
-    }
-    case RenderCommandType::FillGeometry: {
-        const auto& payload = source.payload<FillGeometryCommand>(opcode_index);
-        recorder.fill_geometry(payload.geometry, payload.color);
-        break;
-    }
-    case RenderCommandType::StrokeGeometry: {
-        const auto& payload = source.payload<StrokeGeometryCommand>(opcode_index);
-        recorder.stroke_geometry(payload.geometry, payload.color, payload.style);
-        break;
-    }
-    case RenderCommandType::DrawImage: {
-        const auto& payload = source.payload<DrawImageCommand>(opcode_index);
-        recorder.draw_image(payload.resource_id, payload.options);
-        break;
-    }
-    case RenderCommandType::DrawText: {
-        const auto& payload = source.payload<DrawTextCommand>(opcode_index);
-        recorder.draw_text(payload.text_view(), payload.rect, payload.style);
-        break;
-    }
-    case RenderCommandType::DrawTextLayout: {
-        const auto& payload = source.payload<DrawTextLayoutCommand>(opcode_index);
-        if (const auto* layout = payload.layout_value()) {
-            recorder.draw_text_layout(*layout, payload.origin);
-        }
-        break;
-    }
-    case RenderCommandType::DrawBoxShadow: {
-        const auto& payload = source.payload<DrawBoxShadowCommand>(opcode_index);
-        recorder.draw_box_shadow(payload.rect, payload.style);
-        break;
-    }
-    }
+    recorder.append_command(source, opcode_index);
 }
 
 [[nodiscard]] std::uint64_t layer_fingerprint(const RenderLayerOptions& options,
@@ -404,7 +300,8 @@ RenderNode render_node_from_commands(RenderCommandList command_list, std::string
     return root;
 }
 
-void RenderScene::update_from_commands(RenderCommandList command_list, std::string_view debug_name) {
+void RenderScene::update_from_commands(RenderCommandList command_list,
+                                       std::string_view debug_name) {
     if (command_list.empty()) {
         clear();
         return;
@@ -419,8 +316,8 @@ void RenderScene::update_from_commands(RenderCommandList command_list, std::stri
 
     auto previous_nodes = std::unordered_map<std::uint64_t, std::vector<const RenderNode*>>{};
     if (root_ != nullptr) {
-        previous_nodes.reserve(std::max<std::size_t>(root_->children.size() * 2U + 1U,
-                                                     command_count_ / 4U + 1U));
+        previous_nodes.reserve(
+            std::max<std::size_t>(root_->children.size() * 2U + 1U, command_count_ / 4U + 1U));
         collect_reusable_nodes(*root_, previous_nodes);
     }
     auto next_root = render_node_from_commands(std::move(command_list), debug_name);

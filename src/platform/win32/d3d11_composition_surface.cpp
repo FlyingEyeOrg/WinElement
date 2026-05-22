@@ -217,6 +217,9 @@ class D3D11CompositionSurface::Impl final {
         swap_chain_.Reset();
         display_list_renderer_.reset();
         validated_client_size_.reset();
+        if (device_ != nullptr) {
+            device_->trim_idle_resources();
+        }
     }
 
     void trim_idle_resources() noexcept {
