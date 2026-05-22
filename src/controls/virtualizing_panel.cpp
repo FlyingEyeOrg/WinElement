@@ -91,7 +91,7 @@ VirtualizingPanel& VirtualizingPanel::refresh_virtualization() {
 
     std::swap(realized_, keep);
 
-    const auto insert_index = leading_spacer_index() + 1 + realized_.size();
+    const auto base_index = leading_spacer_index() + 1;
 
     for (std::size_t i = 0; i < window.count; ++i) {
         const auto idx = window.start_index + i;
@@ -128,6 +128,7 @@ VirtualizingPanel& VirtualizingPanel::refresh_virtualization() {
         }
 
         auto* element_ptr = element.get();
+        const auto insert_index = base_index + realized_.size();
         insert_child(insert_index, std::move(element));
         realized_.push_back(RealizedItem{idx, element_ptr});
     }
