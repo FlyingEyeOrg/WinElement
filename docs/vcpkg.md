@@ -3,7 +3,8 @@
 本项目为两种 vcpkg 工作流做好了准备：
 
 - 清单模式：用于本地开发。
-- 端口模板：位于 `packaging/vcpkg/winelement`，用于注册表发布。
+- 自有 vcpkg 注册表：推送版本标签（如 `v1.0.0`）时，GitHub Actions 自动发布到 `vcpkg-registry` 分支。
+- 端口模板：位于 `packaging/vcpkg/winelement`，如需提交到官方注册表可基于此模板修改。
 
 vcpkg 文档将清单模式描述为大多数项目的推荐工作流，依赖项在 `vcpkg.json` 中声明。同时，端口需要通过 `vcpkg.json` 和 `portfile.cmake` 包含包元数据以及构建/安装说明。
 
@@ -71,7 +72,42 @@ cmake --install build\vs2022-x64 --config Release --prefix build\install\winelem
 -DCMAKE_PREFIX_PATH=E:\users\lanxf01\Desktop\cpplib\WinElement\build\install\winelement
 ```
 
-## 注册表端口模板
+## 自有 vcpkg 注册表（自动发布）
+
+推送以 `v` 开头的语义化版本标签（如 `v1.0.0`）时，GitHub Actions 自动：
+
+1. 从 GitHub 归档计算 SHA512 哈希。
+2. 更新端口文件中的版本号和哈希。
+3. 调用 `vcpkg x-add-version` 将包发布到 `vcpkg-registry` 分支。
+
+工作流文件：`.github/workflows/publish-vcpkg.yml`
+
+消费者使用此注册表时，需在项目中添加 `vcpkg-configuration.json`：
+
+```json
+{
+  "registries": [
+    {
+      "kind": "git",
+      "repository": "https://github.com/lanxf01/WinElement",
+      "reference": "vcpkg-registry",
+      "packages": ["winelement"]
+    }
+  ]
+}
+```
+
+然后在 `vcpkg.json` 中声明依赖：
+
+```json
+{
+  "dependencies": ["winelement"]
+}
+```
+
+之后正常使用 `vcpkg install` 即可从本仓库的自有注册表安装 WinElement。
+
+## 端口模板（官方注册表）
 
 模板位于：
 

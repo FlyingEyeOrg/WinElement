@@ -1,0 +1,100 @@
+name: Publish to vcpkg Registry
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}' -replace '^v', ''
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Compute source archive SHA512
+        shell: pwsh
+        run: |
+          $url = "https://github.com/${{ github.repository }}/archive/refs/tags/${{ github.ref_name }}.tar.gz"
+          $out = "${{ runner.temp }}\source.tar.gz"
+
+          for ($i = 0; $i -lt 5; $i++) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $out -ErrorAction Stop
+              break
+            } catch {
+              if ($i -eq 4) { throw }
+              Write-Host "Archive not ready, retrying in $((5 * ($i + 1)))s..."
+              Start-Sleep -Seconds (5 * ($i + 1))
+            }
+          }
+
+          $hash = (Get-FileHash $out -Algorithm SHA512).Hash.ToLower()
+          Write-Host "SHA512: $hash"
+          "ARCHIVE_SHA512=$hash" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Prepare updated port files
+        shell: pwsh
+        run: |
+          $portDir = "${{ runner.temp }}\ports\winelement"
+          New-Item -ItemType Directory -Force -Path $portDir
+
+          (Get-Content packaging/vcpkg/winelement/vcpkg.json -Raw) `
+            -replace '"version-semver":\s*"[^"]*"', '"version-semver": "${{ env.VERSION }}"' |
+            Set-Content "$portDir\vcpkg.json" -NoNewline
+
+          (Get-Content packaging/vcpkg/winelement/portfile.cmake -Raw) `
+            -replace 'SHA512\s+\S+', 'SHA512 ${{ env.ARCHIVE_SHA512 }}' |
+            Set-Content "$portDir\portfile.cmake" -NoNewline
+
+          Write-Host "Port files prepared at $portDir"
+
+      - name: Setup vcpkg
+        shell: pwsh
+        run: |
+          $vcpkgRoot = "${{ runner.temp }}\vcpkg-tool"
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git $vcpkgRoot
+          echo $vcpkgRoot | Out-File -FilePath $env:GITHUB_PATH -Append
+          & "$vcpkgRoot\bootstrap-vcpkg.bat"
+
+      - name: Publish to vcpkg-registry branch
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $regDir = "${{ runner.temp }}\registry"
+          $repoUrl = "https://x-access-token:$env:GITHUB_TOKEN@github.com/${{ github.repository }}.git"
+
+          git clone --single-branch --branch vcpkg-registry $repoUrl $regDir 2>$null
+          if (-not $?) {
+            Write-Host "Registry branch not found, creating new one..."
+            New-Item -ItemType Directory -Force -Path $regDir
+            Push-Location $regDir
+            git init
+            git remote add origin $repoUrl
+            git switch --orphan vcpkg-registry
+            git commit --allow-empty -m "Initialize vcpkg registry"
+            Pop-Location
+          }
+
+          Push-Location $regDir
+          vcpkg x-add-version winelement `
+            --overlay-ports="${{ runner.temp }}\ports" `
+            --x-add-version-git-author="github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+
+          if ($LASTEXITCODE -eq 0) {
+            git push --set-upstream origin vcpkg-registry
+            Write-Host "Published winelement ${{ env.VERSION }} to vcpkg-registry"
+          } else {
+            Write-Error "vcpkg x-add-version failed with exit code $LASTEXITCODE"
+            Pop-Location
+            exit 1
+          }
+          Pop-Location
