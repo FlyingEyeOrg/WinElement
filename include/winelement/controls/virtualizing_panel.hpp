@@ -2,6 +2,7 @@
 
 #include <winelement/controls/panel.hpp>
 #include <winelement/controls/virtualization.hpp>
+#include <winelement/elements/input_event.hpp>
 
 #include <cstddef>
 #include <functional>
@@ -35,9 +36,10 @@ class VirtualizingPanel final : public Panel {
   protected:
     void on_viewport_enter() override;
     void on_viewport_leave() override;
+    void on_pointer_event(elements::PointerEvent& event) override;
 
   private:
-    void ensure_pool();
+    void ensure_pool(std::size_t required_count);
 
     VirtualizationPlanner planner_;
     SlotFactory slot_factory_;

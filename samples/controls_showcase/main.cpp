@@ -1766,6 +1766,13 @@ void add_animation_section(controls::StackPanel& root) {
 void add_virtualization_section(controls::StackPanel& root) {
     auto& section = add_section(root, "Virtualization (10 000 items)");
 
+    auto& debug = section.append_new_child<controls::Panel>();
+    debug.set_background(rendering::Color::rgba(255, 0, 0));
+    debug.configure_layout([](layout::LayoutElement& item) {
+        item.set_width(layout::Length::percent(100.0F))
+            .set_height(layout::Length::points(20.0F));
+    });
+
     constexpr float viewport_height = 400.0F;
     constexpr float item_height = 32.0F;
     constexpr std::size_t item_count = 10000;
@@ -1779,7 +1786,7 @@ void add_virtualization_section(controls::StackPanel& root) {
             .set_flex_shrink(0.0F);
     });
 
-    auto& viewport = row.append_new_child<controls::Panel>();
+    auto& viewport = row.append_new_child<SyncedViewportPanel>();
     viewport.set_background(rendering::Color::rgba(255, 255, 255));
     viewport.set_border(rendering::Color::rgba(220, 223, 230), 1.0F);
     viewport.set_corner_radius(rendering::CornerRadius::uniform(4.0F));
@@ -1794,12 +1801,13 @@ void add_virtualization_section(controls::StackPanel& root) {
 
     auto virtual_panel = std::make_unique<controls::VirtualizingPanel>();
     auto* virtual_panel_ptr = virtual_panel.get();
+    virtual_panel->set_scroll_wheel_enabled(false);
     virtual_panel->set_item_count(item_count)
         .set_item_extent(item_height)
         .set_overscan(6)
         .set_slot_factory([]() {
             auto slot = std::make_unique<controls::Panel>();
-            slot->set_background(rendering::Color::rgba(255, 255, 255));
+            slot->set_background(rendering::Color::rgba(255, 100, 100));
             slot->set_border(rendering::Color::rgba(235, 238, 245), 1.0F);
             slot->configure_layout([](layout::LayoutElement& layout) {
                 layout.set_width(layout::Length::percent(100.0F))
@@ -1815,25 +1823,29 @@ void add_virtualization_section(controls::StackPanel& root) {
         .set_item_binder([](elements::UIElement& slot, std::size_t index) {
             auto& panel = static_cast<controls::Panel&>(slot);
             panel.set_background(
-                index % 2 == 0 ? rendering::Color::rgba(250, 250, 252)
-                               : rendering::Color::rgba(255, 255, 255));
+                index % 2 == 0 ? rendering::Color::rgba(255, 100, 100)
+                               : rendering::Color::rgba(100, 100, 255));
             auto& label = static_cast<controls::Text&>(panel.child_at(0));
             label.set_text("Item #" + std::to_string(index));
         });
     virtual_panel_ptr->set_viewport_extent(viewport_height);
+    viewport.set_on_scroll_changed([virtual_panel_ptr](layout::Point scroll_offset) {
+        virtual_panel_ptr->set_scroll_offset(scroll_offset.y);
+        virtual_panel_ptr->refresh_virtualization();
+    });
     viewport.append_child(std::move(virtual_panel));
     virtual_panel_ptr->refresh_virtualization();
 
+    const auto scrollbar_max =
+        static_cast<float>(item_count) * item_height - viewport_height;
     auto& scrollbar = row.append_new_child<controls::Scrollbar>();
     scrollbar.set_orientation(controls::ScrollbarOrientation::Vertical)
         .set_always_visible(true)
         .set_min_thumb_extent(24.0F)
         .set_thickness(8.0F)
-        .set_range(0.0F, static_cast<float>(item_count) * item_height, viewport_height)
-        .set_on_scroll([&viewport, virtual_panel_ptr](float value) {
+        .set_range(0.0F, scrollbar_max, viewport_height)
+        .set_on_scroll([&viewport](float value) {
             viewport.set_scroll_offset(layout::Point{0.0F, value});
-            virtual_panel_ptr->set_scroll_offset(value);
-            virtual_panel_ptr->refresh_virtualization();
         });
     scrollbar.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::points(12.0F))
@@ -1842,7 +1854,7 @@ void add_virtualization_section(controls::StackPanel& root) {
     });
 
     auto& info = section.append_new_child<controls::Text>();
-    info.set_text("Scroll to test virtualization — only ~" +
+    info.set_text("Scroll to test virtualization - only ~" +
                   std::to_string(static_cast<int>(viewport_height / item_height + 6) * 2) +
                   " items realized at any time")
         .set_type(controls::TextType::Info)
@@ -2166,6 +2178,13 @@ build_showcase_window_tree(float viewport_width_hint = showcase_window_viewport_
     auto* virtual_content_ptr = virtual_content.get();
     viewport.append_child(std::move(virtual_content));
 
+    auto* root_ptr = root.get();
+
+    auto relayout_root = [root_ptr]() {
+        root_ptr->calculate_layout(layout::LayoutConstraints{
+            .width = root_ptr->frame().width, .height = root_ptr->frame().height});
+    };
+
     auto& scrollbar = row.append_new_child<controls::Scrollbar>();
     scrollbar.set_orientation(controls::ScrollbarOrientation::Vertical)
         .set_visibility_mode(controls::ScrollbarVisibility::Always)
@@ -2176,18 +2195,19 @@ build_showcase_window_tree(float viewport_width_hint = showcase_window_viewport_
                                             .page_size = viewport.viewport_rect().height,
                                             .value = viewport.scroll_offset().y};
         })
-        .set_on_scroll([&viewport, virtual_content_ptr](float value) {
+        .set_on_scroll([&viewport, virtual_content_ptr, relayout_root](float value) {
             viewport.set_scroll_offset(layout::Point{0.0F, value});
-            if (virtual_content_ptr != nullptr) {
-                static_cast<void>(virtual_content_ptr->update_virtualization(
-                    viewport.scroll_offset(), viewport.viewport_rect()));
+            if (virtual_content_ptr != nullptr &&
+                virtual_content_ptr->update_virtualization(viewport.scroll_offset(),
+                                                           viewport.viewport_rect())) {
+                relayout_root();
             }
         });
     viewport.set_on_scroll_changed(
-        [&viewport, &scrollbar, virtual_content_ptr](layout::Point offset) {
-            if (virtual_content_ptr != nullptr) {
-                static_cast<void>(
-                    virtual_content_ptr->update_virtualization(offset, viewport.viewport_rect()));
+        [&viewport, &scrollbar, virtual_content_ptr, relayout_root](layout::Point offset) {
+            if (virtual_content_ptr != nullptr &&
+                virtual_content_ptr->update_virtualization(offset, viewport.viewport_rect())) {
+                relayout_root();
             }
             scrollbar.set_value(offset.y);
         });

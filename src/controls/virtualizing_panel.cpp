@@ -2,6 +2,12 @@
 
 #include <algorithm>
 
+namespace {
+
+constexpr auto scroll_wheel_step = 48.0F;
+
+}  // namespace
+
 namespace winelement::controls {
 
 VirtualizingPanel::VirtualizingPanel() : Panel() {
@@ -59,11 +65,11 @@ VirtualizingPanel& VirtualizingPanel::refresh_virtualization() {
         return *this;
     }
 
-    ensure_pool();
-
     const auto window =
         planner_.window_for(scroll_offset_, viewport_extent_);
     const auto item_extent = planner_.item_extent();
+
+    ensure_pool(window.count);
 
     for (std::size_t slot = 0; slot < pool_.size(); ++slot) {
         auto& s = pool_[slot];
@@ -76,11 +82,15 @@ VirtualizingPanel& VirtualizingPanel::refresh_virtualization() {
                 item_binder_(*s.element, item_index);
                 s.item_index = item_index;
             }
-            s.element->set_visible(true);
+            if (!s.element->visible()) {
+                s.element->set_visible(true);
+            }
             s.element->set_render_transform(
                 rendering::Transform2D::translation(0.0F, y));
         } else {
-            s.element->set_visible(false);
+            if (s.element->visible()) {
+                s.element->set_visible(false);
+            }
         }
     }
 
@@ -93,31 +103,65 @@ std::size_t VirtualizingPanel::item_count() const noexcept {
 
 void VirtualizingPanel::on_viewport_enter() {
     Panel::on_viewport_enter();
+    refresh_virtualization();
 }
 
 void VirtualizingPanel::on_viewport_leave() {
     Panel::on_viewport_leave();
 }
 
-void VirtualizingPanel::ensure_pool() {
-    if (!pool_.empty()) {
+void VirtualizingPanel::on_pointer_event(elements::PointerEvent& event) {
+    if (event.kind == elements::PointerEventKind::Wheel ||
+        event.kind == elements::PointerEventKind::HorizontalWheel) {
+        if (!scroll_wheel_enabled()) {
+            Panel::on_pointer_event(event);
+            return;
+        }
+
+        const auto direction =
+            event.kind == elements::PointerEventKind::Wheel ? event.wheel_delta.y
+                                                             : event.wheel_delta.x;
+        const auto step = direction * scroll_wheel_step;
+        const auto max_scroll =
+            static_cast<float>(planner_.total_count()) * planner_.item_extent() -
+            viewport_extent_;
+        const auto previous = scroll_offset_;
+        scroll_offset_ =
+            std::clamp(scroll_offset_ - step, 0.0F, std::max(0.0F, max_scroll));
+        if (scroll_offset_ != previous) {
+            refresh_virtualization();
+            event.handled = true;
+        }
+    } else {
+        Panel::on_pointer_event(event);
+    }
+}
+
+void VirtualizingPanel::ensure_pool(std::size_t required_count) {
+    if (pool_.empty()) {
+        const auto item_extent = planner_.item_extent();
+        const auto total_height =
+            static_cast<float>(planner_.total_count()) * item_extent;
+
+        configure_layout([total_height](layout::LayoutElement& item) {
+            item.set_flex_direction(layout::FlexDirection::Column)
+                .set_align_items(layout::Align::Stretch)
+                .set_width(layout::Length::percent(100.0F))
+                .set_height(layout::Length::points(total_height))
+                .set_flex_shrink(0.0F);
+        });
+    }
+
+    const auto needed =
+        std::min(std::max(required_count, pool_capacity_), planner_.total_count());
+    if (pool_.size() >= needed) {
         return;
     }
 
     const auto item_extent = planner_.item_extent();
-    const auto total_height =
-        static_cast<float>(planner_.total_count()) * item_extent;
-
-    configure_layout([total_height](layout::LayoutElement& item) {
-        item.set_flex_direction(layout::FlexDirection::Column)
-            .set_align_items(layout::Align::Stretch)
-            .set_height(layout::Length::points(total_height))
-            .set_flex_shrink(0.0F);
-    });
-
-    const auto capacity = std::min(pool_capacity_, planner_.total_count());
-    pool_.reserve(capacity);
-    for (std::size_t i = 0; i < capacity; ++i) {
+    const auto start = pool_.size();
+    pool_.reserve(needed);
+    for (std::size_t i = start; i < needed; ++i) {
         auto element = slot_factory_ ? slot_factory_()
                                      : std::make_unique<elements::UIElement>();
         element->set_visible(false);
