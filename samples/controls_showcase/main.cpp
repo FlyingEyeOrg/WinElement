@@ -1844,8 +1844,10 @@ void add_virtualization_section(controls::StackPanel& root) {
         .set_min_thumb_extent(24.0F)
         .set_thickness(8.0F)
         .set_range(0.0F, scrollbar_max, viewport_height)
-        .set_on_scroll([&viewport](float value) {
+        .set_on_scroll([&viewport, virtual_panel_ptr](float value) {
             viewport.set_scroll_offset(layout::Point{0.0F, value});
+            virtual_panel_ptr->set_scroll_offset(value);
+            virtual_panel_ptr->refresh_virtualization();
         });
     scrollbar.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::points(12.0F))
