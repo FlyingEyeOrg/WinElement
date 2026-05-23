@@ -71,6 +71,7 @@ VirtualizingPanel& VirtualizingPanel::refresh_virtualization() {
 
     ensure_pool(window.count);
 
+    bool any_binder_called = false;
     for (std::size_t slot = 0; slot < pool_.size(); ++slot) {
         auto& s = pool_[slot];
 
@@ -78,19 +79,30 @@ VirtualizingPanel& VirtualizingPanel::refresh_virtualization() {
             const auto item_index = window.start_index + slot;
             const auto y = static_cast<float>(item_index) * item_extent;
 
-            if (s.item_index != item_index && item_binder_) {
-                item_binder_(*s.element, item_index);
-                s.item_index = item_index;
-            }
             if (!s.element->visible()) {
                 s.element->set_visible(true);
             }
             s.element->set_render_transform(
                 rendering::Transform2D::translation(0.0F, y));
+            if (s.item_index != item_index && item_binder_) {
+                item_binder_(*s.element, item_index);
+                s.item_index = item_index;
+                s.element->child_at(0).mark_measure_dirty();
+                any_binder_called = true;
+            }
         } else {
             if (s.element->visible()) {
                 s.element->set_visible(false);
             }
+        }
+    }
+
+    if (any_binder_called) {
+        const auto cf = frame();
+        if (cf.width > 0.0F && cf.height > 0.0F) {
+            invalidate_layout();
+            calculate_layout(
+                layout::LayoutConstraints{.width = cf.width, .height = cf.height});
         }
     }
 
