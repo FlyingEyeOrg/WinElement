@@ -24,6 +24,18 @@ constexpr auto indicator_gap = 8.0F;
 }
 } // namespace
 
+struct RadioGroupContext::EventState {
+    ChangeEventSignal changed;
+    core::EventToken legacy_change_token = 0U;
+};
+
+struct Radio::EventState {
+    ChangeEventSignal changed;
+    core::EventToken legacy_change_token = 0U;
+};
+
+RadioGroupContext::RadioGroupContext() = default;
+
 RadioGroupContext::~RadioGroupContext() {
     for (auto* radio : radios_) {
         if (radio != nullptr && radio->group_.get() == this) {
@@ -39,8 +51,8 @@ RadioGroupContext& RadioGroupContext::set_value(std::string_view value) {
     has_value_ = true;
     value_ = std::string(value);
     sync_radios(true);
-    if (change_handler_) {
-        change_handler_(value_);
+    if (event_state_ != nullptr && !event_state_->changed.empty()) {
+        event_state_->changed.emit(value_);
     }
     return *this;
 }
@@ -52,15 +64,29 @@ RadioGroupContext& RadioGroupContext::clear_value() {
     has_value_ = false;
     value_.clear();
     sync_radios(true);
-    if (change_handler_) {
-        change_handler_(value_);
+    if (event_state_ != nullptr && !event_state_->changed.empty()) {
+        event_state_->changed.emit(value_);
     }
     return *this;
 }
 
 RadioGroupContext& RadioGroupContext::set_on_change(ChangeHandler handler) {
-    change_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.changed, state.legacy_change_token,
+        handler ? ChangeEventSignal::Handler{std::move(handler)} : ChangeEventSignal::Handler{});
     return *this;
+}
+
+RadioGroupContext::ChangeEventSignal& RadioGroupContext::changed() noexcept {
+    return ensure_event_state().changed;
+}
+
+RadioGroupContext::EventState& RadioGroupContext::ensure_event_state() {
+    if (event_state_ == nullptr) {
+        event_state_ = std::make_unique<EventState>();
+    }
+    return *event_state_;
 }
 
 const std::string& RadioGroupContext::value() const noexcept {
@@ -187,8 +213,8 @@ void Radio::set_checked_from_group(bool checked, bool notify) {
     checked_ = checked;
     animate_checked(checked_ ? 1.0F : 0.0F);
     invalidate_paint();
-    if (notify && change_handler_) {
-        change_handler_(checked_);
+    if (notify && event_state_ != nullptr && !event_state_->changed.empty()) {
+        event_state_->changed.emit(checked_);
     }
 }
 
@@ -203,8 +229,22 @@ Radio& Radio::set_disabled(bool disabled) noexcept {
 }
 
 Radio& Radio::set_on_change(ChangeHandler handler) {
-    change_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.changed, state.legacy_change_token,
+        handler ? ChangeEventSignal::Handler{std::move(handler)} : ChangeEventSignal::Handler{});
     return *this;
+}
+
+Radio::ChangeEventSignal& Radio::changed() noexcept {
+    return ensure_event_state().changed;
+}
+
+Radio::EventState& Radio::ensure_event_state() {
+    if (event_state_ == nullptr) {
+        event_state_ = std::make_unique<EventState>();
+    }
+    return *event_state_;
 }
 
 Radio& Radio::set_style(style::UIElementStyle style) {

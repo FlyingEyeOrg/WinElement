@@ -38,6 +38,13 @@ class ItemsControl final : public Control {
     using MultiSelectionChangedHandler =
         std::function<void(const std::vector<std::size_t>& indices)>;
     using ReorderHandler = std::function<void(std::size_t from_index, std::size_t to_index)>;
+    struct ReorderEvent {
+        std::size_t from_index = 0;
+        std::size_t to_index = 0;
+    };
+    using SelectionChangedEventSignal = core::EventSignal<std::optional<std::size_t>>;
+    using MultiSelectionChangedEventSignal = core::EventSignal<const std::vector<std::size_t>&>;
+    using ReorderEventSignal = core::EventSignal<const ReorderEvent&>;
 
     ItemsControl();
     ~ItemsControl() override;
@@ -52,6 +59,9 @@ class ItemsControl final : public Control {
     ItemsControl& set_on_selection_changed(SelectionChangedHandler handler);
     ItemsControl& set_on_multi_selection_changed(MultiSelectionChangedHandler handler);
     ItemsControl& set_on_reorder(ReorderHandler handler);
+    [[nodiscard]] SelectionChangedEventSignal& selection_changed() noexcept;
+    [[nodiscard]] MultiSelectionChangedEventSignal& multi_selection_changed() noexcept;
+    [[nodiscard]] ReorderEventSignal& reordered() noexcept;
     ItemsControl& set_reusable_container_limit(std::size_t limit);
     ItemsControl& set_realized_range(std::size_t start_index, std::size_t count);
     ItemsControl& set_groups(std::vector<ItemGroup> groups);
@@ -88,14 +98,14 @@ class ItemsControl final : public Control {
     [[nodiscard]] std::unique_ptr<ItemsControlItemContainer> take_reusable_container();
     void recycle_container(std::unique_ptr<elements::UIElement> container);
 
+    struct EventState;
+    [[nodiscard]] EventState& ensure_event_state();
+
     std::vector<std::string> items_;
     ItemsSource items_source_;
     std::shared_ptr<core::ObservableStringList> observable_items_source_;
     core::ObservableObserverToken observable_items_token_ = 0U;
     ItemFactory item_factory_;
-    SelectionChangedHandler selection_changed_handler_;
-    MultiSelectionChangedHandler multi_selection_changed_handler_;
-    ReorderHandler reorder_handler_;
     SelectionMode selection_mode_ = SelectionMode::Single;
     std::optional<std::size_t> selected_index_;
     std::unordered_set<std::size_t> selected_indices_;
@@ -106,6 +116,7 @@ class ItemsControl final : public Control {
     bool realized_range_overridden_ = false;
     std::size_t reusable_container_limit_ = 64U;
     std::uint64_t items_revision_ = 0;
+    std::unique_ptr<EventState> event_state_;
 };
 
 } // namespace winelement::controls

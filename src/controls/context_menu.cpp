@@ -219,6 +219,13 @@ void paint_context_menu_item(rendering::RenderContext& context, layout::Rect ite
 
 } // namespace
 
+struct ContextMenu::EventState {
+    SelectEventSignal selected;
+    DismissEventSignal dismissed;
+    core::EventToken legacy_select_token = 0U;
+    core::EventToken legacy_dismiss_token = 0U;
+};
+
 ContextMenu::ContextMenu() : Control() {
     apply_style_value(style::default_context_menu_style(), true);
     set_theme_class(style::theme_class::context_menu);
@@ -247,24 +254,46 @@ ContextMenu& ContextMenu::set_items(std::vector<ContextMenuItem> items) {
 }
 
 ContextMenu& ContextMenu::set_on_select(SelectHandler handler) {
-    select_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.selected, state.legacy_select_token,
+        handler ? SelectEventSignal::Handler{
+                      [handler = std::move(handler)](const SelectEvent& event) {
+                          handler(event.item, event.index);
+                      }}
+                : SelectEventSignal::Handler{});
     return *this;
 }
 
 ContextMenu& ContextMenu::set_on_select(IndexSelectHandler handler) {
-    if (!handler) {
-        select_handler_ = {};
-        return *this;
-    }
-    select_handler_ = [handler = std::move(handler)](const ContextMenuItem&, std::size_t index) {
-        handler(index);
-    };
-    return *this;
+    return set_on_select(handler ? SelectHandler{[handler = std::move(handler)](
+                                                     const ContextMenuItem&, std::size_t index) {
+                                      handler(index);
+                                  }}
+                                 : SelectHandler{});
 }
 
 ContextMenu& ContextMenu::set_on_dismiss(DismissHandler handler) {
-    dismiss_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.dismissed, state.legacy_dismiss_token,
+        handler ? DismissEventSignal::Handler{std::move(handler)} : DismissEventSignal::Handler{});
     return *this;
+}
+
+ContextMenu::SelectEventSignal& ContextMenu::selected() noexcept {
+    return ensure_event_state().selected;
+}
+
+ContextMenu::DismissEventSignal& ContextMenu::dismissed() noexcept {
+    return ensure_event_state().dismissed;
+}
+
+ContextMenu::EventState& ContextMenu::ensure_event_state() {
+    if (event_state_ == nullptr) {
+        event_state_ = std::make_unique<EventState>();
+    }
+    return *event_state_;
 }
 
 ContextMenu& ContextMenu::set_metrics(ContextMenuMetrics metrics) {
@@ -351,24 +380,23 @@ void ContextMenu::open_submenu(std::size_t index) {
 
     auto weak_lifetime = std::weak_ptr<bool>{lifetime_token_};
     auto* owner = this;
-    submenu->set_on_select(
-        [weak_lifetime, owner](const ContextMenuItem& item, std::size_t child_index) {
+    submenu->selected() += [weak_lifetime, owner](const ContextMenu::SelectEvent& event) {
             const auto alive = weak_lifetime.lock();
             if (alive == nullptr || !*alive) {
                 return;
             }
-            if (owner->select_handler_) {
-                owner->select_handler_(item, child_index);
+            if (owner->event_state_ != nullptr && !owner->event_state_->selected.empty()) {
+                owner->event_state_->selected.emit(event);
             }
             owner->request_dismiss();
-        });
-    submenu->set_on_dismiss([weak_lifetime, owner]() {
+        };
+    submenu->dismissed() += [weak_lifetime, owner]() {
         const auto alive = weak_lifetime.lock();
         if (alive == nullptr || !*alive) {
             return;
         }
         owner->dismiss_submenu();
-    });
+    };
 
     auto& submenu_ref = static_cast<ContextMenu&>(push_top_layer(
         std::move(submenu), elements::TopLayerOptions{.bounds = submenu_bounds_for(index),
@@ -621,8 +649,9 @@ void ContextMenu::select_item(std::size_t index) {
         return;
     }
 
-    if (select_handler_) {
-        select_handler_(items_[index], index);
+    if (event_state_ != nullptr && !event_state_->selected.empty()) {
+        const auto event = SelectEvent{.item = items_[index], .index = index};
+        event_state_->selected.emit(event);
     }
     request_dismiss();
 }
@@ -631,8 +660,8 @@ void ContextMenu::request_dismiss() {
     dismiss_submenu();
     hovered_index_.reset();
     pressed_index_.reset();
-    if (dismiss_handler_) {
-        dismiss_handler_();
+    if (event_state_ != nullptr && !event_state_->dismissed.empty()) {
+        event_state_->dismissed.emit();
     }
 }
 

@@ -111,4 +111,18 @@ template <typename... Args> class EventSignal final {
     EventToken next_token_ = 1U;
 };
 
+template <typename Signal>
+inline EventToken replace_handler_subscription(Signal& signal, EventToken& token,
+                                               typename Signal::Handler handler) {
+    if (token != 0U) {
+        signal -= token;
+        token = 0U;
+    }
+    if (!handler) {
+        return 0U;
+    }
+    token = (signal += std::move(handler));
+    return token;
+}
+
 } // namespace winelement::core

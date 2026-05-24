@@ -6,6 +6,7 @@
 #include <winelement/style/ui_element_style.hpp>
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -16,8 +17,10 @@ enum class SwitchSize { Default, Large, Small };
 class Switch : public Control {
   public:
     using ChangeHandler = std::function<void(bool)>;
+    using ChangeEventSignal = core::EventSignal<bool>;
 
     Switch();
+    ~Switch() override;
 
     Switch& set_checked(bool checked);
     Switch& set_disabled(bool disabled) noexcept;
@@ -29,6 +32,7 @@ class Switch : public Control {
     Switch& set_inactive_value(std::string_view value);
     Switch& set_controlled(bool controlled) noexcept;
     Switch& set_on_change(ChangeHandler handler);
+    [[nodiscard]] ChangeEventSignal& changed() noexcept;
     Switch& set_style(style::UIElementStyle style) override;
     [[nodiscard]] bool checked() const noexcept;
     [[nodiscard]] bool disabled() const noexcept;
@@ -56,7 +60,9 @@ class Switch : public Control {
     void animate_hover(float target);
     void toggle();
 
-    ChangeHandler change_handler_;
+    struct EventState;
+    [[nodiscard]] EventState& ensure_event_state();
+
     std::string active_text_;
     std::string inactive_text_;
     std::string active_value_ = "true";
@@ -65,6 +71,7 @@ class Switch : public Control {
     bool checked_ = false;
     bool loading_ = false;
     bool controlled_ = false;
+    std::unique_ptr<EventState> event_state_;
     AnimatedFloat checked_progress_{0.0F};
     AnimatedFloat hover_progress_{0.0F};
 };

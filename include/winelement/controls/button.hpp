@@ -175,7 +175,6 @@ class Button : public Control {
     struct ClickEventState;
     [[nodiscard]] ClickEventState& ensure_click_event_state();
 
-    ClickHandler click_handler_;
     ButtonType type_ = ButtonType::Default;
     ButtonSize size_ = ButtonSize::Default;
     ButtonRole role_ = ButtonRole::Button;

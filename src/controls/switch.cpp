@@ -22,12 +22,19 @@ namespace {
 }
 } // namespace
 
+struct Switch::EventState {
+    ChangeEventSignal changed;
+    core::EventToken legacy_change_token = 0U;
+};
+
 Switch::Switch() : Control() {
     apply_style_value(style::default_switch_style(), true);
     set_theme_class(style::theme_class::switch_control);
     set_focusable(true);
     update_measure_callback();
 }
+
+Switch::~Switch() = default;
 
 Switch& Switch::set_checked(bool checked) {
     set_property(property_keys::switch_checked(), checked);
@@ -80,8 +87,22 @@ Switch& Switch::set_controlled(bool controlled) noexcept {
 }
 
 Switch& Switch::set_on_change(ChangeHandler handler) {
-    change_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(state.changed, state.legacy_change_token,
+                                       handler ? ChangeEventSignal::Handler{std::move(handler)}
+                                               : ChangeEventSignal::Handler{});
     return *this;
+}
+
+Switch::ChangeEventSignal& Switch::changed() noexcept {
+    return ensure_event_state().changed;
+}
+
+Switch::EventState& Switch::ensure_event_state() {
+    if (event_state_ == nullptr) {
+        event_state_ = std::make_unique<EventState>();
+    }
+    return *event_state_;
 }
 
 Switch& Switch::set_style(style::UIElementStyle style) {
@@ -142,8 +163,8 @@ void Switch::apply_property_change(const core::PropertyChange& change) {
         checked_ = v ? *v : false;
         animate_checked(checked_ ? 1.0F : 0.0F);
         invalidate_paint();
-        if (change_handler_) {
-            change_handler_(checked_);
+        if (event_state_ != nullptr && !event_state_->changed.empty()) {
+            event_state_->changed.emit(checked_);
         }
         return;
     }

@@ -41,6 +41,9 @@ class Select : public Control {
     using FilterPredicate = std::function<bool(std::string_view, std::string_view)>;
     using LabelFormatter = std::function<std::string(const SelectOption&, std::size_t)>;
     using RemoteSearchHandler = std::function<void(std::string_view)>;
+    using ChangeEventSignal = core::EventSignal<std::optional<std::size_t>>;
+    using MultiChangeEventSignal = core::EventSignal<const std::vector<std::size_t>&>;
+    using RemoteSearchEventSignal = core::EventSignal<std::string_view>;
 
     Select();
     ~Select() override;
@@ -65,6 +68,9 @@ class Select : public Control {
     Select& set_size(SelectSize size);
     Select& set_on_change(ChangeHandler handler);
     Select& set_on_multi_change(MultiChangeHandler handler);
+    [[nodiscard]] ChangeEventSignal& selection_changed() noexcept;
+    [[nodiscard]] MultiChangeEventSignal& multi_selection_changed() noexcept;
+    [[nodiscard]] RemoteSearchEventSignal& remote_search_requested() noexcept;
     Select& set_style(style::UIElementStyle style) override;
     [[nodiscard]] const std::vector<SelectOption>& options() const noexcept;
     [[nodiscard]] const std::vector<SelectOptionGroup>& option_groups() const noexcept;
@@ -123,6 +129,9 @@ class Select : public Control {
     void animate_hover(float target);
     void animate_popup_indicator(float target);
 
+    struct EventState;
+    [[nodiscard]] EventState& ensure_event_state();
+
     std::vector<SelectOption> options_;
     std::vector<SelectOptionGroup> option_groups_;
     std::vector<OptionRenderCache> option_render_cache_;
@@ -131,11 +140,8 @@ class Select : public Control {
     std::string filter_text_;
     FilterPredicate filter_predicate_;
     LabelFormatter label_formatter_;
-    RemoteSearchHandler remote_search_handler_;
     std::optional<std::size_t> selected_index_;
     std::vector<std::size_t> selected_indices_;
-    ChangeHandler change_handler_;
-    MultiChangeHandler multi_change_handler_;
     elements::PopupHandle popup_handle_{};
     elements::SvgIcon arrow_icon_;
     elements::SvgIcon clear_icon_;
@@ -156,6 +162,7 @@ class Select : public Control {
     bool popup_open_ = false;
     std::optional<std::size_t> hovered_tag_close_index_;
     std::shared_ptr<bool> lifetime_token_ = std::make_shared<bool>(true);
+    std::unique_ptr<EventState> event_state_;
 };
 
 } // namespace winelement::controls

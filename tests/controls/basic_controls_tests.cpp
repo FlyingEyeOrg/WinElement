@@ -1129,6 +1129,81 @@ TEST(BasicControlsTests, ButtonClickedEventSupportsObserverTokens) {
     EXPECT_EQ(keyboard_clicks, 1);
 }
 
+TEST(BasicControlsTests, ObserverSignalsSupportTokenSubscriptionAcrossControls) {
+    Switch switch_control;
+    auto switch_values = std::vector<bool>{};
+    const auto switch_token = (switch_control.changed() +=
+                               [&switch_values](bool checked) { switch_values.push_back(checked); });
+    switch_control.set_checked(true);
+    switch_control.changed() -= switch_token;
+    switch_control.set_checked(false);
+    EXPECT_EQ(switch_values, std::vector<bool>({true}));
+
+    Scrollbar scrollbar;
+    scrollbar.set_range(0.0F, 100.0F, 10.0F).set_distance(0.0F);
+    auto scrolled_values = std::vector<float>{};
+    auto reached_edges = std::vector<ScrollbarEndDirection>{};
+    const auto scroll_token =
+        (scrollbar.scrolled() += [&scrolled_values](float value) { scrolled_values.push_back(value); });
+    const auto end_token = (scrollbar.end_reached() +=
+                            [&reached_edges](ScrollbarEndDirection direction) {
+                                reached_edges.push_back(direction);
+                            });
+    scrollbar.set_value(100.0F);
+    scrollbar.scrolled() -= scroll_token;
+    scrollbar.end_reached() -= end_token;
+    scrollbar.set_value(0.0F);
+    EXPECT_EQ(scrolled_values, std::vector<float>({100.0F}));
+    EXPECT_EQ(reached_edges, std::vector<ScrollbarEndDirection>({ScrollbarEndDirection::Bottom}));
+
+    RadioGroupContext group;
+    auto radio_values = std::vector<std::string>{};
+    const auto group_token =
+        (group.changed() += [&radio_values](std::string_view value) { radio_values.emplace_back(value); });
+    group.set_value("alpha");
+    group.changed() -= group_token;
+    group.set_value("beta");
+    EXPECT_EQ(radio_values, std::vector<std::string>({"alpha"}));
+
+    ItemsControl items;
+    items.set_items({"one", "two", "three"});
+    auto selected_indices = std::vector<std::optional<std::size_t>>{};
+    const auto items_token = (items.selection_changed() +=
+                              [&selected_indices](std::optional<std::size_t> index) {
+                                  selected_indices.push_back(index);
+                              });
+    items.set_selected_index(1);
+    items.selection_changed() -= items_token;
+    items.set_selected_index(2);
+    ASSERT_EQ(selected_indices.size(), 1U);
+    ASSERT_TRUE(selected_indices.front().has_value());
+    EXPECT_EQ(*selected_indices.front(), 1U);
+
+    Select select;
+    select.set_options({SelectOption{.label = "One", .value = "1"},
+                        SelectOption{.label = "Two", .value = "2"}})
+        .set_filterable(true)
+        .set_remote_search(true);
+    auto filter_queries = std::vector<std::string>{};
+    auto select_changes = std::vector<std::optional<std::size_t>>{};
+    const auto query_token =
+        (select.remote_search_requested() +=
+         [&filter_queries](std::string_view query) { filter_queries.emplace_back(query); });
+    const auto change_token =
+        (select.selection_changed() +=
+         [&select_changes](std::optional<std::size_t> index) { select_changes.push_back(index); });
+    select.set_filter_text("Tw");
+    select.set_selected_index(1);
+    select.remote_search_requested() -= query_token;
+    select.selection_changed() -= change_token;
+    select.set_filter_text("One");
+    select.set_selected_index(0);
+    EXPECT_EQ(filter_queries, std::vector<std::string>({"Tw"}));
+    ASSERT_EQ(select_changes.size(), 1U);
+    ASSERT_TRUE(select_changes.front().has_value());
+    EXPECT_EQ(*select_changes.front(), 1U);
+}
+
 TEST(BasicControlsTests, ButtonIntrinsicHeightsMatchElementPlusSizes) {
     auto engine = create_unrounded_engine();
     StackPanel root;

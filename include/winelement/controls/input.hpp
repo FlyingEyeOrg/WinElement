@@ -54,6 +54,9 @@ class Input : public Control {
     using VoidHandler = std::function<void()>;
     using KeyHandler = std::function<void(const elements::KeyEvent&)>;
     using GraphemeCountHandler = std::function<std::size_t(std::string_view)>;
+    using TextEventSignal = core::EventSignal<std::string_view>;
+    using VoidEventSignal = core::EventSignal<>;
+    using KeyEventSignal = core::EventSignal<const elements::KeyEvent&>;
 
     Input();
     ~Input() override;
@@ -104,6 +107,17 @@ class Input : public Control {
     Input& set_on_composition_start(VoidHandler handler);
     Input& set_on_composition_update(TextChangeHandler handler);
     Input& set_on_composition_end(TextChangeHandler handler);
+    [[nodiscard]] TextEventSignal& input_changed() noexcept;
+    [[nodiscard]] TextEventSignal& change_committed() noexcept;
+    [[nodiscard]] VoidEventSignal& cleared() noexcept;
+    [[nodiscard]] VoidEventSignal& focus_received() noexcept;
+    [[nodiscard]] VoidEventSignal& focus_lost() noexcept;
+    [[nodiscard]] KeyEventSignal& key_down() noexcept;
+    [[nodiscard]] VoidEventSignal& mouse_entered() noexcept;
+    [[nodiscard]] VoidEventSignal& mouse_left() noexcept;
+    [[nodiscard]] VoidEventSignal& composition_started() noexcept;
+    [[nodiscard]] TextEventSignal& composition_updated() noexcept;
+    [[nodiscard]] TextEventSignal& composition_ended() noexcept;
     Input& set_style(style::UIElementStyle style) override;
     Input& set_caret_byte_offset(std::size_t byte_offset);
     Input& set_selection(std::size_t anchor_byte_offset, std::size_t active_byte_offset);
@@ -298,6 +312,9 @@ class Input : public Control {
     [[nodiscard]] bool can_show_password_button() const noexcept;
     void mark_text_transform_generation_changed() noexcept;
 
+    struct EventState;
+    [[nodiscard]] EventState& ensure_event_state();
+
     std::string committed_text_;
     std::string placeholder_;
     std::string prefix_text_;
@@ -352,17 +369,7 @@ class Input : public Control {
     TextTransform formatter_;
     TextTransform parser_;
     GraphemeCountHandler count_graphemes_handler_;
-    TextChangeHandler input_handler_;
-    TextChangeHandler change_handler_;
-    VoidHandler clear_handler_;
-    VoidHandler focus_handler_;
-    VoidHandler blur_handler_;
-    KeyHandler key_down_handler_;
-    VoidHandler mouse_enter_handler_;
-    VoidHandler mouse_leave_handler_;
-    VoidHandler composition_start_handler_;
-    TextChangeHandler composition_update_handler_;
-    TextChangeHandler composition_end_handler_;
+    std::unique_ptr<EventState> event_state_;
     elements::SvgIcon clear_icon_;
     elements::SvgIcon password_visible_icon_;
     elements::SvgIcon password_hidden_icon_;

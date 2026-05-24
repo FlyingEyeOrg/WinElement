@@ -26,12 +26,23 @@ constexpr auto element_scrollbar_min_hit_cross_extent = 12.0F;
 
 } // namespace
 
+struct Scrollbar::EventState {
+    ScrollEventSignal scrolled;
+    ScrollDataEventSignal scroll_data_changed;
+    EndReachedEventSignal end_reached;
+    core::EventToken legacy_scroll_token = 0U;
+    core::EventToken legacy_scroll_data_token = 0U;
+    core::EventToken legacy_end_reached_token = 0U;
+};
+
 Scrollbar::Scrollbar() : Control() {
     apply_style_value(style::default_scrollbar_style(), true);
     set_theme_class(style::theme_class::scrollbar);
     set_focusable(true);
     update_measure_callback();
 }
+
+Scrollbar::~Scrollbar() = default;
 
 Scrollbar& Scrollbar::set_orientation(ScrollbarOrientation orientation) {
     if (orientation_ == orientation) {
@@ -87,13 +98,13 @@ Scrollbar& Scrollbar::set_value(float value) {
 
     value_ = next_value;
     invalidate_paint();
-    if (scroll_handler_) {
-        scroll_handler_(value_);
+    if (event_state_ != nullptr && !event_state_->scrolled.empty()) {
+        event_state_->scrolled.emit(value_);
     }
-    if (scroll_data_handler_) {
-        scroll_data_handler_(orientation_ == ScrollbarOrientation::Vertical
-                                 ? ScrollbarScrollData{.scroll_top = value_}
-                                 : ScrollbarScrollData{.scroll_left = value_});
+    if (event_state_ != nullptr && !event_state_->scroll_data_changed.empty()) {
+        event_state_->scroll_data_changed.emit(orientation_ == ScrollbarOrientation::Vertical
+                                                   ? ScrollbarScrollData{.scroll_top = value_}
+                                                   : ScrollbarScrollData{.scroll_left = value_});
     }
     notify_end_reached();
     return *this;
@@ -274,19 +285,49 @@ Scrollbar& Scrollbar::set_scroll_left(float scroll_left) {
 }
 
 Scrollbar& Scrollbar::set_on_scroll(ScrollHandler handler) {
-    scroll_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.scrolled, state.legacy_scroll_token,
+        handler ? ScrollEventSignal::Handler{std::move(handler)} : ScrollEventSignal::Handler{});
     return *this;
 }
 
 Scrollbar& Scrollbar::set_on_scroll_data(ScrollDataHandler handler) {
-    scroll_data_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.scroll_data_changed, state.legacy_scroll_data_token,
+        handler ? ScrollDataEventSignal::Handler{std::move(handler)}
+                : ScrollDataEventSignal::Handler{});
     return *this;
 }
 
 Scrollbar& Scrollbar::set_on_end_reached(EndReachedHandler handler) {
-    end_reached_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.end_reached, state.legacy_end_reached_token,
+        handler ? EndReachedEventSignal::Handler{std::move(handler)}
+                : EndReachedEventSignal::Handler{});
     reset_end_reached_latches();
     return *this;
+}
+
+Scrollbar::ScrollEventSignal& Scrollbar::scrolled() noexcept {
+    return ensure_event_state().scrolled;
+}
+
+Scrollbar::ScrollDataEventSignal& Scrollbar::scroll_data_changed() noexcept {
+    return ensure_event_state().scroll_data_changed;
+}
+
+Scrollbar::EndReachedEventSignal& Scrollbar::end_reached() noexcept {
+    return ensure_event_state().end_reached;
+}
+
+Scrollbar::EventState& Scrollbar::ensure_event_state() {
+    if (event_state_ == nullptr) {
+        event_state_ = std::make_unique<EventState>();
+    }
+    return *event_state_;
 }
 
 Scrollbar& Scrollbar::set_style(style::UIElementStyle style) {
@@ -967,12 +1008,13 @@ void Scrollbar::emit_container_scroll_changed(layout::Point previous_scroll) {
     }
 
     sync_container_range_if_needed();
-    if (scroll_handler_) {
-        scroll_handler_(orientation_ == ScrollbarOrientation::Vertical ? current_scroll.y
-                                                                       : current_scroll.x);
+    if (event_state_ != nullptr && !event_state_->scrolled.empty()) {
+        event_state_->scrolled.emit(orientation_ == ScrollbarOrientation::Vertical
+                                        ? current_scroll.y
+                                        : current_scroll.x);
     }
-    if (scroll_data_handler_) {
-        scroll_data_handler_(
+    if (event_state_ != nullptr && !event_state_->scroll_data_changed.empty()) {
+        event_state_->scroll_data_changed.emit(
             ScrollbarScrollData{.scroll_left = current_scroll.x, .scroll_top = current_scroll.y});
     }
     const auto maximum = max_scroll_offset();
@@ -981,7 +1023,7 @@ void Scrollbar::emit_container_scroll_changed(layout::Point previous_scroll) {
 }
 
 void Scrollbar::notify_end_reached() {
-    if (!end_reached_handler_ || maximum_ <= minimum_) {
+    if ((event_state_ == nullptr || event_state_->end_reached.empty()) || maximum_ <= minimum_) {
         return;
     }
 
@@ -989,7 +1031,7 @@ void Scrollbar::notify_end_reached() {
 }
 
 void Scrollbar::notify_end_reached(ScrollbarOrientation orientation, float value, float maximum) {
-    if (!end_reached_handler_ || maximum <= 0.0F) {
+    if ((event_state_ == nullptr || event_state_->end_reached.empty()) || maximum <= 0.0F) {
         return;
     }
 
@@ -1008,15 +1050,15 @@ void Scrollbar::notify_end_reached(ScrollbarOrientation orientation, float value
     }
     if (at_min && !min_latch) {
         min_latch = true;
-        end_reached_handler_(orientation == ScrollbarOrientation::Vertical
-                                 ? ScrollbarEndDirection::Top
-                                 : ScrollbarEndDirection::Left);
+        event_state_->end_reached.emit(orientation == ScrollbarOrientation::Vertical
+                                           ? ScrollbarEndDirection::Top
+                                           : ScrollbarEndDirection::Left);
     }
     if (at_max && !max_latch) {
         max_latch = true;
-        end_reached_handler_(orientation == ScrollbarOrientation::Vertical
-                                 ? ScrollbarEndDirection::Bottom
-                                 : ScrollbarEndDirection::Right);
+        event_state_->end_reached.emit(orientation == ScrollbarOrientation::Vertical
+                                           ? ScrollbarEndDirection::Bottom
+                                           : ScrollbarEndDirection::Right);
     }
 }
 

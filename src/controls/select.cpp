@@ -145,6 +145,15 @@ constexpr auto pi = 3.14159265358979323846F;
 
 } // namespace
 
+struct Select::EventState {
+    ChangeEventSignal selection_changed;
+    MultiChangeEventSignal multi_selection_changed;
+    RemoteSearchEventSignal remote_search_requested;
+    core::EventToken legacy_change_token = 0U;
+    core::EventToken legacy_multi_change_token = 0U;
+    core::EventToken legacy_remote_search_token = 0U;
+};
+
 class SelectDropdown final : public elements::UIElement {
   public:
     explicit SelectDropdown(Select& owner) : owner_(owner) {
@@ -574,8 +583,8 @@ Select& Select::set_selected_index(std::optional<std::size_t> index) {
     }
     invalidate_paint();
     refresh_popup_items();
-    if (change_handler_) {
-        change_handler_(selected_index_);
+    if (event_state_ != nullptr && !event_state_->selection_changed.empty()) {
+        event_state_->selection_changed.emit(selected_index_);
     }
     return *this;
 }
@@ -600,11 +609,11 @@ Select& Select::set_selected_indices(std::vector<std::size_t> indices) {
                           : std::optional<std::size_t>{selected_indices_.front()};
     invalidate_paint();
     refresh_popup_items();
-    if (multi_change_handler_) {
-        multi_change_handler_(selected_indices_);
+    if (event_state_ != nullptr && !event_state_->multi_selection_changed.empty()) {
+        event_state_->multi_selection_changed.emit(selected_indices_);
     }
-    if (change_handler_) {
-        change_handler_(selected_index_);
+    if (event_state_ != nullptr && !event_state_->selection_changed.empty()) {
+        event_state_->selection_changed.emit(selected_index_);
     }
     return *this;
 }
@@ -656,8 +665,8 @@ Select& Select::set_filter_text(std::string_view filter_text) {
         return *this;
     }
     filter_text_ = filter_text;
-    if (remote_search_ && remote_search_handler_) {
-        remote_search_handler_(filter_text_);
+    if (remote_search_ && event_state_ != nullptr && !event_state_->remote_search_requested.empty()) {
+        event_state_->remote_search_requested.emit(filter_text_);
     }
     refresh_filter();
     refresh_popup_items();
@@ -671,7 +680,11 @@ Select& Select::set_remote_search(bool remote) noexcept {
 }
 
 Select& Select::set_remote_search_handler(RemoteSearchHandler handler) {
-    remote_search_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.remote_search_requested, state.legacy_remote_search_token,
+        handler ? RemoteSearchEventSignal::Handler{std::move(handler)}
+                : RemoteSearchEventSignal::Handler{});
     return *this;
 }
 
@@ -738,13 +751,39 @@ Select& Select::set_size(SelectSize size) {
 }
 
 Select& Select::set_on_change(ChangeHandler handler) {
-    change_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.selection_changed, state.legacy_change_token,
+        handler ? ChangeEventSignal::Handler{std::move(handler)} : ChangeEventSignal::Handler{});
     return *this;
 }
 
 Select& Select::set_on_multi_change(MultiChangeHandler handler) {
-    multi_change_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.multi_selection_changed, state.legacy_multi_change_token,
+        handler ? MultiChangeEventSignal::Handler{std::move(handler)}
+                : MultiChangeEventSignal::Handler{});
     return *this;
+}
+
+Select::ChangeEventSignal& Select::selection_changed() noexcept {
+    return ensure_event_state().selection_changed;
+}
+
+Select::MultiChangeEventSignal& Select::multi_selection_changed() noexcept {
+    return ensure_event_state().multi_selection_changed;
+}
+
+Select::RemoteSearchEventSignal& Select::remote_search_requested() noexcept {
+    return ensure_event_state().remote_search_requested;
+}
+
+Select::EventState& Select::ensure_event_state() {
+    if (event_state_ == nullptr) {
+        event_state_ = std::make_unique<EventState>();
+    }
+    return *event_state_;
 }
 
 Select& Select::set_style(style::UIElementStyle style) {

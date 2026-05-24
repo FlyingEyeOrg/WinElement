@@ -47,6 +47,12 @@ class ContextMenu final : public Control {
     using SelectHandler = std::function<void(const ContextMenuItem& item, std::size_t index)>;
     using IndexSelectHandler = std::function<void(std::size_t index)>;
     using DismissHandler = std::function<void()>;
+    struct SelectEvent {
+        const ContextMenuItem& item;
+        std::size_t index = 0;
+    };
+    using SelectEventSignal = core::EventSignal<const SelectEvent&>;
+    using DismissEventSignal = core::EventSignal<>;
 
     ContextMenu();
     ~ContextMenu() override;
@@ -55,6 +61,8 @@ class ContextMenu final : public Control {
     ContextMenu& set_on_select(SelectHandler handler);
     ContextMenu& set_on_select(IndexSelectHandler handler);
     ContextMenu& set_on_dismiss(DismissHandler handler);
+    [[nodiscard]] SelectEventSignal& selected() noexcept;
+    [[nodiscard]] DismissEventSignal& dismissed() noexcept;
     ContextMenu& set_metrics(ContextMenuMetrics metrics);
 
     [[nodiscard]] const std::vector<ContextMenuItem>& items() const noexcept;
@@ -80,10 +88,11 @@ class ContextMenu final : public Control {
     void request_dismiss();
     [[nodiscard]] float animated_open_progress() const;
 
+    struct EventState;
+    [[nodiscard]] EventState& ensure_event_state();
+
     std::vector<ContextMenuItem> items_;
     ContextMenuMetrics metrics_{};
-    SelectHandler select_handler_;
-    DismissHandler dismiss_handler_;
     elements::SvgIcon check_icon_;
     elements::SvgIcon submenu_icon_;
     std::optional<std::size_t> hovered_index_;
@@ -92,6 +101,7 @@ class ContextMenu final : public Control {
     std::optional<std::size_t> submenu_parent_index_;
     AnimatedFloat open_progress_{0.92F};
     std::shared_ptr<bool> lifetime_token_ = std::make_shared<bool>(true);
+    std::unique_ptr<EventState> event_state_;
 };
 
 } // namespace winelement::controls

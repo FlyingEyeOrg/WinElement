@@ -463,6 +463,21 @@ bool handle_overlay_drag(elements::UIElement& element, bool draggable, bool& dra
 
 } // namespace
 
+struct Message::EventState {
+    CloseEventSignal closed;
+    core::EventToken legacy_closed_token = 0U;
+};
+
+struct MessageBox::EventState {
+    ActionEventSignal action_invoked;
+    core::EventToken legacy_action_token = 0U;
+};
+
+struct Dialog::EventState {
+    ActionEventSignal action_invoked;
+    core::EventToken legacy_action_token = 0U;
+};
+
 Message::Message() : Control() {
     set_theme_class("wm.message");
     auto& surface = append_new_child<elements::UIElement>();
@@ -492,11 +507,13 @@ Message::Message() : Control() {
     auto& close = append_new_child<Button>();
     configure_close_button(close, 16.0F, rendering::Color::rgba(192, 196, 204),
                            rendering::Color::rgba(144, 147, 153));
-    close.set_on_click([this]() { this->close(); });
+    close.clicked() += [this](const ButtonClickEvent&) { this->close(); };
     close_button_ = &close;
     apply_visual_state();
     restart_open_animation();
 }
+
+Message::~Message() = default;
 
 Message& Message::set_text(std::string_view text) {
     if (text_ == text) {
@@ -529,8 +546,22 @@ Message& Message::set_show_close(bool show_close) {
 }
 
 Message& Message::set_on_close(CloseHandler handler) {
-    close_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.closed, state.legacy_closed_token,
+        handler ? CloseEventSignal::Handler{std::move(handler)} : CloseEventSignal::Handler{});
     return *this;
+}
+
+Message::CloseEventSignal& Message::closed() noexcept {
+    return ensure_event_state().closed;
+}
+
+Message::EventState& Message::ensure_event_state() {
+    if (event_state_ == nullptr) {
+        event_state_ = std::make_unique<EventState>();
+    }
+    return *event_state_;
 }
 
 const std::string& Message::text() const noexcept {
@@ -603,9 +634,8 @@ bool Message::on_animation_frame(animation::AnimationTimePoint now) {
         if (auto* host = parent()) {
             relayout_host_messages(*host, true);
         }
-        const auto handler = close_handler_;
-        if (handler) {
-            handler();
+        if (event_state_ != nullptr && !event_state_->closed.empty()) {
+            event_state_->closed.emit();
         }
         dismiss_own_top_layer();
         return false;
@@ -789,7 +819,7 @@ MessageBox::MessageBox() : Control() {
 
     auto& input = body.append_new_child<Input>();
     input.set_placeholder("Please input");
-    input.set_on_input([this](std::string_view) { clear_prompt_error(); });
+    input.input_changed() += [this](std::string_view) { clear_prompt_error(); };
     input.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F))
             .set_margin(layout::Edge::Top, layout::Length::points(message_box_prompt_gap))
@@ -823,12 +853,14 @@ MessageBox::MessageBox() : Control() {
 
     auto& cancel = footer.append_new_child<Button>();
     configure_footer_button(cancel, "Cancel", ButtonType::Default);
-    cancel.set_on_click([this]() { close_with_action(MessageBoxAction::Cancel); });
+    cancel.clicked() +=
+        [this](const ButtonClickEvent&) { close_with_action(MessageBoxAction::Cancel); };
     cancel_button_ = &cancel;
 
     auto& confirm = footer.append_new_child<Button>();
     configure_footer_button(confirm, "OK", ButtonType::Primary);
-    confirm.set_on_click([this]() { close_with_action(MessageBoxAction::Confirm); });
+    confirm.clicked() +=
+        [this](const ButtonClickEvent&) { close_with_action(MessageBoxAction::Confirm); };
     confirm_button_ = &confirm;
 
     auto& close = append_new_child<Button>();
@@ -840,13 +872,15 @@ MessageBox::MessageBox() : Control() {
             .set_position(layout::Edge::Top, layout::Length::points(0.0F))
             .set_size(layout::Length::points(40.0F), layout::Length::points(40.0F));
     });
-    close.set_on_click([this]() { close_with_action(MessageBoxAction::Close); });
+    close.clicked() += [this](const ButtonClickEvent&) { close_with_action(MessageBoxAction::Close); };
     close_button_ = &close;
 
     set_title("Message");
     apply_visual_state();
     restart_open_animation();
 }
+
+MessageBox::~MessageBox() = default;
 
 MessageBox& MessageBox::set_title(std::string_view title) {
     if (title_ == title) {
@@ -1002,8 +1036,26 @@ MessageBox& MessageBox::set_draggable(bool draggable) noexcept {
 }
 
 MessageBox& MessageBox::set_on_action(ActionHandler handler) {
-    action_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.action_invoked, state.legacy_action_token,
+        handler ? ActionEventSignal::Handler{
+                      [handler = std::move(handler)](const ActionEvent& event) {
+                          handler(event.action, std::string(event.input_text));
+                      }}
+                : ActionEventSignal::Handler{});
     return *this;
+}
+
+MessageBox::ActionEventSignal& MessageBox::action_invoked() noexcept {
+    return ensure_event_state().action_invoked;
+}
+
+MessageBox::EventState& MessageBox::ensure_event_state() {
+    if (event_state_ == nullptr) {
+        event_state_ = std::make_unique<EventState>();
+    }
+    return *event_state_;
 }
 
 const std::string& MessageBox::title() const noexcept {
@@ -1242,7 +1294,6 @@ void MessageBox::sync_prompt_error_label() {
 }
 
 void MessageBox::close_with_action(MessageBoxAction action) {
-    auto handler = action_handler_;
     auto value = input_text();
     if (action == MessageBoxAction::Confirm && kind_ == MessageBoxKind::Prompt &&
         input_validator_) {
@@ -1256,14 +1307,16 @@ void MessageBox::close_with_action(MessageBoxAction action) {
                                      ? MessageBoxAction::Cancel
                                      : action;
     if (action == MessageBoxAction::Confirm && !close_on_confirm_) {
-        if (handler) {
-            handler(reported_action, std::move(value));
+        if (event_state_ != nullptr && !event_state_->action_invoked.empty()) {
+            const auto event = ActionEvent{.action = reported_action, .input_text = value};
+            event_state_->action_invoked.emit(event);
         }
         return;
     }
     dismiss_own_top_layer();
-    if (handler) {
-        handler(reported_action, std::move(value));
+    if (event_state_ != nullptr && !event_state_->action_invoked.empty()) {
+        const auto event = ActionEvent{.action = reported_action, .input_text = value};
+        event_state_->action_invoked.emit(event);
     }
 }
 
@@ -1584,8 +1637,15 @@ class DialogWindowImpl final {
     }
 
     DialogWindowImpl& set_on_action(DialogWindow::ActionHandler handler) {
-        action_handler_ = std::move(handler);
+        core::replace_handler_subscription(
+            action_invoked_, legacy_action_token_,
+            handler ? DialogWindow::ActionEventSignal::Handler{std::move(handler)}
+                    : DialogWindow::ActionEventSignal::Handler{});
         return *this;
+    }
+
+    [[nodiscard]] DialogWindow::ActionEventSignal& action_invoked() noexcept {
+        return action_invoked_;
     }
 
     [[nodiscard]] const std::string& title() const noexcept {
@@ -1662,8 +1722,6 @@ class DialogWindowImpl final {
         options.width = width_;
         options.height = height_;
         options.owner = owner_;
-        options.on_action = action_handler_;
-
         platform::WindowOptions window_options;
         window_options.title = utf8_to_wide(options.title);
         window_options.width = std::max(options.width, 360);
@@ -1715,12 +1773,12 @@ class DialogWindowImpl final {
         auto& cancel = footer.append_new_child<Button>();
         configure_footer_button(cancel, cancel_button_text_, ButtonType::Default);
         cancel.set_visible(show_cancel_button_);
-        cancel.set_on_click([this]() { close_with_action(DialogAction::Cancel); });
+        cancel.clicked() += [this](const ButtonClickEvent&) { close_with_action(DialogAction::Cancel); };
         cancel_button_ = &cancel;
 
         auto& confirm = footer.append_new_child<Button>();
         configure_footer_button(confirm, confirm_button_text_, ButtonType::Primary);
-        confirm.set_on_click([this]() { close_with_action(DialogAction::Confirm); });
+        confirm.clicked() += [this](const ButtonClickEvent&) { close_with_action(DialogAction::Confirm); };
         confirm_button_ = &confirm;
 
         return root;
@@ -1729,8 +1787,8 @@ class DialogWindowImpl final {
     void close_with_action(DialogAction action) {
         if (action == DialogAction::Confirm && !close_on_confirm_) {
             last_action_ = action;
-            if (action_handler_) {
-                action_handler_(action);
+            if (!action_invoked_.empty()) {
+                action_invoked_.emit(action);
             }
             return;
         }
@@ -1749,9 +1807,8 @@ class DialogWindowImpl final {
         body_label_ = nullptr;
         confirm_button_ = nullptr;
         cancel_button_ = nullptr;
-        auto handler = action_handler_;
-        if (handler) {
-            handler(action);
+        if (!action_invoked_.empty()) {
+            action_invoked_.emit(action);
         }
     }
 
@@ -1759,7 +1816,8 @@ class DialogWindowImpl final {
     Text* body_label_ = nullptr;
     Button* confirm_button_ = nullptr;
     Button* cancel_button_ = nullptr;
-    DialogWindow::ActionHandler action_handler_;
+    DialogWindow::ActionEventSignal action_invoked_;
+    core::EventToken legacy_action_token_ = 0U;
     std::string title_ = "Dialog";
     std::string body_;
     std::string confirm_button_text_ = "Confirm";
@@ -1832,6 +1890,10 @@ DialogWindow& DialogWindow::set_owner(platform::Window* owner) noexcept {
 DialogWindow& DialogWindow::set_on_action(ActionHandler handler) {
     impl_->set_on_action(std::move(handler));
     return *this;
+}
+
+DialogWindow::ActionEventSignal& DialogWindow::action_invoked() noexcept {
+    return impl_->action_invoked();
 }
 
 const std::string& DialogWindow::title() const noexcept {
@@ -1916,11 +1978,12 @@ Dialog::Dialog() : Control() {
     });
     auto& cancel = footer.append_new_child<Button>();
     configure_footer_button(cancel, "Cancel", ButtonType::Default);
-    cancel.set_on_click([this]() { close_with_action(DialogAction::Cancel); });
+    cancel.clicked() += [this](const ButtonClickEvent&) { close_with_action(DialogAction::Cancel); };
     cancel_button_ = &cancel;
     auto& confirm = footer.append_new_child<Button>();
     configure_footer_button(confirm, "Confirm", ButtonType::Primary);
-    confirm.set_on_click([this]() { close_with_action(DialogAction::Confirm); });
+    confirm.clicked() +=
+        [this](const ButtonClickEvent&) { close_with_action(DialogAction::Confirm); };
     confirm_button_ = &confirm;
 
     auto& close = append_new_child<Button>();
@@ -1932,12 +1995,14 @@ Dialog::Dialog() : Control() {
             .set_position(layout::Edge::Top, layout::Length::points(0.0F))
             .set_size(layout::Length::points(48.0F), layout::Length::points(48.0F));
     });
-    close.set_on_click([this]() { close_with_action(DialogAction::Close); });
+    close.clicked() += [this](const ButtonClickEvent&) { close_with_action(DialogAction::Close); };
     close_button_ = &close;
     set_title("Dialog");
     apply_visual_state();
     restart_open_animation();
 }
+
+Dialog::~Dialog() = default;
 
 Dialog& Dialog::set_title(std::string_view title) {
     if (title_ == title) {
@@ -2019,8 +2084,22 @@ void Dialog::apply_visual_state() {
 }
 
 Dialog& Dialog::set_on_action(ActionHandler handler) {
-    action_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.action_invoked, state.legacy_action_token,
+        handler ? ActionEventSignal::Handler{std::move(handler)} : ActionEventSignal::Handler{});
     return *this;
+}
+
+Dialog::ActionEventSignal& Dialog::action_invoked() noexcept {
+    return ensure_event_state().action_invoked;
+}
+
+Dialog::EventState& Dialog::ensure_event_state() {
+    if (event_state_ == nullptr) {
+        event_state_ = std::make_unique<EventState>();
+    }
+    return *event_state_;
 }
 
 const std::string& Dialog::title() const noexcept {
@@ -2124,16 +2203,15 @@ Dialog::cursor_for_local_point(layout::Point local_position) const noexcept {
 }
 
 void Dialog::close_with_action(DialogAction action) {
-    auto handler = action_handler_;
     if (action == DialogAction::Confirm && !close_on_confirm_) {
-        if (handler) {
-            handler(action);
+        if (event_state_ != nullptr && !event_state_->action_invoked.empty()) {
+            event_state_->action_invoked.emit(action);
         }
         return;
     }
     dismiss_own_top_layer();
-    if (handler) {
-        handler(action);
+    if (event_state_ != nullptr && !event_state_->action_invoked.empty()) {
+        event_state_->action_invoked.emit(action);
     }
 }
 

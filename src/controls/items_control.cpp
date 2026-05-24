@@ -199,6 +199,15 @@ void configure_items_layout(elements::UIElement& element) {
 
 } // namespace
 
+struct ItemsControl::EventState {
+    SelectionChangedEventSignal selection_changed;
+    MultiSelectionChangedEventSignal multi_selection_changed;
+    ReorderEventSignal reordered;
+    core::EventToken legacy_selection_changed_token = 0U;
+    core::EventToken legacy_multi_selection_changed_token = 0U;
+    core::EventToken legacy_reordered_token = 0U;
+};
+
 ItemsControl::ItemsControl() : Control() {
     apply_style_value(style::default_items_control_style(), true);
     set_theme_class(style::theme_class::items_control);
@@ -273,11 +282,14 @@ ItemsControl& ItemsControl::set_selection_mode(SelectionMode mode) {
     }
 
     refresh_realized_containers();
-    if (multi_selection_changed_handler_ && previous_selected_indices != selected_indices()) {
-        multi_selection_changed_handler_(selected_indices());
+    if (event_state_ != nullptr && previous_selected_indices != selected_indices() &&
+        !event_state_->multi_selection_changed.empty()) {
+        const auto indices = selected_indices();
+        event_state_->multi_selection_changed.emit(indices);
     }
-    if (selection_changed_handler_ && previous_selected_index != selected_index_) {
-        selection_changed_handler_(selected_index_);
+    if (event_state_ != nullptr && previous_selected_index != selected_index_ &&
+        !event_state_->selection_changed.empty()) {
+        event_state_->selection_changed.emit(selected_index_);
     }
     return *this;
 }
@@ -299,11 +311,14 @@ ItemsControl& ItemsControl::set_selected_index(std::optional<std::size_t> index)
     selected_index_ = index;
     selected_indices_.clear();
     refresh_realized_containers();
-    if (clear_multi_selection && multi_selection_changed_handler_) {
-        multi_selection_changed_handler_(selected_indices());
+    if (clear_multi_selection && event_state_ != nullptr &&
+        !event_state_->multi_selection_changed.empty()) {
+        const auto indices = selected_indices();
+        event_state_->multi_selection_changed.emit(indices);
     }
-    if (selection_changed_handler_ && previous_selected_index != selected_index_) {
-        selection_changed_handler_(selected_index_);
+    if (event_state_ != nullptr && previous_selected_index != selected_index_ &&
+        !event_state_->selection_changed.empty()) {
+        event_state_->selection_changed.emit(selected_index_);
     }
     return *this;
 }
@@ -334,28 +349,63 @@ ItemsControl& ItemsControl::set_selected_indices(std::vector<std::size_t> indice
     selected_indices_ = std::move(next);
     selected_index_ = next_selected_index;
     refresh_realized_containers();
-    if (multi_selection_changed_handler_) {
-        multi_selection_changed_handler_(selected_indices());
+    if (event_state_ != nullptr && !event_state_->multi_selection_changed.empty()) {
+        const auto indices = selected_indices();
+        event_state_->multi_selection_changed.emit(indices);
     }
-    if (selection_changed_handler_) {
-        selection_changed_handler_(selected_index_);
+    if (event_state_ != nullptr && !event_state_->selection_changed.empty()) {
+        event_state_->selection_changed.emit(selected_index_);
     }
     return *this;
 }
 
 ItemsControl& ItemsControl::set_on_selection_changed(SelectionChangedHandler handler) {
-    selection_changed_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.selection_changed, state.legacy_selection_changed_token,
+        handler ? SelectionChangedEventSignal::Handler{std::move(handler)}
+                : SelectionChangedEventSignal::Handler{});
     return *this;
 }
 
 ItemsControl& ItemsControl::set_on_multi_selection_changed(MultiSelectionChangedHandler handler) {
-    multi_selection_changed_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.multi_selection_changed, state.legacy_multi_selection_changed_token,
+        handler ? MultiSelectionChangedEventSignal::Handler{std::move(handler)}
+                : MultiSelectionChangedEventSignal::Handler{});
     return *this;
 }
 
 ItemsControl& ItemsControl::set_on_reorder(ReorderHandler handler) {
-    reorder_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.reordered, state.legacy_reordered_token,
+        handler ? ReorderEventSignal::Handler{
+                      [handler = std::move(handler)](const ReorderEvent& event) {
+                          handler(event.from_index, event.to_index);
+                      }}
+                : ReorderEventSignal::Handler{});
     return *this;
+}
+
+ItemsControl::SelectionChangedEventSignal& ItemsControl::selection_changed() noexcept {
+    return ensure_event_state().selection_changed;
+}
+
+ItemsControl::MultiSelectionChangedEventSignal& ItemsControl::multi_selection_changed() noexcept {
+    return ensure_event_state().multi_selection_changed;
+}
+
+ItemsControl::ReorderEventSignal& ItemsControl::reordered() noexcept {
+    return ensure_event_state().reordered;
+}
+
+ItemsControl::EventState& ItemsControl::ensure_event_state() {
+    if (event_state_ == nullptr) {
+        event_state_ = std::make_unique<EventState>();
+    }
+    return *event_state_;
 }
 
 ItemsControl& ItemsControl::set_reusable_container_limit(std::size_t limit) {
@@ -564,8 +614,9 @@ void ItemsControl::reorder_from_item(std::size_t from_index, std::size_t to_inde
     if (from_index >= items_.size() || to_index >= items_.size() || from_index == to_index) {
         return;
     }
-    if (reorder_handler_) {
-        reorder_handler_(from_index, to_index);
+    if (event_state_ != nullptr && !event_state_->reordered.empty()) {
+        const auto event = ReorderEvent{.from_index = from_index, .to_index = to_index};
+        event_state_->reordered.emit(event);
     }
 }
 

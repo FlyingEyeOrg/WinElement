@@ -41,13 +41,16 @@ struct MessageOptions {
 class Message final : public Control {
   public:
     using CloseHandler = std::function<void()>;
+    using CloseEventSignal = core::EventSignal<>;
 
     Message();
+    ~Message() override;
 
     Message& set_text(std::string_view text);
     Message& set_type(MessageType type);
     Message& set_show_close(bool show_close);
     Message& set_on_close(CloseHandler handler);
+    [[nodiscard]] CloseEventSignal& closed() noexcept;
     [[nodiscard]] const std::string& text() const noexcept;
     [[nodiscard]] MessageType type() const noexcept;
     [[nodiscard]] bool show_close() const noexcept;
@@ -70,12 +73,13 @@ class Message final : public Control {
     void set_duration(int duration_ms) noexcept;
     static void relayout_host_messages(elements::UIElement& host, bool animate);
     void close();
+    struct EventState;
+    [[nodiscard]] EventState& ensure_event_state();
 
     elements::UIElement* surface_ = nullptr;
     elements::SvgIcon* status_icon_ = nullptr;
     Text* text_label_ = nullptr;
     Button* close_button_ = nullptr;
-    CloseHandler close_handler_;
     std::string text_;
     MessageType type_ = MessageType::Info;
     bool show_close_ = false;
@@ -85,6 +89,7 @@ class Message final : public Control {
     float height_ = 40.0F;
     float top_offset_ = 20.0F;
     animation::AnimationTimePoint opened_at_{};
+    std::unique_ptr<EventState> event_state_;
     AnimatedFloat open_progress_{0.0F};
     AnimatedFloat stack_top_{20.0F};
 };
@@ -124,8 +129,14 @@ struct MessageBoxOptions {
 class MessageBox final : public Control {
   public:
     using ActionHandler = std::function<void(MessageBoxAction, std::string)>;
+    struct ActionEvent {
+        MessageBoxAction action = MessageBoxAction::Close;
+        std::string_view input_text;
+    };
+    using ActionEventSignal = core::EventSignal<const ActionEvent&>;
 
     MessageBox();
+    ~MessageBox() override;
 
     MessageBox& set_title(std::string_view title);
     MessageBox& set_message(std::string_view message);
@@ -146,6 +157,7 @@ class MessageBox final : public Control {
     MessageBox& set_input_validator(MessageBoxInputValidator validator);
     MessageBox& set_draggable(bool draggable) noexcept;
     MessageBox& set_on_action(ActionHandler handler);
+    [[nodiscard]] ActionEventSignal& action_invoked() noexcept;
     [[nodiscard]] const std::string& title() const noexcept;
     [[nodiscard]] const std::string& message() const noexcept;
     [[nodiscard]] MessageBoxKind kind() const noexcept;
@@ -175,6 +187,8 @@ class MessageBox final : public Control {
     void clear_prompt_error();
     void show_prompt_error(std::string_view message);
     void sync_prompt_error_label();
+    struct EventState;
+    [[nodiscard]] EventState& ensure_event_state();
 
     elements::UIElement* surface_ = nullptr;
     StackPanel* header_panel_ = nullptr;
@@ -190,7 +204,6 @@ class MessageBox final : public Control {
     Button* close_button_ = nullptr;
     Button* confirm_button_ = nullptr;
     Button* cancel_button_ = nullptr;
-    ActionHandler action_handler_;
     std::string title_;
     std::string message_;
     MessageBoxKind kind_ = MessageBoxKind::Alert;
@@ -211,6 +224,7 @@ class MessageBox final : public Control {
     layout::Point drag_start_pointer_{};
     layout::Point drag_current_delta_{};
     layout::Rect drag_start_bounds_{};
+    std::unique_ptr<EventState> event_state_;
     AnimatedFloat open_progress_{0.82F};
 };
 
@@ -296,6 +310,7 @@ struct DialogWindowOptions {
 class DialogWindow final {
   public:
     using ActionHandler = std::function<void(DialogAction)>;
+    using ActionEventSignal = core::EventSignal<DialogAction>;
 
     DialogWindow();
     ~DialogWindow();
@@ -315,6 +330,7 @@ class DialogWindow final {
     DialogWindow& set_window_size(int width, int height = 0) noexcept;
     DialogWindow& set_owner(platform::Window* owner) noexcept;
     DialogWindow& set_on_action(ActionHandler handler);
+    [[nodiscard]] ActionEventSignal& action_invoked() noexcept;
     [[nodiscard]] const std::string& title() const noexcept;
     [[nodiscard]] const std::string& body() const noexcept;
     [[nodiscard]] bool show_cancel_button() const noexcept;
@@ -332,8 +348,10 @@ class DialogWindow final {
 class Dialog final : public Control {
   public:
     using ActionHandler = std::function<void(DialogAction)>;
+    using ActionEventSignal = core::EventSignal<DialogAction>;
 
     Dialog();
+    ~Dialog() override;
 
     Dialog& set_title(std::string_view title);
     Dialog& set_body(std::string_view body);
@@ -344,6 +362,7 @@ class Dialog final : public Control {
     Dialog& set_close_on_confirm(bool close_on_confirm) noexcept;
     Dialog& set_draggable(bool draggable) noexcept;
     Dialog& set_on_action(ActionHandler handler);
+    [[nodiscard]] ActionEventSignal& action_invoked() noexcept;
     [[nodiscard]] const std::string& title() const noexcept;
     [[nodiscard]] const std::string& body() const noexcept;
     [[nodiscard]] bool show_close() const noexcept;
@@ -364,6 +383,8 @@ class Dialog final : public Control {
     void restart_open_animation() noexcept;
     void apply_open_animation() noexcept;
     void close_with_action(DialogAction action);
+    struct EventState;
+    [[nodiscard]] EventState& ensure_event_state();
 
     elements::UIElement* surface_ = nullptr;
     Text* title_label_ = nullptr;
@@ -371,7 +392,6 @@ class Dialog final : public Control {
     Button* close_button_ = nullptr;
     Button* confirm_button_ = nullptr;
     Button* cancel_button_ = nullptr;
-    ActionHandler action_handler_;
     std::string title_;
     std::string body_;
     bool show_close_ = true;
@@ -383,6 +403,7 @@ class Dialog final : public Control {
     layout::Point drag_start_pointer_{};
     layout::Point drag_current_delta_{};
     layout::Rect drag_start_bounds_{};
+    std::unique_ptr<EventState> event_state_;
     AnimatedFloat open_progress_{0.82F};
 };
 

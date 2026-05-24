@@ -360,6 +360,31 @@ text_offset_for_display_code_point_offset(std::string_view text,
 
 } // namespace
 
+struct Input::EventState {
+    TextEventSignal input_changed;
+    TextEventSignal change_committed;
+    VoidEventSignal cleared;
+    VoidEventSignal focused;
+    VoidEventSignal blurred;
+    KeyEventSignal key_down;
+    VoidEventSignal mouse_entered;
+    VoidEventSignal mouse_left;
+    VoidEventSignal composition_started;
+    TextEventSignal composition_updated;
+    TextEventSignal composition_ended;
+    core::EventToken legacy_input_token = 0U;
+    core::EventToken legacy_change_token = 0U;
+    core::EventToken legacy_clear_token = 0U;
+    core::EventToken legacy_focus_token = 0U;
+    core::EventToken legacy_blur_token = 0U;
+    core::EventToken legacy_key_down_token = 0U;
+    core::EventToken legacy_mouse_enter_token = 0U;
+    core::EventToken legacy_mouse_leave_token = 0U;
+    core::EventToken legacy_composition_start_token = 0U;
+    core::EventToken legacy_composition_update_token = 0U;
+    core::EventToken legacy_composition_end_token = 0U;
+};
+
 class Input::TextInputHandlerAdapter final : public elements::TextInputHandler {
   public:
     explicit TextInputHandlerAdapter(Input& owner) noexcept : owner_(owner) {}
@@ -730,58 +755,142 @@ Input& Input::set_parser(TextTransform parser) {
 }
 
 Input& Input::set_on_input(TextChangeHandler handler) {
-    input_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.input_changed, state.legacy_input_token,
+        handler ? TextEventSignal::Handler{std::move(handler)} : TextEventSignal::Handler{});
     return *this;
 }
 
 Input& Input::set_on_change(TextChangeHandler handler) {
-    change_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.change_committed, state.legacy_change_token,
+        handler ? TextEventSignal::Handler{std::move(handler)} : TextEventSignal::Handler{});
     return *this;
 }
 
 Input& Input::set_on_clear(VoidHandler handler) {
-    clear_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.cleared, state.legacy_clear_token,
+        handler ? VoidEventSignal::Handler{std::move(handler)} : VoidEventSignal::Handler{});
     return *this;
 }
 
 Input& Input::set_on_focus(VoidHandler handler) {
-    focus_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.focused, state.legacy_focus_token,
+        handler ? VoidEventSignal::Handler{std::move(handler)} : VoidEventSignal::Handler{});
     return *this;
 }
 
 Input& Input::set_on_blur(VoidHandler handler) {
-    blur_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.blurred, state.legacy_blur_token,
+        handler ? VoidEventSignal::Handler{std::move(handler)} : VoidEventSignal::Handler{});
     return *this;
 }
 
 Input& Input::set_on_key_down(KeyHandler handler) {
-    key_down_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.key_down, state.legacy_key_down_token,
+        handler ? KeyEventSignal::Handler{std::move(handler)} : KeyEventSignal::Handler{});
     return *this;
 }
 
 Input& Input::set_on_mouse_enter(VoidHandler handler) {
-    mouse_enter_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.mouse_entered, state.legacy_mouse_enter_token,
+        handler ? VoidEventSignal::Handler{std::move(handler)} : VoidEventSignal::Handler{});
     return *this;
 }
 
 Input& Input::set_on_mouse_leave(VoidHandler handler) {
-    mouse_leave_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.mouse_left, state.legacy_mouse_leave_token,
+        handler ? VoidEventSignal::Handler{std::move(handler)} : VoidEventSignal::Handler{});
     return *this;
 }
 
 Input& Input::set_on_composition_start(VoidHandler handler) {
-    composition_start_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.composition_started, state.legacy_composition_start_token,
+        handler ? VoidEventSignal::Handler{std::move(handler)} : VoidEventSignal::Handler{});
     return *this;
 }
 
 Input& Input::set_on_composition_update(TextChangeHandler handler) {
-    composition_update_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.composition_updated, state.legacy_composition_update_token,
+        handler ? TextEventSignal::Handler{std::move(handler)} : TextEventSignal::Handler{});
     return *this;
 }
 
 Input& Input::set_on_composition_end(TextChangeHandler handler) {
-    composition_end_handler_ = std::move(handler);
+    auto& state = ensure_event_state();
+    core::replace_handler_subscription(
+        state.composition_ended, state.legacy_composition_end_token,
+        handler ? TextEventSignal::Handler{std::move(handler)} : TextEventSignal::Handler{});
     return *this;
+}
+
+Input::TextEventSignal& Input::input_changed() noexcept {
+    return ensure_event_state().input_changed;
+}
+
+Input::TextEventSignal& Input::change_committed() noexcept {
+    return ensure_event_state().change_committed;
+}
+
+Input::VoidEventSignal& Input::cleared() noexcept {
+    return ensure_event_state().cleared;
+}
+
+Input::VoidEventSignal& Input::focus_received() noexcept {
+    return ensure_event_state().focused;
+}
+
+Input::VoidEventSignal& Input::focus_lost() noexcept {
+    return ensure_event_state().blurred;
+}
+
+Input::KeyEventSignal& Input::key_down() noexcept {
+    return ensure_event_state().key_down;
+}
+
+Input::VoidEventSignal& Input::mouse_entered() noexcept {
+    return ensure_event_state().mouse_entered;
+}
+
+Input::VoidEventSignal& Input::mouse_left() noexcept {
+    return ensure_event_state().mouse_left;
+}
+
+Input::VoidEventSignal& Input::composition_started() noexcept {
+    return ensure_event_state().composition_started;
+}
+
+Input::TextEventSignal& Input::composition_updated() noexcept {
+    return ensure_event_state().composition_updated;
+}
+
+Input::TextEventSignal& Input::composition_ended() noexcept {
+    return ensure_event_state().composition_ended;
+}
+
+Input::EventState& Input::ensure_event_state() {
+    if (event_state_ == nullptr) {
+        event_state_ = std::make_unique<EventState>();
+    }
+    return *event_state_;
 }
 
 Input& Input::set_style(style::UIElementStyle style) {
@@ -832,8 +941,8 @@ Input& Input::clear() {
         emit_input();
         emit_change_if_needed();
     }
-    if (clear_handler_) {
-        clear_handler_();
+    if (event_state_ != nullptr && !event_state_->cleared.empty()) {
+        event_state_->cleared.emit();
     }
     return *this;
 }
@@ -1134,22 +1243,22 @@ bool Input::show_text_input_context_menu(layout::Point absolute_position) {
     menu->set_items(std::move(items));
     auto weak_lifetime = std::weak_ptr<bool>{lifetime_token_};
     auto* owner = this;
-    menu->set_on_select([weak_lifetime, owner](const ContextMenuItem& item, std::size_t) {
+    menu->selected() += [weak_lifetime, owner](const ContextMenu::SelectEvent& event) {
         const auto alive = weak_lifetime.lock();
         if (alive == nullptr || !*alive) {
             return;
         }
-        if (const auto command = owner->context_menu_command_for_id(item.id)) {
+        if (const auto command = owner->context_menu_command_for_id(event.item.id)) {
             static_cast<void>(owner->invoke_text_input_edit_command(*command));
         }
         owner->dismiss_text_input_context_menu();
-    });
-    menu->set_on_dismiss([weak_lifetime, owner]() {
+    };
+    menu->dismissed() += [weak_lifetime, owner]() {
         const auto alive = weak_lifetime.lock();
         if (alive != nullptr && *alive) {
             owner->dismiss_text_input_context_menu();
         }
-    });
+    };
 
     const auto popup_size = menu->preferred_size();
     elements::PopupManager popup_manager(*this);
@@ -1263,8 +1372,8 @@ void Input::on_pointer_event(elements::PointerEvent& event) {
     if (event.kind == elements::PointerEventKind::Enter) {
         hovered_ = true;
         animate_hover(1.0F);
-        if (mouse_enter_handler_) {
-            mouse_enter_handler_();
+        if (event_state_ != nullptr && !event_state_->mouse_entered.empty()) {
+            event_state_->mouse_entered.emit();
         }
         invalidate_paint();
         return;
@@ -1283,8 +1392,9 @@ void Input::on_pointer_event(elements::PointerEvent& event) {
             animate_scrollbar(0.0F);
             release_pointer_capture();
         }
-        if (event.kind == elements::PointerEventKind::Leave && mouse_leave_handler_) {
-            mouse_leave_handler_();
+        if (event.kind == elements::PointerEventKind::Leave && event_state_ != nullptr &&
+            !event_state_->mouse_left.empty()) {
+            event_state_->mouse_left.emit();
         }
         invalidate_paint();
         return;
@@ -1404,8 +1514,9 @@ void Input::on_key_event(elements::KeyEvent& event) {
         elements::KeyEvent& event;
 
         ~KeyDownCallbackOnExit() {
-            if (event.kind == elements::KeyEventKind::Down && owner.key_down_handler_) {
-                owner.key_down_handler_(event);
+            if (event.kind == elements::KeyEventKind::Down && owner.event_state_ != nullptr &&
+                !owner.event_state_->key_down.empty()) {
+                owner.event_state_->key_down.emit(event);
             }
         }
     } key_down_callback{*this, event};
@@ -1425,8 +1536,8 @@ void Input::on_key_event(elements::KeyEvent& event) {
         composition_text_.clear();
         restart_caret_blink();
         ensure_caret_visible();
-        if (composition_start_handler_) {
-            composition_start_handler_();
+        if (event_state_ != nullptr && !event_state_->composition_started.empty()) {
+            event_state_->composition_started.emit();
         }
         event.handled = true;
         invalidate_paint();
@@ -1438,8 +1549,8 @@ void Input::on_key_event(elements::KeyEvent& event) {
         composition_text_ = event.text;
         restart_caret_blink();
         ensure_caret_visible();
-        if (composition_update_handler_) {
-            composition_update_handler_(composition_text_);
+        if (event_state_ != nullptr && !event_state_->composition_updated.empty()) {
+            event_state_->composition_updated.emit(composition_text_);
         }
         event.handled = true;
         invalidate_paint();
@@ -1459,8 +1570,8 @@ void Input::on_key_event(elements::KeyEvent& event) {
             ensure_caret_visible();
         }
         composition_deleted_selection_ = false;
-        if (composition_end_handler_) {
-            composition_end_handler_(event.text);
+        if (event_state_ != nullptr && !event_state_->composition_ended.empty()) {
+            event_state_->composition_ended.emit(event.text);
         }
         event.handled = true;
         invalidate_paint();
@@ -1670,8 +1781,8 @@ void Input::on_focus_changed(const elements::FocusChangeEvent& event) {
         committed_text_ = text_storage();
         restart_caret_blink();
         ensure_caret_visible();
-        if (focus_handler_) {
-            focus_handler_();
+        if (event_state_ != nullptr && !event_state_->focused.empty()) {
+            event_state_->focused.emit();
         }
     } else {
         pointer_selecting_ = false;
@@ -1680,8 +1791,8 @@ void Input::on_focus_changed(const elements::FocusChangeEvent& event) {
         composition_active_ = false;
         composition_text_.clear();
         emit_change_if_needed();
-        if (blur_handler_) {
-            blur_handler_();
+        if (event_state_ != nullptr && !event_state_->blurred.empty()) {
+            event_state_->blurred.emit();
         }
     }
 }
@@ -2328,8 +2439,8 @@ void Input::paste_from_clipboard() {
 }
 
 void Input::emit_input() {
-    if (input_handler_) {
-        input_handler_(text_storage());
+    if (event_state_ != nullptr && !event_state_->input_changed.empty()) {
+        event_state_->input_changed.emit(text_storage());
     }
 }
 
@@ -2339,8 +2450,8 @@ void Input::emit_change_if_needed() {
     }
 
     committed_text_ = text_storage();
-    if (change_handler_) {
-        change_handler_(text_storage());
+    if (event_state_ != nullptr && !event_state_->change_committed.empty()) {
+        event_state_->change_committed.emit(text_storage());
     }
 }
 

@@ -34,8 +34,12 @@ class Scrollbar final : public Control {
     using ScrollDataHandler = std::function<void(ScrollbarScrollData)>;
     using EndReachedHandler = std::function<void(ScrollbarEndDirection)>;
     using RangeProvider = std::function<ScrollbarRange()>;
+    using ScrollEventSignal = core::EventSignal<float>;
+    using ScrollDataEventSignal = core::EventSignal<ScrollbarScrollData>;
+    using EndReachedEventSignal = core::EventSignal<ScrollbarEndDirection>;
 
     Scrollbar();
+    ~Scrollbar() override;
 
     Scrollbar& set_orientation(ScrollbarOrientation orientation);
     Scrollbar& set_disabled(bool disabled) noexcept;
@@ -62,6 +66,9 @@ class Scrollbar final : public Control {
     Scrollbar& set_on_scroll(ScrollHandler handler);
     Scrollbar& set_on_scroll_data(ScrollDataHandler handler);
     Scrollbar& set_on_end_reached(EndReachedHandler handler);
+    [[nodiscard]] ScrollEventSignal& scrolled() noexcept;
+    [[nodiscard]] ScrollDataEventSignal& scroll_data_changed() noexcept;
+    [[nodiscard]] EndReachedEventSignal& end_reached() noexcept;
     Scrollbar& set_style(style::UIElementStyle style) override;
     [[nodiscard]] ScrollbarOrientation orientation() const noexcept;
     [[nodiscard]] ScrollbarVisibility visibility_mode() const noexcept;
@@ -125,9 +132,9 @@ class Scrollbar final : public Control {
     void notify_end_reached(ScrollbarOrientation orientation, float value, float maximum);
     void reset_end_reached_latches();
 
-    ScrollHandler scroll_handler_;
-    ScrollDataHandler scroll_data_handler_;
-    EndReachedHandler end_reached_handler_;
+    struct EventState;
+    [[nodiscard]] EventState& ensure_event_state();
+
     RangeProvider range_provider_;
     ScrollbarOrientation orientation_ = ScrollbarOrientation::Vertical;
     ScrollbarVisibility visibility_ = ScrollbarVisibility::Auto;
@@ -148,6 +155,7 @@ class Scrollbar final : public Control {
     bool right_end_reported_ = false;
     bool bottom_end_reported_ = false;
     bool left_end_reported_ = false;
+    std::unique_ptr<EventState> event_state_;
     AnimatedFloat hover_progress_{0.0F};
     AnimatedFloat drag_progress_{0.0F};
 };
