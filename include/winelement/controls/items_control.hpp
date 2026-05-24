@@ -34,10 +34,6 @@ class ItemsControl final : public Control {
 
     using ItemsSource = std::function<std::vector<std::string>()>;
     using ItemFactory = std::function<std::unique_ptr<elements::UIElement>(ItemContext context)>;
-    using SelectionChangedHandler = std::function<void(std::optional<std::size_t> index)>;
-    using MultiSelectionChangedHandler =
-        std::function<void(const std::vector<std::size_t>& indices)>;
-    using ReorderHandler = std::function<void(std::size_t from_index, std::size_t to_index)>;
     struct ReorderEvent {
         std::size_t from_index = 0;
         std::size_t to_index = 0;
@@ -56,9 +52,6 @@ class ItemsControl final : public Control {
     ItemsControl& set_selection_mode(SelectionMode mode);
     ItemsControl& set_selected_index(std::optional<std::size_t> index);
     ItemsControl& set_selected_indices(std::vector<std::size_t> indices);
-    ItemsControl& set_on_selection_changed(SelectionChangedHandler handler);
-    ItemsControl& set_on_multi_selection_changed(MultiSelectionChangedHandler handler);
-    ItemsControl& set_on_reorder(ReorderHandler handler);
     [[nodiscard]] SelectionChangedEventSignal& selection_changed() noexcept;
     [[nodiscard]] MultiSelectionChangedEventSignal& multi_selection_changed() noexcept;
     [[nodiscard]] ReorderEventSignal& reordered() noexcept;

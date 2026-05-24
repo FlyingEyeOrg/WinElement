@@ -24,7 +24,6 @@ namespace {
 
 struct Switch::EventState {
     ChangeEventSignal changed;
-    core::EventToken legacy_change_token = 0U;
 };
 
 Switch::Switch() : Control() {
@@ -83,14 +82,6 @@ Switch& Switch::set_inactive_value(std::string_view value) {
 
 Switch& Switch::set_controlled(bool controlled) noexcept {
     controlled_ = controlled;
-    return *this;
-}
-
-Switch& Switch::set_on_change(ChangeHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(state.changed, state.legacy_change_token,
-                                       handler ? ChangeEventSignal::Handler{std::move(handler)}
-                                               : ChangeEventSignal::Handler{});
     return *this;
 }
 

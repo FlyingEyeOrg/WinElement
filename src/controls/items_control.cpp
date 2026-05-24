@@ -203,9 +203,6 @@ struct ItemsControl::EventState {
     SelectionChangedEventSignal selection_changed;
     MultiSelectionChangedEventSignal multi_selection_changed;
     ReorderEventSignal reordered;
-    core::EventToken legacy_selection_changed_token = 0U;
-    core::EventToken legacy_multi_selection_changed_token = 0U;
-    core::EventToken legacy_reordered_token = 0U;
 };
 
 ItemsControl::ItemsControl() : Control() {
@@ -350,42 +347,12 @@ ItemsControl& ItemsControl::set_selected_indices(std::vector<std::size_t> indice
     selected_index_ = next_selected_index;
     refresh_realized_containers();
     if (event_state_ != nullptr && !event_state_->multi_selection_changed.empty()) {
-        const auto indices = selected_indices();
-        event_state_->multi_selection_changed.emit(indices);
+        const auto selected_list = selected_indices();
+        event_state_->multi_selection_changed.emit(selected_list);
     }
     if (event_state_ != nullptr && !event_state_->selection_changed.empty()) {
         event_state_->selection_changed.emit(selected_index_);
     }
-    return *this;
-}
-
-ItemsControl& ItemsControl::set_on_selection_changed(SelectionChangedHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.selection_changed, state.legacy_selection_changed_token,
-        handler ? SelectionChangedEventSignal::Handler{std::move(handler)}
-                : SelectionChangedEventSignal::Handler{});
-    return *this;
-}
-
-ItemsControl& ItemsControl::set_on_multi_selection_changed(MultiSelectionChangedHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.multi_selection_changed, state.legacy_multi_selection_changed_token,
-        handler ? MultiSelectionChangedEventSignal::Handler{std::move(handler)}
-                : MultiSelectionChangedEventSignal::Handler{});
-    return *this;
-}
-
-ItemsControl& ItemsControl::set_on_reorder(ReorderHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.reordered, state.legacy_reordered_token,
-        handler ? ReorderEventSignal::Handler{
-                      [handler = std::move(handler)](const ReorderEvent& event) {
-                          handler(event.from_index, event.to_index);
-                      }}
-                : ReorderEventSignal::Handler{});
     return *this;
 }
 

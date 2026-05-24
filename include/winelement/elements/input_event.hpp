@@ -117,8 +117,6 @@ struct KeyEvent {
     bool handled = false;
 };
 
-using PointerEventHook = std::function<void(PointerEvent&)>;
-using KeyEventHook = std::function<void(KeyEvent&)>;
 struct RoutedEventFilterContext {
     RoutedEventType type = RoutedEventType::PointerMove;
     EventRoutePhase phase = EventRoutePhase::Bubble;

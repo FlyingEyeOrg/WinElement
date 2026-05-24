@@ -222,8 +222,6 @@ void paint_context_menu_item(rendering::RenderContext& context, layout::Rect ite
 struct ContextMenu::EventState {
     SelectEventSignal selected;
     DismissEventSignal dismissed;
-    core::EventToken legacy_select_token = 0U;
-    core::EventToken legacy_dismiss_token = 0U;
 };
 
 ContextMenu::ContextMenu() : Control() {
@@ -250,34 +248,6 @@ ContextMenu& ContextMenu::set_items(std::vector<ContextMenuItem> items) {
         layout.set_size(layout::Length::points(size.width), layout::Length::points(size.height));
     });
     invalidate_paint();
-    return *this;
-}
-
-ContextMenu& ContextMenu::set_on_select(SelectHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.selected, state.legacy_select_token,
-        handler ? SelectEventSignal::Handler{
-                      [handler = std::move(handler)](const SelectEvent& event) {
-                          handler(event.item, event.index);
-                      }}
-                : SelectEventSignal::Handler{});
-    return *this;
-}
-
-ContextMenu& ContextMenu::set_on_select(IndexSelectHandler handler) {
-    return set_on_select(handler ? SelectHandler{[handler = std::move(handler)](
-                                                     const ContextMenuItem&, std::size_t index) {
-                                      handler(index);
-                                  }}
-                                 : SelectHandler{});
-}
-
-ContextMenu& ContextMenu::set_on_dismiss(DismissHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.dismissed, state.legacy_dismiss_token,
-        handler ? DismissEventSignal::Handler{std::move(handler)} : DismissEventSignal::Handler{});
     return *this;
 }
 
@@ -403,18 +373,16 @@ void ContextMenu::open_submenu(std::size_t index) {
                                                       .light_dismiss = true,
                                                       .preserve_focus = true,
                                                       .close_on_escape = false,
-                                                      .on_dismissed =
-                                                          [weak_lifetime, owner]() {
-                                                              const auto alive =
-                                                                  weak_lifetime.lock();
-                                                              if (alive == nullptr || !*alive) {
-                                                                  return;
-                                                              }
-                                                              owner->submenu_menu_ = nullptr;
-                                                              owner->submenu_parent_index_.reset();
-                                                              owner->invalidate_paint();
-                                                          },
                                                       .logical_owner = this}));
+    submenu_ref.dismissed_event() += [weak_lifetime, owner]() {
+        const auto alive = weak_lifetime.lock();
+        if (alive == nullptr || !*alive) {
+            return;
+        }
+        owner->submenu_menu_ = nullptr;
+        owner->submenu_parent_index_.reset();
+        owner->invalidate_paint();
+    };
     submenu_menu_ = &submenu_ref;
     submenu_parent_index_ = index;
     invalidate_paint();

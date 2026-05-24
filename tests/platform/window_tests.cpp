@@ -128,23 +128,23 @@ TEST(WindowTests, SupportsCustomCreateParametersAndNativeMessageHooks) {
             [](platform::WindowCreateParams& params) {
                 params.title = L"WinElement Hooked Window";
                 params.width = 420;
-            },
-        .on_message =
-            [&pre_hook_hits](platform::WindowMessage& message) {
-                if (message.id == WM_APP + 41U) {
-                    pre_hook_hits.fetch_add(1, std::memory_order_acq_rel);
-                    message.handled = true;
-                    message.result = 91;
-                }
-            },
-        .on_message_processed =
-            [&post_hook_hits](platform::WindowMessage& message) {
-                if (message.id == WM_APP + 42U) {
-                    post_hook_hits.fetch_add(1, std::memory_order_acq_rel);
-                    message.handled = true;
-                    message.result = 123;
-                }
             }});
+    const auto pre_option_token = window.add_window_message_filter(
+        [&pre_hook_hits](platform::WindowMessage& message) {
+            if (message.id == WM_APP + 41U) {
+                pre_hook_hits.fetch_add(1, std::memory_order_acq_rel);
+                message.handled = true;
+                message.result = 91;
+            }
+        });
+    const auto post_option_token = window.add_post_window_message_filter(
+        [&post_hook_hits](platform::WindowMessage& message) {
+            if (message.id == WM_APP + 42U) {
+                post_hook_hits.fetch_add(1, std::memory_order_acq_rel);
+                message.handled = true;
+                message.result = 123;
+            }
+        });
     const auto pre_filter_token = window.add_window_message_filter(
         [&pre_hook_hits](platform::WindowMessage& message) {
             if (message.id == WM_APP + 43U) {
@@ -177,6 +177,8 @@ TEST(WindowTests, SupportsCustomCreateParametersAndNativeMessageHooks) {
     EXPECT_EQ(observer_hits.load(std::memory_order_acquire), 1);
 
     window.remove_window_message_filter(pre_filter_token);
+    window.remove_window_message_filter(pre_option_token);
+    window.remove_post_window_message_filter(post_option_token);
     window.window_message_observers() -= observer_token;
     window.closed_event() -= closed_token;
     window.close();

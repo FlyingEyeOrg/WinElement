@@ -50,9 +50,6 @@ struct InputDisplayTextOffsetMapping {
 class Input : public Control {
   public:
     using TextTransform = std::function<std::string(std::string_view)>;
-    using TextChangeHandler = std::function<void(std::string_view)>;
-    using VoidHandler = std::function<void()>;
-    using KeyHandler = std::function<void(const elements::KeyEvent&)>;
     using GraphemeCountHandler = std::function<std::size_t(std::string_view)>;
     using TextEventSignal = core::EventSignal<std::string_view>;
     using VoidEventSignal = core::EventSignal<>;
@@ -96,17 +93,6 @@ class Input : public Control {
     Input& set_autosize_limits(std::size_t min_rows, std::size_t max_rows);
     Input& set_formatter(TextTransform formatter);
     Input& set_parser(TextTransform parser);
-    Input& set_on_input(TextChangeHandler handler);
-    Input& set_on_change(TextChangeHandler handler);
-    Input& set_on_clear(VoidHandler handler);
-    Input& set_on_focus(VoidHandler handler);
-    Input& set_on_blur(VoidHandler handler);
-    Input& set_on_key_down(KeyHandler handler);
-    Input& set_on_mouse_enter(VoidHandler handler);
-    Input& set_on_mouse_leave(VoidHandler handler);
-    Input& set_on_composition_start(VoidHandler handler);
-    Input& set_on_composition_update(TextChangeHandler handler);
-    Input& set_on_composition_end(TextChangeHandler handler);
     [[nodiscard]] TextEventSignal& input_changed() noexcept;
     [[nodiscard]] TextEventSignal& change_committed() noexcept;
     [[nodiscard]] VoidEventSignal& cleared() noexcept;

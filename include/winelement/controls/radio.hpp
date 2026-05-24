@@ -17,7 +17,6 @@ class Radio;
 
 class RadioGroupContext final {
   public:
-    using ChangeHandler = std::function<void(std::string_view)>;
     using ChangeEventSignal = core::EventSignal<std::string_view>;
 
     RadioGroupContext();
@@ -28,7 +27,6 @@ class RadioGroupContext final {
 
     RadioGroupContext& set_value(std::string_view value);
     RadioGroupContext& clear_value();
-    RadioGroupContext& set_on_change(ChangeHandler handler);
     [[nodiscard]] ChangeEventSignal& changed() noexcept;
     [[nodiscard]] const std::string& value() const noexcept;
     [[nodiscard]] bool has_value() const noexcept;
@@ -52,7 +50,6 @@ class RadioGroupContext final {
 
 class Radio : public Control {
   public:
-    using ChangeHandler = std::function<void(bool)>;
     using ChangeEventSignal = core::EventSignal<bool>;
 
     Radio();
@@ -63,7 +60,6 @@ class Radio : public Control {
     Radio& set_group(std::shared_ptr<RadioGroupContext> group);
     Radio& set_checked(bool checked);
     Radio& set_disabled(bool disabled) noexcept;
-    Radio& set_on_change(ChangeHandler handler);
     [[nodiscard]] ChangeEventSignal& changed() noexcept;
     Radio& set_style(style::UIElementStyle style) override;
     [[nodiscard]] bool checked() const noexcept;

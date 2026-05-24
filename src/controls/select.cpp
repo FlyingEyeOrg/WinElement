@@ -149,9 +149,6 @@ struct Select::EventState {
     ChangeEventSignal selection_changed;
     MultiChangeEventSignal multi_selection_changed;
     RemoteSearchEventSignal remote_search_requested;
-    core::EventToken legacy_change_token = 0U;
-    core::EventToken legacy_multi_change_token = 0U;
-    core::EventToken legacy_remote_search_token = 0U;
 };
 
 class SelectDropdown final : public elements::UIElement {
@@ -679,15 +676,6 @@ Select& Select::set_remote_search(bool remote) noexcept {
     return *this;
 }
 
-Select& Select::set_remote_search_handler(RemoteSearchHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.remote_search_requested, state.legacy_remote_search_token,
-        handler ? RemoteSearchEventSignal::Handler{std::move(handler)}
-                : RemoteSearchEventSignal::Handler{});
-    return *this;
-}
-
 Select& Select::set_option_groups(std::vector<SelectOptionGroup> groups) {
     option_groups_ = std::move(groups);
     std::sort(option_groups_.begin(), option_groups_.end(),
@@ -747,23 +735,6 @@ Select& Select::set_loading(bool loading) noexcept {
 
 Select& Select::set_size(SelectSize size) {
     set_property(property_keys::select_size(), size);
-    return *this;
-}
-
-Select& Select::set_on_change(ChangeHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.selection_changed, state.legacy_change_token,
-        handler ? ChangeEventSignal::Handler{std::move(handler)} : ChangeEventSignal::Handler{});
-    return *this;
-}
-
-Select& Select::set_on_multi_change(MultiChangeHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.multi_selection_changed, state.legacy_multi_change_token,
-        handler ? MultiChangeEventSignal::Handler{std::move(handler)}
-                : MultiChangeEventSignal::Handler{});
     return *this;
 }
 
@@ -1263,15 +1234,17 @@ void Select::open_popup() {
                                .viewport_margin = 4.0F,
                                .match_anchor_width = true,
                                .light_dismiss = true,
-                               .preserve_focus = true,
-                               .on_dismissed = [weak_lifetime, owner]() {
-                                   const auto alive = weak_lifetime.lock();
-                                   if (alive != nullptr && *alive) {
-                                       owner->popup_open_ = false;
-                                       owner->animate_popup_indicator(0.0F);
-                                       owner->invalidate_paint();
-                                   }
-                               }});
+                               .preserve_focus = true});
+    if (auto* popup = popup_manager.element(result.handle); popup != nullptr) {
+        popup->dismissed_event() += [weak_lifetime, owner]() {
+            const auto alive = weak_lifetime.lock();
+            if (alive != nullptr && *alive) {
+                owner->popup_open_ = false;
+                owner->animate_popup_indicator(0.0F);
+                owner->invalidate_paint();
+            }
+        };
+    }
     popup_handle_ = result.handle;
     popup_open_ = popup_handle_.valid();
     animate_popup_indicator(popup_open_ ? 1.0F : 0.0F);

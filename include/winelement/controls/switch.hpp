@@ -16,7 +16,6 @@ enum class SwitchSize { Default, Large, Small };
 
 class Switch : public Control {
   public:
-    using ChangeHandler = std::function<void(bool)>;
     using ChangeEventSignal = core::EventSignal<bool>;
 
     Switch();
@@ -31,7 +30,6 @@ class Switch : public Control {
     Switch& set_active_value(std::string_view value);
     Switch& set_inactive_value(std::string_view value);
     Switch& set_controlled(bool controlled) noexcept;
-    Switch& set_on_change(ChangeHandler handler);
     [[nodiscard]] ChangeEventSignal& changed() noexcept;
     Switch& set_style(style::UIElementStyle style) override;
     [[nodiscard]] bool checked() const noexcept;

@@ -30,9 +30,6 @@ struct ScrollbarScrollData {
 
 class Scrollbar final : public Control {
   public:
-    using ScrollHandler = std::function<void(float)>;
-    using ScrollDataHandler = std::function<void(ScrollbarScrollData)>;
-    using EndReachedHandler = std::function<void(ScrollbarEndDirection)>;
     using RangeProvider = std::function<ScrollbarRange()>;
     using ScrollEventSignal = core::EventSignal<float>;
     using ScrollDataEventSignal = core::EventSignal<ScrollbarScrollData>;
@@ -63,9 +60,6 @@ class Scrollbar final : public Control {
     Scrollbar& scroll_to(float scroll_left, float scroll_top);
     Scrollbar& set_scroll_top(float scroll_top);
     Scrollbar& set_scroll_left(float scroll_left);
-    Scrollbar& set_on_scroll(ScrollHandler handler);
-    Scrollbar& set_on_scroll_data(ScrollDataHandler handler);
-    Scrollbar& set_on_end_reached(EndReachedHandler handler);
     [[nodiscard]] ScrollEventSignal& scrolled() noexcept;
     [[nodiscard]] ScrollDataEventSignal& scroll_data_changed() noexcept;
     [[nodiscard]] EndReachedEventSignal& end_reached() noexcept;

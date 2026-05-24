@@ -329,10 +329,7 @@ struct UIElement::EventHookState {
         RoutedEventFilterOptions options;
     };
 
-    PointerEventHook pointer_tunnel_hook;
-    PointerEventHook pointer_bubble_hook;
-    KeyEventHook key_tunnel_hook;
-    KeyEventHook key_bubble_hook;
+    core::EventSignal<> dismissed;
     core::EventSignal<RoutedEventFilterContext&> observers;
     std::vector<FilterEntry> filters;
     core::EventToken next_filter_token = 1U;
@@ -867,7 +864,6 @@ std::unique_ptr<UIElement> UIElement::remove_top_layer_entry(std::size_t index) 
     host.clear_top_layer_logical_owner_references(*iterator->element);
     const auto affects_backdrop =
         iterator->options.modal || iterator->options.backdrop_color.alpha != 0;
-    auto on_dismissed = std::move(iterator->options.on_dismissed);
     auto removed = std::move(iterator->element);
     if (host.layout_dirty_root_ != nullptr && removed->contains(*host.layout_dirty_root_)) {
         host.layout_dirty_root_ = &host;
@@ -891,8 +887,8 @@ std::unique_ptr<UIElement> UIElement::remove_top_layer_entry(std::size_t index) 
     if (affects_backdrop) {
         host.invalidate_paint();
     }
-    if (on_dismissed) {
-        on_dismissed();
+    if (removed->event_hook_state_ != nullptr && !removed->event_hook_state_->dismissed.empty()) {
+        removed->event_hook_state_->dismissed.emit();
     }
     return removed;
 }
@@ -3157,65 +3153,6 @@ bool UIElement::handle_text_input_context_menu_pointer(PointerEvent& event) {
     return false;
 }
 
-UIElement& UIElement::set_pointer_tunnel_hook(PointerEventHook hook) {
-    ensure_event_hook_state().pointer_tunnel_hook = std::move(hook);
-    return *this;
-}
-
-UIElement& UIElement::set_pointer_bubble_hook(PointerEventHook hook) {
-    ensure_event_hook_state().pointer_bubble_hook = std::move(hook);
-    return *this;
-}
-
-UIElement& UIElement::set_key_tunnel_hook(KeyEventHook hook) {
-    ensure_event_hook_state().key_tunnel_hook = std::move(hook);
-    return *this;
-}
-
-UIElement& UIElement::set_key_bubble_hook(KeyEventHook hook) {
-    ensure_event_hook_state().key_bubble_hook = std::move(hook);
-    return *this;
-}
-
-UIElement& UIElement::clear_pointer_tunnel_hook() noexcept {
-    if (event_hook_state_ != nullptr) {
-        event_hook_state_->pointer_tunnel_hook = nullptr;
-    }
-    return *this;
-}
-
-UIElement& UIElement::clear_pointer_bubble_hook() noexcept {
-    if (event_hook_state_ != nullptr) {
-        event_hook_state_->pointer_bubble_hook = nullptr;
-    }
-    return *this;
-}
-
-UIElement& UIElement::clear_key_tunnel_hook() noexcept {
-    if (event_hook_state_ != nullptr) {
-        event_hook_state_->key_tunnel_hook = nullptr;
-    }
-    return *this;
-}
-
-UIElement& UIElement::clear_key_bubble_hook() noexcept {
-    if (event_hook_state_ != nullptr) {
-        event_hook_state_->key_bubble_hook = nullptr;
-    }
-    return *this;
-}
-
-bool UIElement::has_event_hooks() const noexcept {
-    if (event_hook_state_ == nullptr) {
-        return false;
-    }
-    return static_cast<bool>(event_hook_state_->pointer_tunnel_hook) ||
-           static_cast<bool>(event_hook_state_->pointer_bubble_hook) ||
-           static_cast<bool>(event_hook_state_->key_tunnel_hook) ||
-           static_cast<bool>(event_hook_state_->key_bubble_hook) ||
-           !event_hook_state_->filters.empty() || !event_hook_state_->observers.empty();
-}
-
 core::EventToken UIElement::add_routed_event_filter(RoutedEventFilter filter,
                                                     RoutedEventFilterOptions options) {
     if (!filter) {
@@ -3253,28 +3190,13 @@ const core::EventSignal<RoutedEventFilterContext&>& UIElement::routed_event_obse
     return event_hook_state_ != nullptr ? event_hook_state_->observers : empty;
 }
 
-void UIElement::dispatch_pointer_hook(EventRoutePhase phase, PointerEvent& event) {
-    if (event_hook_state_ == nullptr) {
-        return;
-    }
-
-    auto& hook = phase == EventRoutePhase::Tunnel ? event_hook_state_->pointer_tunnel_hook
-                                                  : event_hook_state_->pointer_bubble_hook;
-    if (hook) {
-        hook(event);
-    }
+core::EventSignal<>& UIElement::dismissed_event() noexcept {
+    return ensure_event_hook_state().dismissed;
 }
 
-void UIElement::dispatch_key_hook(EventRoutePhase phase, KeyEvent& event) {
-    if (event_hook_state_ == nullptr) {
-        return;
-    }
-
-    auto& hook = phase == EventRoutePhase::Tunnel ? event_hook_state_->key_tunnel_hook
-                                                  : event_hook_state_->key_bubble_hook;
-    if (hook) {
-        hook(event);
-    }
+const core::EventSignal<>& UIElement::dismissed_event() const noexcept {
+    static const auto empty = core::EventSignal<>{};
+    return event_hook_state_ != nullptr ? event_hook_state_->dismissed : empty;
 }
 
 void UIElement::dispatch_routed_event_filter(RoutedEventFilterContext& context) {

@@ -83,7 +83,6 @@ constexpr ButtonFlag& operator&=(ButtonFlag& left, ButtonFlag right) noexcept {
 
 class Button : public Control {
   public:
-    using ClickHandler = std::function<void()>;
     using ClickEventSignal = core::EventSignal<const ButtonClickEvent&>;
 
     Button();
@@ -114,7 +113,6 @@ class Button : public Control {
     Button& clear_custom_color();
     Button& set_dark_mode(bool dark);
     Button& set_auto_insert_space(bool auto_space);
-    Button& set_on_click(ClickHandler handler);
     [[nodiscard]] ClickEventSignal& clicked() noexcept;
     Button& set_style(style::UIElementStyle style) override;
     [[nodiscard]] ButtonType type() const noexcept;

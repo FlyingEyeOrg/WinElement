@@ -609,14 +609,6 @@ class Window::Impl final {
         }
     }
 
-    void set_message_hook(WindowMessageHook hook) {
-        options_.on_message = std::move(hook);
-    }
-
-    void set_post_message_hook(WindowMessageHook hook) {
-        options_.on_message_processed = std::move(hook);
-    }
-
     Window::MessageFilterToken add_window_message_filter(WindowMessageHook filter) {
         return message_filters_.add(std::move(filter));
     }
@@ -713,12 +705,6 @@ class Window::Impl final {
                                           .id = message,
                                           .wparam = static_cast<std::uintptr_t>(wparam),
                                           .lparam = static_cast<std::intptr_t>(lparam)};
-        if (options_.on_message) {
-            options_.on_message(hook_message);
-            if (hook_message.handled) {
-                return static_cast<LRESULT>(hook_message.result);
-            }
-        }
         if (!message_filters_.empty()) {
             message_filters_.emit(hook_message);
             if (hook_message.handled) {
@@ -925,13 +911,6 @@ class Window::Impl final {
         }
         }();
 
-        if (options_.on_message_processed) {
-            hook_message.result = static_cast<std::intptr_t>(result);
-            options_.on_message_processed(hook_message);
-            if (hook_message.handled) {
-                return static_cast<LRESULT>(hook_message.result);
-            }
-        }
         if (!post_message_filters_.empty()) {
             hook_message.result = static_cast<std::intptr_t>(result);
             post_message_filters_.emit(hook_message);
@@ -1359,9 +1338,6 @@ class Window::Impl final {
         }
         if (!closed_event_.empty()) {
             closed_event_.emit();
-        }
-        if (options_.on_closed) {
-            options_.on_closed();
         }
     }
 
@@ -1948,14 +1924,6 @@ void Window::set_title(std::wstring_view title) {
 
 NativeWindowHandle Window::native_handle() const noexcept {
     return impl_->native_handle();
-}
-
-void Window::set_message_hook(WindowMessageHook hook) {
-    impl_->set_message_hook(std::move(hook));
-}
-
-void Window::set_post_message_hook(WindowMessageHook hook) {
-    impl_->set_post_message_hook(std::move(hook));
 }
 
 Window::MessageFilterToken Window::add_window_message_filter(WindowMessageHook filter) {

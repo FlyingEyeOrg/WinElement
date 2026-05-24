@@ -79,7 +79,6 @@ struct ButtonColorScale {
 
 struct Button::ClickEventState {
     ClickEventSignal clicked;
-    core::EventToken legacy_click_token = 0U;
 };
 
 Button::Button() : Control() {
@@ -165,17 +164,6 @@ Button& Button::set_circle(bool circle) {
         flags_ &= ~ButtonFlag::Circle;
     }
     apply_semantic_style();
-    return *this;
-}
-
-Button& Button::set_on_click(ClickHandler handler) {
-    auto& state = ensure_click_event_state();
-    core::replace_handler_subscription(
-        state.clicked, state.legacy_click_token,
-        handler ? ClickEventSignal::Handler{[handler = std::move(handler)](const ButtonClickEvent&) {
-                    handler();
-                }}
-                : ClickEventSignal::Handler{});
     return *this;
 }
 

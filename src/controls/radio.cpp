@@ -26,12 +26,10 @@ constexpr auto indicator_gap = 8.0F;
 
 struct RadioGroupContext::EventState {
     ChangeEventSignal changed;
-    core::EventToken legacy_change_token = 0U;
 };
 
 struct Radio::EventState {
     ChangeEventSignal changed;
-    core::EventToken legacy_change_token = 0U;
 };
 
 RadioGroupContext::RadioGroupContext() = default;
@@ -67,14 +65,6 @@ RadioGroupContext& RadioGroupContext::clear_value() {
     if (event_state_ != nullptr && !event_state_->changed.empty()) {
         event_state_->changed.emit(value_);
     }
-    return *this;
-}
-
-RadioGroupContext& RadioGroupContext::set_on_change(ChangeHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.changed, state.legacy_change_token,
-        handler ? ChangeEventSignal::Handler{std::move(handler)} : ChangeEventSignal::Handler{});
     return *this;
 }
 
@@ -225,14 +215,6 @@ Radio& Radio::set_disabled(bool disabled) noexcept {
 
     UIElement::set_disabled(disabled);
     invalidate_paint();
-    return *this;
-}
-
-Radio& Radio::set_on_change(ChangeHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.changed, state.legacy_change_token,
-        handler ? ChangeEventSignal::Handler{std::move(handler)} : ChangeEventSignal::Handler{});
     return *this;
 }
 

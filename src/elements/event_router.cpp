@@ -486,14 +486,6 @@ layout::Point EventRouter::local_position_for(const UIElement& element,
     return to_local_point(mapped_position, element.absolute_frame());
 }
 
-void EventRouter::invoke_pointer_hook(UIElement& current, EventRoutePhase phase, PointerEvent& event) {
-    current.dispatch_pointer_hook(phase, event);
-}
-
-void EventRouter::invoke_key_hook(UIElement& current, EventRoutePhase phase, KeyEvent& event) {
-    current.dispatch_key_hook(phase, event);
-}
-
 RoutedEventResult EventRouter::dispatch_pointer_event(UIElement& target, PointerEvent event) {
     RoutedEventResult result{.target = &target};
     event.target = &target;
@@ -535,13 +527,6 @@ RoutedEventResult EventRouter::dispatch_pointer_event(UIElement& target, Pointer
             result.handled_phase = EventRoutePhase::Tunnel;
             return result;
         }
-        invoke_pointer_hook(*current, EventRoutePhase::Tunnel, event);
-        if (event.handled) {
-            result.handled = true;
-            result.handled_by = current;
-            result.handled_phase = EventRoutePhase::Tunnel;
-            return result;
-        }
         current->on_pointer_tunnel_event(event);
         if (event.handled) {
             result.handled = true;
@@ -562,13 +547,6 @@ RoutedEventResult EventRouter::dispatch_pointer_event(UIElement& target, Pointer
                                                 .current_target = current,
                                                 .pointer_event = &event};
         current->dispatch_routed_event_filter(context);
-        if (event.handled) {
-            result.handled = true;
-            result.handled_by = current;
-            result.handled_phase = EventRoutePhase::Bubble;
-            return result;
-        }
-        invoke_pointer_hook(*current, EventRoutePhase::Bubble, event);
         if (event.handled) {
             result.handled = true;
             result.handled_by = current;
@@ -612,13 +590,6 @@ RoutedEventResult EventRouter::dispatch_key_event(UIElement& target, KeyEvent ev
             result.handled_phase = EventRoutePhase::Tunnel;
             return result;
         }
-        invoke_key_hook(*current, EventRoutePhase::Tunnel, event);
-        if (event.handled) {
-            result.handled = true;
-            result.handled_by = current;
-            result.handled_phase = EventRoutePhase::Tunnel;
-            return result;
-        }
         current->on_key_tunnel_event(event);
         if (event.handled) {
             result.handled = true;
@@ -637,13 +608,6 @@ RoutedEventResult EventRouter::dispatch_key_event(UIElement& target, KeyEvent ev
                                                 .current_target = current,
                                                 .key_event = &event};
         current->dispatch_routed_event_filter(context);
-        if (event.handled) {
-            result.handled = true;
-            result.handled_by = current;
-            result.handled_phase = EventRoutePhase::Bubble;
-            return result;
-        }
-        invoke_key_hook(*current, EventRoutePhase::Bubble, event);
         if (event.handled) {
             result.handled = true;
             result.handled_by = current;

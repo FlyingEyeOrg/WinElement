@@ -892,10 +892,8 @@ TEST(BasicControlsTests, ScrollbarCallbackKeepsVirtualChildrenRenderableAfterThu
 
     Scrollbar scrollbar;
     scrollbar.set_orientation(ScrollbarOrientation::Vertical)
-        .set_range(0.0F, root.max_scroll_offset().y, 40.0F)
-        .set_on_scroll([&root](float value) {
-            root.set_scroll_offset(Point{0.0F, value});
-        });
+        .set_range(0.0F, root.max_scroll_offset().y, 40.0F);
+    scrollbar.scrolled() += [&root](float value) { root.set_scroll_offset(Point{0.0F, value}); };
 
     scrollbar.set_value(root.max_scroll_offset().y);
     EXPECT_TRUE(root.needs_layout());
@@ -1044,7 +1042,7 @@ TEST(BasicControlsTests, ButtonHandlesPointerAndKeyboardClick) {
     });
 
     auto click_count = 0;
-    button->set_on_click([&click_count]() { ++click_count; });
+    button->clicked() += [&click_count](const ButtonClickEvent&) { ++click_count; };
     auto& button_ref = static_cast<Button&>(root.append_child(std::move(button)));
 
     LayoutConstraints constraints;
@@ -1266,7 +1264,7 @@ TEST(BasicControlsTests, ButtonReleasesPressedStateOnCancelOrFocusLoss) {
     });
     auto& button_ref = static_cast<Button&>(root.append_child(std::move(button)));
     auto click_count = 0;
-    button_ref.set_on_click([&click_count]() { ++click_count; });
+    button_ref.clicked() += [&click_count](const ButtonClickEvent&) { ++click_count; };
 
     LayoutConstraints constraints;
     constraints.width = 120.0F;
@@ -2255,11 +2253,10 @@ TEST(BasicControlsTests, ContextMenuSizesToLocalizedTextAndReturnsSelectedItem) 
 
     std::string selected_id;
     auto selected_index = std::numeric_limits<std::size_t>::max();
-    menu.set_on_select(
-        [&selected_id, &selected_index](const ContextMenuItem& item, std::size_t index) {
-            selected_id = item.id;
-            selected_index = index;
-        });
+    menu.selected() += [&selected_id, &selected_index](const ContextMenu::SelectEvent& event) {
+        selected_id = event.item.id;
+        selected_index = event.index;
+    };
     menu.calculate_layout(LayoutConstraints{.width = preferred.width, .height = preferred.height});
 
     EventRouter router(menu);
@@ -2410,8 +2407,8 @@ TEST(BasicControlsTests, ContextMenuNestedSubmenuSelectionDismissesSafely) {
          ContextMenuItem{.text = "More", .submenu = {ContextMenuItem{.text = "Nested"}}}});
 
     std::string selected_text;
-    menu.set_on_select(
-        [&selected_text](const ContextMenuItem& item, std::size_t) { selected_text = item.text; });
+    menu.selected() +=
+        [&selected_text](const ContextMenu::SelectEvent& event) { selected_text = event.item.text; };
     menu.calculate_layout();
 
     EventRouter router(menu);
@@ -3096,16 +3093,15 @@ TEST(BasicControlsTests, InputSupportsClearPasswordAffixesAndCallbacks) {
     auto input_count = 0;
     auto change_count = 0;
     auto clear_count = 0;
-    input
-        .set_on_input([&](std::string_view value) {
-            ++input_count;
-            EXPECT_TRUE(value.empty());
-        })
-        .set_on_change([&](std::string_view value) {
-            ++change_count;
-            EXPECT_TRUE(value.empty());
-        })
-        .set_on_clear([&]() { ++clear_count; });
+    input.input_changed() += [&](std::string_view value) {
+        ++input_count;
+        EXPECT_TRUE(value.empty());
+    };
+    input.change_committed() += [&](std::string_view value) {
+        ++change_count;
+        EXPECT_TRUE(value.empty());
+    };
+    input.cleared() += [&]() { ++clear_count; };
 
     input.calculate_layout(LayoutConstraints{.width = 320.0F});
     EventRouter router(input);
@@ -3153,7 +3149,7 @@ TEST(BasicControlsTests, InputAppliesFormatterParserLengthAndWordLimit) {
         });
 
     auto last_input = std::string{};
-    input.set_on_input([&](std::string_view value) { last_input = std::string(value); });
+    input.input_changed() += [&](std::string_view value) { last_input = std::string(value); };
 
     EventRouter router(input);
     ASSERT_TRUE(router.focus_manager().set_focus(&input));
@@ -3496,7 +3492,7 @@ TEST(BasicControlsTests, InputContextMenuRoutesAboveLaterSiblings) {
             .set_size(Length::points(220.0F), Length::points(140.0F));
     });
     auto click_count = 0;
-    cover->set_on_click([&click_count]() { ++click_count; });
+    cover->clicked() += [&click_count](const ButtonClickEvent&) { ++click_count; };
     root.append_child(std::move(cover));
     root.calculate_layout(LayoutConstraints{.width = 220.0F, .height = 140.0F});
 
@@ -3554,7 +3550,7 @@ TEST(BasicControlsTests, InputContextMenuLightDismissConsumesOutsidePointer) {
             .set_size(Length::points(220.0F), Length::points(140.0F));
     });
     auto click_count = 0;
-    cover->set_on_click([&click_count]() { ++click_count; });
+    cover->clicked() += [&click_count](const ButtonClickEvent&) { ++click_count; };
     root.append_child(std::move(cover));
     root.calculate_layout(LayoutConstraints{.width = 220.0F, .height = 140.0F});
 
@@ -3683,7 +3679,7 @@ TEST(BasicControlsTests, ElementButtonVariantsDisableAndLoadingState) {
     EXPECT_GT(button.style().min_height, default_button_style().min_height);
 
     auto click_count = 0;
-    button.set_on_click([&click_count]() { ++click_count; });
+    button.clicked() += [&click_count](const ButtonClickEvent&) { ++click_count; };
     EventRouter router(button);
     button.set_loading(true);
     EXPECT_TRUE(button.loading());
@@ -3770,10 +3766,11 @@ TEST(BasicControlsTests, BorderRadioSwitchScrollbarSelectAndItemsControlExposeCo
     radio.bind_layout_tree(engine);
     auto radio_changes = 0;
     auto radio_checked_value = false;
-    radio.set_text("Choice").set_on_change([&radio_changes, &radio_checked_value](bool checked) {
+    radio.set_text("Choice");
+    radio.changed() += [&radio_changes, &radio_checked_value](bool checked) {
         ++radio_changes;
         radio_checked_value = checked;
-    });
+    };
     radio.calculate_layout(LayoutConstraints{.width = 120.0F, .height = 32.0F});
     EventRouter radio_router(radio);
     EXPECT_FALSE(radio.checked());
@@ -3828,8 +3825,8 @@ TEST(BasicControlsTests, BorderRadioSwitchScrollbarSelectAndItemsControlExposeCo
     auto switch_value = false;
     switch_control.set_size(SwitchSize::Large)
         .set_active_text("ON")
-        .set_inactive_text("OFF")
-        .set_on_change([&switch_value](bool checked) { switch_value = checked; });
+        .set_inactive_text("OFF");
+    switch_control.changed() += [&switch_value](bool checked) { switch_value = checked; };
     EXPECT_EQ(switch_control.size(), SwitchSize::Large);
     EventRouter switch_router(switch_control);
     EXPECT_TRUE(switch_router.focus_manager().set_focus(&switch_control));
@@ -3843,9 +3840,9 @@ TEST(BasicControlsTests, BorderRadioSwitchScrollbarSelectAndItemsControlExposeCo
 
     scrollbar.bind_layout_tree(engine);
     auto scroll_value = 0.0F;
+    scrollbar.scrolled() += [&scroll_value](float value) { scroll_value = value; };
     scrollbar.set_orientation(ScrollbarOrientation::Horizontal)
         .set_range(10.0F, 30.0F, 5.0F)
-        .set_on_scroll([&scroll_value](float value) { scroll_value = value; })
         .set_value(100.0F);
     EXPECT_EQ(scrollbar.orientation(), ScrollbarOrientation::Horizontal);
     EXPECT_FLOAT_EQ(scrollbar.minimum(), 10.0F);
@@ -3878,12 +3875,14 @@ TEST(BasicControlsTests, BorderRadioSwitchScrollbarSelectAndItemsControlExposeCo
 
     ScrollbarScrollData scroll_data;
     std::vector<ScrollbarEndDirection> reached;
+    scrollbar.scroll_data_changed() += [&scroll_data](ScrollbarScrollData data) {
+        scroll_data = data;
+    };
+    scrollbar.end_reached() +=
+        [&reached](ScrollbarEndDirection direction) { reached.push_back(direction); };
     scrollbar.set_always_visible(true)
         .set_min_size(20.0F)
         .set_distance(5.0F)
-        .set_on_scroll_data([&scroll_data](ScrollbarScrollData data) { scroll_data = data; })
-        .set_on_end_reached(
-            [&reached](ScrollbarEndDirection direction) { reached.push_back(direction); })
         .scroll_to(24.0F, 0.0F);
     EXPECT_EQ(scrollbar.visibility_mode(), ScrollbarVisibility::Always);
     EXPECT_FLOAT_EQ(scrollbar.min_size(), 20.0F);
@@ -3934,13 +3933,15 @@ TEST(BasicControlsTests, BorderRadioSwitchScrollbarSelectAndItemsControlExposeCo
 
     select.bind_layout_tree(engine);
     std::optional<std::size_t> selected;
+    select.selection_changed() += [&selected](std::optional<std::size_t> index) {
+        selected = index;
+    };
     select
         .set_options({SelectOption{.label = "Alpha", .value = "a"},
                       SelectOption{.label = "Beta", .value = "b", .disabled = true}})
         .set_clearable(true)
         .set_filterable(true)
         .set_size(SelectSize::Large)
-        .set_on_change([&selected](std::optional<std::size_t> index) { selected = index; })
         .set_selected_index(0U);
     EXPECT_EQ(select.selected_index(), 0U);
     EXPECT_EQ(select.selected_label(), "Alpha");
@@ -3977,8 +3978,9 @@ TEST(BasicControlsTests, BorderRadioSwitchScrollbarSelectAndItemsControlExposeCo
     select.set_filter_text("\xC3\xA9");
     EXPECT_EQ(select.filtered_option_count(), 1U);
     auto remote_query = std::string{};
-    select.set_remote_search(true).set_remote_search_handler(
-        [&remote_query](std::string_view query) { remote_query = std::string(query); });
+    select.set_remote_search(true);
+    select.remote_search_requested() +=
+        [&remote_query](std::string_view query) { remote_query = std::string(query); };
     select.set_filter_text("server");
     EXPECT_EQ(remote_query, "server");
 
@@ -4188,10 +4190,10 @@ TEST(BasicControlsTests, VerticalScrollbarDragSynchronizesViewportScrollOffset) 
     auto& scrollbar = root.append_new_child<Scrollbar>();
     scrollbar.set_orientation(ScrollbarOrientation::Vertical)
         .set_range(0.0F, 200.0F, 120.0F)
-        .set_always_visible(true)
-        .set_on_scroll_data([&viewport](ScrollbarScrollData data) {
-            viewport.set_scroll_offset(Point{0.0F, data.scroll_top});
-        });
+        .set_always_visible(true);
+    scrollbar.scroll_data_changed() += [&viewport](ScrollbarScrollData data) {
+        viewport.set_scroll_offset(Point{0.0F, data.scroll_top});
+    };
     scrollbar.configure_layout([](LayoutElement& layout) {
         layout.set_size(Length::points(12.0F), Length::points(120.0F)).set_flex_shrink(0.0F);
     });
@@ -4255,10 +4257,10 @@ TEST(BasicControlsTests, HorizontalScrollbarDragSynchronizesViewportScrollOffset
     auto& scrollbar = root.append_new_child<Scrollbar>();
     scrollbar.set_orientation(ScrollbarOrientation::Horizontal)
         .set_range(0.0F, 300.0F, 220.0F)
-        .set_always_visible(true)
-        .set_on_scroll_data([&viewport](ScrollbarScrollData data) {
-            viewport.set_scroll_offset(Point{data.scroll_left, 0.0F});
-        });
+        .set_always_visible(true);
+    scrollbar.scroll_data_changed() += [&viewport](ScrollbarScrollData data) {
+        viewport.set_scroll_offset(Point{data.scroll_left, 0.0F});
+    };
     scrollbar.configure_layout([](LayoutElement& layout) {
         layout.set_size(Length::points(220.0F), Length::points(12.0F)).set_flex_shrink(0.0F);
     });
@@ -4397,9 +4399,10 @@ TEST(BasicControlsTests, ScrollbarCanWrapScrollableContent) {
 
     ScrollbarScrollData scroll_data;
     std::vector<ScrollbarEndDirection> reached;
-    scrollbar.set_on_scroll_data([&scroll_data](ScrollbarScrollData data) { scroll_data = data; })
-        .set_on_end_reached(
-            [&reached](ScrollbarEndDirection direction) { reached.push_back(direction); });
+    scrollbar.scroll_data_changed() +=
+        [&scroll_data](ScrollbarScrollData data) { scroll_data = data; };
+    scrollbar.end_reached() +=
+        [&reached](ScrollbarEndDirection direction) { reached.push_back(direction); };
     scrollbar.calculate_layout(LayoutConstraints{.width = 220.0F, .height = 120.0F});
 
     EXPECT_TRUE(scrollbar.container_mode());
@@ -4644,10 +4647,10 @@ TEST(BasicControlsTests, ItemsControlAltArrowInvokesReorder) {
 
     auto from_index = std::numeric_limits<std::size_t>::max();
     auto to_index = std::numeric_limits<std::size_t>::max();
-    items.set_on_reorder([&from_index, &to_index](std::size_t from, std::size_t to) {
-        from_index = from;
-        to_index = to;
-    });
+    items.reordered() += [&from_index, &to_index](const ItemsControl::ReorderEvent& event) {
+        from_index = event.from_index;
+        to_index = event.to_index;
+    };
     items.calculate_layout(LayoutConstraints{.width = 180.0F, .height = 120.0F});
 
     EventRouter router(items);

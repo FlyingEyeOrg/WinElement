@@ -372,17 +372,6 @@ struct Input::EventState {
     VoidEventSignal composition_started;
     TextEventSignal composition_updated;
     TextEventSignal composition_ended;
-    core::EventToken legacy_input_token = 0U;
-    core::EventToken legacy_change_token = 0U;
-    core::EventToken legacy_clear_token = 0U;
-    core::EventToken legacy_focus_token = 0U;
-    core::EventToken legacy_blur_token = 0U;
-    core::EventToken legacy_key_down_token = 0U;
-    core::EventToken legacy_mouse_enter_token = 0U;
-    core::EventToken legacy_mouse_leave_token = 0U;
-    core::EventToken legacy_composition_start_token = 0U;
-    core::EventToken legacy_composition_update_token = 0U;
-    core::EventToken legacy_composition_end_token = 0U;
 };
 
 class Input::TextInputHandlerAdapter final : public elements::TextInputHandler {
@@ -751,94 +740,6 @@ Input& Input::set_formatter(TextTransform formatter) {
 Input& Input::set_parser(TextTransform parser) {
     parser_ = std::move(parser);
     mark_text_transform_generation_changed();
-    return *this;
-}
-
-Input& Input::set_on_input(TextChangeHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.input_changed, state.legacy_input_token,
-        handler ? TextEventSignal::Handler{std::move(handler)} : TextEventSignal::Handler{});
-    return *this;
-}
-
-Input& Input::set_on_change(TextChangeHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.change_committed, state.legacy_change_token,
-        handler ? TextEventSignal::Handler{std::move(handler)} : TextEventSignal::Handler{});
-    return *this;
-}
-
-Input& Input::set_on_clear(VoidHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.cleared, state.legacy_clear_token,
-        handler ? VoidEventSignal::Handler{std::move(handler)} : VoidEventSignal::Handler{});
-    return *this;
-}
-
-Input& Input::set_on_focus(VoidHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.focused, state.legacy_focus_token,
-        handler ? VoidEventSignal::Handler{std::move(handler)} : VoidEventSignal::Handler{});
-    return *this;
-}
-
-Input& Input::set_on_blur(VoidHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.blurred, state.legacy_blur_token,
-        handler ? VoidEventSignal::Handler{std::move(handler)} : VoidEventSignal::Handler{});
-    return *this;
-}
-
-Input& Input::set_on_key_down(KeyHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.key_down, state.legacy_key_down_token,
-        handler ? KeyEventSignal::Handler{std::move(handler)} : KeyEventSignal::Handler{});
-    return *this;
-}
-
-Input& Input::set_on_mouse_enter(VoidHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.mouse_entered, state.legacy_mouse_enter_token,
-        handler ? VoidEventSignal::Handler{std::move(handler)} : VoidEventSignal::Handler{});
-    return *this;
-}
-
-Input& Input::set_on_mouse_leave(VoidHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.mouse_left, state.legacy_mouse_leave_token,
-        handler ? VoidEventSignal::Handler{std::move(handler)} : VoidEventSignal::Handler{});
-    return *this;
-}
-
-Input& Input::set_on_composition_start(VoidHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.composition_started, state.legacy_composition_start_token,
-        handler ? VoidEventSignal::Handler{std::move(handler)} : VoidEventSignal::Handler{});
-    return *this;
-}
-
-Input& Input::set_on_composition_update(TextChangeHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.composition_updated, state.legacy_composition_update_token,
-        handler ? TextEventSignal::Handler{std::move(handler)} : TextEventSignal::Handler{});
-    return *this;
-}
-
-Input& Input::set_on_composition_end(TextChangeHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.composition_ended, state.legacy_composition_end_token,
-        handler ? TextEventSignal::Handler{std::move(handler)} : TextEventSignal::Handler{});
     return *this;
 }
 
@@ -1271,13 +1172,15 @@ bool Input::show_text_input_context_menu(layout::Point absolute_position) {
             .gap = 0.0F,
             .viewport_margin = 4.0F,
             .light_dismiss = true,
-            .preserve_focus = true,
-            .on_dismissed = [weak_lifetime, owner]() {
-                const auto alive = weak_lifetime.lock();
-                if (alive != nullptr && *alive) {
-                    owner->context_menu_open_ = false;
-                }
-            }});
+            .preserve_focus = true});
+    if (auto* popup = popup_manager.element(result.handle); popup != nullptr) {
+        popup->dismissed_event() += [weak_lifetime, owner]() {
+            const auto alive = weak_lifetime.lock();
+            if (alive != nullptr && *alive) {
+                owner->context_menu_open_ = false;
+            }
+        };
+    }
     context_menu_rect_ = result.bounds;
     context_menu_popup_ = result.handle;
     context_menu_open_ = true;

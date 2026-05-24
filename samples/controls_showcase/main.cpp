@@ -285,11 +285,10 @@ class ProgressTrackPanel final : public controls::Panel {
 
 class SyncedViewportPanel final : public controls::Panel {
   public:
-    using ScrollChangedHandler = std::function<void(layout::Point)>;
+    using ScrollChangedSignal = core::EventSignal<layout::Point>;
 
-    SyncedViewportPanel& set_on_scroll_changed(ScrollChangedHandler handler) {
-        scroll_changed_handler_ = std::move(handler);
-        return *this;
+    [[nodiscard]] ScrollChangedSignal& scroll_changed() noexcept {
+        return scroll_changed_;
     }
 
   protected:
@@ -297,13 +296,13 @@ class SyncedViewportPanel final : public controls::Panel {
         const auto before = scroll_offset();
         controls::Panel::on_pointer_event(event);
         const auto after = scroll_offset();
-        if ((before.x != after.x || before.y != after.y) && scroll_changed_handler_) {
-            scroll_changed_handler_(after);
+        if ((before.x != after.x || before.y != after.y) && !scroll_changed_.empty()) {
+            scroll_changed_.emit(after);
         }
     }
 
   private:
-    ScrollChangedHandler scroll_changed_handler_;
+    ScrollChangedSignal scroll_changed_;
 };
 
 struct ShowcaseWindowTree {
@@ -522,7 +521,7 @@ class ImplicitPropertyDemoPanel final : public controls::Panel {
         replay.configure_layout([](layout::LayoutElement& item) {
             item.set_width(layout::Length::points(280.0F)).set_flex_shrink(0.0F);
         });
-        replay.set_on_click([this]() { replay_animation(); });
+        replay.clicked() += [this](const controls::ButtonClickEvent&) { replay_animation(); };
 
         set_property(implicit_demo_progress_property(), 0.0F);
         sync_visuals();
@@ -818,8 +817,10 @@ void add_button_section(controls::StackPanel& root) {
         .set_size(controls::ButtonSize::Small);
     add_button(variant_row, "Link", controls::ButtonType::Text).set_link_variant(true);
     auto& loading_button = add_button(variant_row, "Toggle loading", controls::ButtonType::Primary);
-    loading_button.set_on_click(
-        [&loading_button]() { loading_button.set_loading(!loading_button.loading()); });
+    loading_button.clicked() +=
+        [&loading_button](const controls::ButtonClickEvent&) {
+            loading_button.set_loading(!loading_button.loading());
+        };
     add_button(variant_row, "Disabled", controls::ButtonType::Default).set_disabled(true);
     add_button(variant_row, "Disabled", controls::ButtonType::Primary).set_disabled(true);
     add_button(variant_row, "Dark", controls::ButtonType::Default).set_dark_mode(true);
@@ -971,12 +972,12 @@ void add_choice_scroll_section(controls::StackPanel& root) {
     vertical.set_orientation(controls::ScrollbarOrientation::Vertical)
         .set_visibility_mode(controls::ScrollbarVisibility::Always)
         .set_range(0.0F, 302.0F, 156.0F)
-        .set_value(0.0F)
-        .set_on_scroll([&vertical_viewport](float value) {
-            vertical_viewport.set_scroll_offset(layout::Point{0.0F, value});
-        });
-    vertical_viewport.set_on_scroll_changed(
-        [&vertical](layout::Point offset) { vertical.set_value(offset.y); });
+        .set_value(0.0F);
+    vertical.scrolled() += [&vertical_viewport](float value) {
+        vertical_viewport.set_scroll_offset(layout::Point{0.0F, value});
+    };
+    vertical_viewport.scroll_changed() +=
+        [&vertical](layout::Point offset) { vertical.set_value(offset.y); };
     vertical.configure_layout([](layout::LayoutElement& item) {
         item.set_size(layout::Length::points(14.0F), layout::Length::points(156.0F))
             .set_flex_shrink(0.0F);
@@ -1025,12 +1026,12 @@ void add_choice_scroll_section(controls::StackPanel& root) {
     horizontal.set_orientation(controls::ScrollbarOrientation::Horizontal)
         .set_visibility_mode(controls::ScrollbarVisibility::Always)
         .set_range(0.0F, 328.0F, 540.0F)
-        .set_value(0.0F)
-        .set_on_scroll([&horizontal_viewport](float value) {
-            horizontal_viewport.set_scroll_offset(layout::Point{value, 0.0F});
-        });
-    horizontal_viewport.set_on_scroll_changed(
-        [&horizontal](layout::Point offset) { horizontal.set_value(offset.x); });
+        .set_value(0.0F);
+    horizontal.scrolled() += [&horizontal_viewport](float value) {
+        horizontal_viewport.set_scroll_offset(layout::Point{value, 0.0F});
+    };
+    horizontal_viewport.scroll_changed() +=
+        [&horizontal](layout::Point offset) { horizontal.set_value(offset.x); };
     horizontal.configure_layout([](layout::LayoutElement& item) {
         item.set_size(layout::Length::points(540.0F), layout::Length::points(14.0F))
             .set_flex_shrink(0.0F);
@@ -1317,25 +1318,27 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                             controls::MessageType::Error}) {
         const auto label = message_type_label(type);
         auto& button = add_button(message_row, "Show " + label, controls::ButtonType::Default);
-        button.set_on_click([&feedback_host, type, label]() {
+        button.clicked() += [&feedback_host, type, label](const controls::ButtonClickEvent&) {
             controls::Message::show(
                 feedback_host, controls::MessageOptions{
                                    .text = label + " message", .type = type, .duration_ms = 3000});
-        });
+        };
     }
-    add_button(message_row, "Manual close", controls::ButtonType::Info)
-        .set_on_click([&feedback_host]() {
+    auto& manual_close_button =
+        add_button(message_row, "Manual close", controls::ButtonType::Info);
+    manual_close_button.clicked() += [&feedback_host](const controls::ButtonClickEvent&) {
             controls::Message::show(feedback_host,
                                     controls::MessageOptions{.text = "Manual close message",
                                                              .type = controls::MessageType::Info,
                                                              .show_close = true,
                                                              .duration_ms = 0});
-        });
+        };
 
     auto& message_boxes = add_demo_group(section, "MessageBox");
     auto& box_row = message_boxes.append_new_child<controls::StackPanel>();
     configure_row(box_row);
-    add_button(box_row, "Alert", controls::ButtonType::Info).set_on_click([&feedback_host]() {
+    auto& alert_button = add_button(box_row, "Alert", controls::ButtonType::Info);
+    alert_button.clicked() += [&feedback_host](const controls::ButtonClickEvent&) {
         controls::MessageBox::show(
             feedback_host,
             controls::MessageBoxOptions{.title = "Alert",
@@ -1345,9 +1348,10 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                                         .show_cancel_button = false,
                                         .close_on_click_modal = false,
                                         .close_on_press_escape = false});
-    });
-    add_button(box_row, "Confirm", controls::ButtonType::Warning).set_on_click([&feedback_host]() {
-        controls::MessageBox::show(
+    };
+    auto& confirm_button = add_button(box_row, "Confirm", controls::ButtonType::Warning);
+    confirm_button.clicked() += [&feedback_host](const controls::ButtonClickEvent&) {
+        auto& box = controls::MessageBox::show(
             feedback_host, controls::MessageBoxOptions{
                                .title = "Confirm",
                                .message = "Confirm and cancel actions with close distinction.",
@@ -1357,20 +1361,19 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                                .draggable = true,
                                .modal = true,
                                .close_on_click_modal = false,
-                               .close_on_press_escape = false,
-                               .on_action = [&feedback_host](controls::MessageBoxAction action,
-                                                             std::string value) {
-                                   static_cast<void>(value);
-                                   controls::Message::show(
-                                       feedback_host,
-                                       controls::MessageOptions{
-                                           .text = "MessageBox " + message_box_action_label(action),
-                                           .type = controls::MessageType::Info,
-                                           .show_close = true});
-                               }});
-    });
-    add_button(box_row, "Prompt", controls::ButtonType::Success).set_on_click([&feedback_host]() {
-        controls::MessageBox::show(
+                               .close_on_press_escape = false});
+        box.action_invoked() += [&feedback_host](const controls::MessageBox::ActionEvent& event) {
+            controls::Message::show(
+                feedback_host,
+                controls::MessageOptions{.text = "MessageBox " +
+                                                 message_box_action_label(event.action),
+                                         .type = controls::MessageType::Info,
+                                         .show_close = true});
+        };
+    };
+    auto& prompt_button = add_button(box_row, "Prompt", controls::ButtonType::Success);
+    prompt_button.clicked() += [&feedback_host](const controls::ButtonClickEvent&) {
+        auto& box = controls::MessageBox::show(
             feedback_host,
             controls::MessageBoxOptions{
                 .title = "Prompt",
@@ -1394,19 +1397,19 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                 .input_validator = [](std::string_view value) -> std::optional<std::string> {
                     return value.empty() ? std::optional<std::string>{"Project name is required"}
                                          : std::nullopt;
-                },
-                .on_action =
-                    [&feedback_host](controls::MessageBoxAction action, std::string value) {
-                        controls::Message::show(
-                            feedback_host,
-                            controls::MessageOptions{
-                                .text = "Prompt " + message_box_action_label(action) + ": " + value,
-                                .type = controls::MessageType::Success,
-                                .show_close = true});
-                    }});
-    });
-    add_button(box_row, "Non-modal", controls::ButtonType::Default)
-        .set_on_click([&feedback_host]() {
+                }});
+        box.action_invoked() += [&feedback_host](const controls::MessageBox::ActionEvent& event) {
+            controls::Message::show(
+                feedback_host,
+                controls::MessageOptions{
+                    .text = "Prompt " + message_box_action_label(event.action) + ": " +
+                            std::string(event.input_text),
+                    .type = controls::MessageType::Success,
+                    .show_close = true});
+        };
+    };
+    auto& non_modal_button = add_button(box_row, "Non-modal", controls::ButtonType::Default);
+    non_modal_button.clicked() += [&feedback_host](const controls::ButtonClickEvent&) {
             controls::MessageBox::show(feedback_host,
                                        controls::MessageBoxOptions{
                                            .title = "Non-modal MessageBox",
@@ -1416,9 +1419,9 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                                            .draggable = true,
                                            .modal = false,
                                            .close_on_click_modal = false});
-        });
-    add_button(box_row, "Large content", controls::ButtonType::Info)
-        .set_on_click([&feedback_host]() {
+        };
+    auto& large_box_button = add_button(box_row, "Large content", controls::ButtonType::Info);
+    large_box_button.clicked() += [&feedback_host](const controls::ButtonClickEvent&) {
             controls::MessageBox::show(
                 feedback_host,
                 controls::MessageBoxOptions{
@@ -1440,10 +1443,10 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                             .set_type(controls::TextType::Info)
                             .set_size(controls::TextSize::Small);
                     }});
-        });
-    add_button(box_row, "Nested box", controls::ButtonType::Success)
-        .set_on_click([&feedback_host]() {
-            controls::MessageBox::show(
+        };
+    auto& nested_box_button = add_button(box_row, "Nested box", controls::ButtonType::Success);
+    nested_box_button.clicked() += [&feedback_host](const controls::ButtonClickEvent&) {
+            auto& first_box = controls::MessageBox::show(
                 feedback_host,
                 controls::MessageBoxOptions{
                     .title = "First MessageBox",
@@ -1456,34 +1459,33 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                     .modal = true,
                     .close_on_click_modal = false,
                     .close_on_press_escape = false,
-                    .close_on_confirm = false,
-                    .on_action = [&feedback_host](controls::MessageBoxAction action,
-                                                  std::string value) {
-                        static_cast<void>(value);
-                        if (action != controls::MessageBoxAction::Confirm) {
-                            return;
-                        }
-                        controls::MessageBox::show(
-                            feedback_host,
-                            controls::MessageBoxOptions{
-                                .title = "Second MessageBox",
-                                .message = "Nested MessageBox content. This verifies stacked "
-                                           "modal feedback, focus, and backdrop behavior.",
-                                .kind = controls::MessageBoxKind::Alert,
-                                .type = controls::MessageType::Primary,
-                                .show_cancel_button = false,
-                                .modal = true,
-                                .close_on_click_modal = false,
-                                .close_on_press_escape = false});
-                    }});
-        });
+                    .close_on_confirm = false});
+            first_box.action_invoked() +=
+                [&feedback_host](const controls::MessageBox::ActionEvent& event) {
+                    if (event.action != controls::MessageBoxAction::Confirm) {
+                        return;
+                    }
+                    controls::MessageBox::show(
+                        feedback_host,
+                        controls::MessageBoxOptions{
+                            .title = "Second MessageBox",
+                            .message = "Nested MessageBox content. This verifies stacked "
+                                       "modal feedback, focus, and backdrop behavior.",
+                            .kind = controls::MessageBoxKind::Alert,
+                            .type = controls::MessageType::Primary,
+                            .show_cancel_button = false,
+                            .modal = true,
+                            .close_on_click_modal = false,
+                            .close_on_press_escape = false});
+                };
+        };
 
     auto& dialogs = add_demo_group(section, "Dialog");
     auto& dialog_row = dialogs.append_new_child<controls::StackPanel>();
     configure_row(dialog_row);
-    add_button(dialog_row, "Open dialog", controls::ButtonType::Primary)
-        .set_on_click([&feedback_host]() {
-            controls::Dialog::show(
+    auto& open_dialog_button = add_button(dialog_row, "Open dialog", controls::ButtonType::Primary);
+    open_dialog_button.clicked() += [&feedback_host](const controls::ButtonClickEvent&) {
+            auto& dialog = controls::Dialog::show(
                 feedback_host,
                 controls::DialogOptions{
                     .title = "Dialog",
@@ -1492,17 +1494,18 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                     .modal = true,
                     .close_on_click_modal = false,
                     .close_on_press_escape = false,
-                    .draggable = true,
-                    .on_action = [&feedback_host](controls::DialogAction action) {
-                        controls::Message::show(feedback_host,
-                                                controls::MessageOptions{
-                                                    .text = "Dialog " + dialog_action_label(action),
-                                                    .type = controls::MessageType::Primary,
-                                                    .show_close = true});
-                    }});
-        });
-    add_button(dialog_row, "Fullscreen dialog", controls::ButtonType::Warning)
-        .set_on_click([&feedback_host]() {
+                    .draggable = true});
+            dialog.action_invoked() += [&feedback_host](controls::DialogAction action) {
+                controls::Message::show(feedback_host,
+                                        controls::MessageOptions{
+                                            .text = "Dialog " + dialog_action_label(action),
+                                            .type = controls::MessageType::Primary,
+                                            .show_close = true});
+            };
+        };
+    auto& fullscreen_dialog_button =
+        add_button(dialog_row, "Fullscreen dialog", controls::ButtonType::Warning);
+    fullscreen_dialog_button.clicked() += [&feedback_host](const controls::ButtonClickEvent&) {
             controls::Dialog::show(
                 feedback_host, controls::DialogOptions{
                                    .title = "Fullscreen dialog",
@@ -1515,9 +1518,10 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                                    .close_on_press_escape = false,
                                    .fullscreen = true,
                                    .draggable = false});
-        });
-    add_button(dialog_row, "No cancel", controls::ButtonType::Default)
-        .set_on_click([&feedback_host]() {
+        };
+    auto& no_cancel_dialog_button =
+        add_button(dialog_row, "No cancel", controls::ButtonType::Default);
+    no_cancel_dialog_button.clicked() += [&feedback_host](const controls::ButtonClickEvent&) {
             controls::Dialog::show(
                 feedback_host,
                 controls::DialogOptions{.title = "Compact dialog",
@@ -1527,9 +1531,10 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                                         .close_on_press_escape = false,
                                         .draggable = false,
                                         .width = 420.0F});
-        });
-    add_button(dialog_row, "Non-modal dialog", controls::ButtonType::Info)
-        .set_on_click([&feedback_host]() {
+        };
+    auto& non_modal_dialog_button =
+        add_button(dialog_row, "Non-modal dialog", controls::ButtonType::Info);
+    non_modal_dialog_button.clicked() += [&feedback_host](const controls::ButtonClickEvent&) {
             controls::Dialog::show(
                 feedback_host, controls::DialogOptions{.title = "Non-modal dialog",
                                                        .body = "Element Plus style dialog without "
@@ -1539,9 +1544,9 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                                                        .close_on_click_modal = false,
                                                        .draggable = true,
                                                        .width = 520.0F});
-        });
-    add_button(dialog_row, "Large content", controls::ButtonType::Success)
-        .set_on_click([&feedback_host]() {
+        };
+    auto& large_dialog_button = add_button(dialog_row, "Large content", controls::ButtonType::Success);
+    large_dialog_button.clicked() += [&feedback_host](const controls::ButtonClickEvent&) {
             controls::Dialog::show(
                 feedback_host, controls::DialogOptions{.title = "Large content dialog",
                                                        .body = long_feedback_copy("Dialog") + " " +
@@ -1553,10 +1558,10 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                                                        .draggable = true,
                                                        .width = 640.0F,
                                                        .height = 420.0F});
-        });
-    add_button(dialog_row, "Nested dialog", controls::ButtonType::Warning)
-        .set_on_click([&feedback_host]() {
-            controls::Dialog::show(
+        };
+    auto& nested_dialog_button = add_button(dialog_row, "Nested dialog", controls::ButtonType::Warning);
+    nested_dialog_button.clicked() += [&feedback_host](const controls::ButtonClickEvent&) {
+            auto& first_dialog = controls::Dialog::show(
                 feedback_host,
                 controls::DialogOptions{
                     .title = "First dialog",
@@ -1568,50 +1573,54 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                     .close_on_click_modal = false,
                     .close_on_press_escape = false,
                     .close_on_confirm = false,
-                    .draggable = true,
-                    .on_action = [&feedback_host](controls::DialogAction action) {
-                        if (action != controls::DialogAction::Confirm) {
-                            return;
-                        }
-                        controls::Dialog::show(
-                            feedback_host,
-                            controls::DialogOptions{
-                                .title = "Second dialog",
-                                .body = "Nested dialog content. This verifies stacked modal "
-                                        "surfaces, focus, and shadow composition.",
-                                .show_cancel_button = true,
-                                .modal = true,
-                                .close_on_click_modal = false,
-                                .close_on_press_escape = false,
-                                .draggable = true,
-                                .width = 460.0F});
-                    }});
-        });
+                    .draggable = true});
+            first_dialog.action_invoked() += [&feedback_host](controls::DialogAction action) {
+                if (action != controls::DialogAction::Confirm) {
+                    return;
+                }
+                controls::Dialog::show(
+                    feedback_host,
+                    controls::DialogOptions{
+                        .title = "Second dialog",
+                        .body = "Nested dialog content. This verifies stacked modal "
+                                "surfaces, focus, and shadow composition.",
+                        .show_cancel_button = true,
+                        .modal = true,
+                        .close_on_click_modal = false,
+                        .close_on_press_escape = false,
+                        .draggable = true,
+                        .width = 460.0F});
+            };
+        };
 
     auto& dialog_windows_group = add_demo_group(section, "DialogWindow");
     auto& dialog_window_row = dialog_windows_group.append_new_child<controls::StackPanel>();
     configure_row(dialog_window_row);
-    add_button(dialog_window_row, "Modal window", controls::ButtonType::Primary)
-        .set_on_click([&feedback_host, host_window]() {
+    auto& modal_window_button =
+        add_button(dialog_window_row, "Modal window", controls::ButtonType::Primary);
+    modal_window_button.clicked() +=
+        [&feedback_host, host_window](const controls::ButtonClickEvent&) {
             controls::DialogWindow dialog;
             dialog.set_title("DialogWindow")
                 .set_body("Independent Win32 window with native title bar and Element Plus "
                           "style dialog body and footer actions.")
                 .set_show_cancel_button(true)
                 .set_modal(true)
-                .set_owner(host_window)
-                .set_on_action([&feedback_host](controls::DialogAction action) {
-                    controls::Message::show(feedback_host,
-                                            controls::MessageOptions{
-                                                .text = "DialogWindow " +
-                                                        dialog_action_label(action),
-                                                .type = controls::MessageType::Primary,
-                                                .show_close = true});
-                });
+                .set_owner(host_window);
+            dialog.action_invoked() += [&feedback_host](controls::DialogAction action) {
+                controls::Message::show(feedback_host,
+                                        controls::MessageOptions{
+                                            .text = "DialogWindow " + dialog_action_label(action),
+                                            .type = controls::MessageType::Primary,
+                                            .show_close = true});
+            };
             static_cast<void>(dialog.show_modal());
-        });
-    add_button(dialog_window_row, "Non-modal window", controls::ButtonType::Info)
-        .set_on_click([&feedback_host, host_window, dialog_windows, prune_dialog_windows]() {
+        };
+    auto& non_modal_window_button =
+        add_button(dialog_window_row, "Non-modal window", controls::ButtonType::Info);
+    non_modal_window_button.clicked() +=
+        [&feedback_host, host_window, dialog_windows, prune_dialog_windows](
+            const controls::ButtonClickEvent&) {
             prune_dialog_windows();
             auto dialog = std::make_shared<controls::DialogWindow>();
             dialog->set_title("Non-modal DialogWindow")
@@ -1620,20 +1629,22 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                           "Element Plus dialog rhythm.")
                 .set_show_cancel_button(true)
                 .set_modal(false)
-                .set_owner(host_window)
-                .set_on_action([&feedback_host](controls::DialogAction action) {
-                    controls::Message::show(
-                        feedback_host,
-                        controls::MessageOptions{
-                            .text = "DialogWindow " + dialog_action_label(action),
-                            .type = controls::MessageType::Info,
-                            .show_close = true});
-                });
+                .set_owner(host_window);
+            dialog->action_invoked() += [&feedback_host](controls::DialogAction action) {
+                controls::Message::show(
+                    feedback_host,
+                    controls::MessageOptions{.text = "DialogWindow " + dialog_action_label(action),
+                                             .type = controls::MessageType::Info,
+                                             .show_close = true});
+            };
             dialog->show();
             dialog_windows->push_back(std::move(dialog));
-        });
-    add_button(dialog_window_row, "Large content", controls::ButtonType::Success)
-        .set_on_click([&feedback_host, host_window, dialog_windows, prune_dialog_windows]() {
+        };
+    auto& large_window_button =
+        add_button(dialog_window_row, "Large content", controls::ButtonType::Success);
+    large_window_button.clicked() +=
+        [&feedback_host, host_window, dialog_windows, prune_dialog_windows](
+            const controls::ButtonClickEvent&) {
             prune_dialog_windows();
             auto dialog = std::make_shared<controls::DialogWindow>();
             dialog->set_title("Large content window")
@@ -1642,43 +1653,45 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                 .set_show_cancel_button(true)
                 .set_modal(false)
                 .set_window_size(640, 320)
-                .set_owner(host_window)
-                .set_on_action([&feedback_host](controls::DialogAction action) {
-                    controls::Message::show(
-                        feedback_host,
-                        controls::MessageOptions{
-                            .text = "DialogWindow " + dialog_action_label(action),
-                            .type = controls::MessageType::Success,
-                            .show_close = true});
-                });
+                .set_owner(host_window);
+            dialog->action_invoked() += [&feedback_host](controls::DialogAction action) {
+                controls::Message::show(
+                    feedback_host,
+                    controls::MessageOptions{.text = "DialogWindow " + dialog_action_label(action),
+                                             .type = controls::MessageType::Success,
+                                             .show_close = true});
+            };
             dialog->show();
             dialog_windows->push_back(std::move(dialog));
-        });
+        };
 
     auto& loading_group = add_demo_group(section, "Loading");
     auto& loading_row = loading_group.append_new_child<controls::StackPanel>();
     configure_row(loading_row);
-    add_button(loading_row, "Fullscreen loading", controls::ButtonType::Primary)
-        .set_on_click([&feedback_host]() {
+    auto& fullscreen_loading_button =
+        add_button(loading_row, "Fullscreen loading", controls::ButtonType::Primary);
+    fullscreen_loading_button.clicked() += [&feedback_host](const controls::ButtonClickEvent&) {
             controls::Loading::show(
                 feedback_host,
                 controls::LoadingOptions{.text = "Loading service", .fullscreen = true});
-        });
-    add_button(loading_row, "Target loading", controls::ButtonType::Default)
-        .set_on_click([&feedback_host]() {
+        };
+    auto& target_loading_button =
+        add_button(loading_row, "Target loading", controls::ButtonType::Default);
+    target_loading_button.clicked() += [&feedback_host](const controls::ButtonClickEvent&) {
             controls::Loading::show(
                 feedback_host,
                 controls::LoadingOptions{.text = "Target loading", .fullscreen = false});
-        });
-    add_button(loading_row, "Custom loading", controls::ButtonType::Success)
-        .set_on_click([&feedback_host]() {
+        };
+    auto& custom_loading_button =
+        add_button(loading_row, "Custom loading", controls::ButtonType::Success);
+    custom_loading_button.clicked() += [&feedback_host](const controls::ButtonClickEvent&) {
             controls::Loading::show(
                 feedback_host,
                 controls::LoadingOptions{.text = "Custom color",
                                          .background = rendering::Color::rgba(240, 249, 235, 224),
                                          .spinner_color = rendering::Color::rgba(103, 194, 58),
                                          .fullscreen = false});
-        });
+        };
 }
 
 void add_animation_section(controls::StackPanel& root) {
@@ -1711,10 +1724,11 @@ void add_animation_section(controls::StackPanel& root) {
     auto& loading_preview_button = live_controls.append_new_child<controls::Button>();
     loading_preview_button.set_text("Loading")
         .set_type(controls::ButtonType::Primary)
-        .set_loading(true)
-        .set_on_click([&loading_preview_button]() {
+        .set_loading(true);
+    loading_preview_button.clicked() +=
+        [&loading_preview_button](const controls::ButtonClickEvent&) {
             loading_preview_button.set_loading(!loading_preview_button.loading());
-        });
+        };
     live_controls.append_new_child<controls::Switch>().set_checked(true);
 
     auto& shadow_row = effects.append_new_child<controls::StackPanel>();
@@ -1896,7 +1910,7 @@ void add_virtualization_section(controls::StackPanel& root) {
             return slot;
         },
         viewport_height);
-    viewport.set_on_scroll_changed([](layout::Point) {});
+    viewport.scroll_changed() += [](layout::Point) {};
 
     const auto scrollbar_max =
         static_cast<float>(item_count) * item_height - viewport_height;
@@ -1905,10 +1919,10 @@ void add_virtualization_section(controls::StackPanel& root) {
         .set_always_visible(true)
         .set_min_thumb_extent(24.0F)
         .set_thickness(8.0F)
-        .set_range(0.0F, scrollbar_max, viewport_height)
-        .set_on_scroll([&viewport](float value) {
-            viewport.set_scroll_offset(layout::Point{0.0F, value});
-        });
+        .set_range(0.0F, scrollbar_max, viewport_height);
+    scrollbar.scrolled() += [&viewport](float value) {
+        viewport.set_scroll_offset(layout::Point{0.0F, value});
+    };
     scrollbar.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::points(12.0F))
             .set_height(layout::Length::percent(100.0F))
@@ -2166,14 +2180,12 @@ build_showcase_window_tree(float viewport_width_hint = showcase_window_viewport_
                                             .maximum = viewport.max_scroll_offset().y,
                                             .page_size = viewport.viewport_rect().height,
                                             .value = viewport.scroll_offset().y};
-        })
-        .set_on_scroll([&viewport](float value) {
-            viewport.set_scroll_offset(layout::Point{0.0F, value});
         });
-    viewport.set_on_scroll_changed(
-        [&scrollbar](layout::Point offset) {
-            scrollbar.set_value(offset.y);
-        });
+    scrollbar.scrolled() += [&viewport](float value) {
+        viewport.set_scroll_offset(layout::Point{0.0F, value});
+    };
+    viewport.scroll_changed() +=
+        [&scrollbar](layout::Point offset) { scrollbar.set_value(offset.y); };
     scrollbar.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::points(showcase_page_scrollbar_width))
             .set_height(layout::Length::percent(100.0F))

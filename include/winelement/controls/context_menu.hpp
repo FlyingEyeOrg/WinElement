@@ -44,9 +44,6 @@ struct ContextMenuMetrics {
 
 class ContextMenu final : public Control {
   public:
-    using SelectHandler = std::function<void(const ContextMenuItem& item, std::size_t index)>;
-    using IndexSelectHandler = std::function<void(std::size_t index)>;
-    using DismissHandler = std::function<void()>;
     struct SelectEvent {
         const ContextMenuItem& item;
         std::size_t index = 0;
@@ -58,9 +55,6 @@ class ContextMenu final : public Control {
     ~ContextMenu() override;
 
     ContextMenu& set_items(std::vector<ContextMenuItem> items);
-    ContextMenu& set_on_select(SelectHandler handler);
-    ContextMenu& set_on_select(IndexSelectHandler handler);
-    ContextMenu& set_on_dismiss(DismissHandler handler);
     [[nodiscard]] SelectEventSignal& selected() noexcept;
     [[nodiscard]] DismissEventSignal& dismissed() noexcept;
     ContextMenu& set_metrics(ContextMenuMetrics metrics);

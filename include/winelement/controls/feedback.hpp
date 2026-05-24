@@ -35,12 +35,10 @@ struct MessageOptions {
     int duration_ms = 3000;
     float width = 360.0F;
     float top = 20.0F;
-    std::function<void()> on_close;
 };
 
 class Message final : public Control {
   public:
-    using CloseHandler = std::function<void()>;
     using CloseEventSignal = core::EventSignal<>;
 
     Message();
@@ -49,7 +47,6 @@ class Message final : public Control {
     Message& set_text(std::string_view text);
     Message& set_type(MessageType type);
     Message& set_show_close(bool show_close);
-    Message& set_on_close(CloseHandler handler);
     [[nodiscard]] CloseEventSignal& closed() noexcept;
     [[nodiscard]] const std::string& text() const noexcept;
     [[nodiscard]] MessageType type() const noexcept;
@@ -123,12 +120,10 @@ struct MessageBoxOptions {
     MessageBoxContentBuilder content_builder;
     std::string input_error_message = "Invalid input";
     MessageBoxInputValidator input_validator;
-    std::function<void(MessageBoxAction, std::string)> on_action;
 };
 
 class MessageBox final : public Control {
   public:
-    using ActionHandler = std::function<void(MessageBoxAction, std::string)>;
     struct ActionEvent {
         MessageBoxAction action = MessageBoxAction::Close;
         std::string_view input_text;
@@ -156,7 +151,6 @@ class MessageBox final : public Control {
     MessageBox& set_input_error_message(std::string_view text);
     MessageBox& set_input_validator(MessageBoxInputValidator validator);
     MessageBox& set_draggable(bool draggable) noexcept;
-    MessageBox& set_on_action(ActionHandler handler);
     [[nodiscard]] ActionEventSignal& action_invoked() noexcept;
     [[nodiscard]] const std::string& title() const noexcept;
     [[nodiscard]] const std::string& message() const noexcept;
@@ -290,7 +284,6 @@ struct DialogOptions {
     bool draggable = true;
     float width = 520.0F;
     float height = 0.0F;
-    std::function<void(DialogAction)> on_action;
 };
 
 struct DialogWindowOptions {
@@ -304,12 +297,10 @@ struct DialogWindowOptions {
     int width = 520;
     int height = 0;
     platform::Window* owner = nullptr;
-    std::function<void(DialogAction)> on_action;
 };
 
 class DialogWindow final {
   public:
-    using ActionHandler = std::function<void(DialogAction)>;
     using ActionEventSignal = core::EventSignal<DialogAction>;
 
     DialogWindow();
@@ -329,7 +320,6 @@ class DialogWindow final {
     DialogWindow& set_modal(bool modal) noexcept;
     DialogWindow& set_window_size(int width, int height = 0) noexcept;
     DialogWindow& set_owner(platform::Window* owner) noexcept;
-    DialogWindow& set_on_action(ActionHandler handler);
     [[nodiscard]] ActionEventSignal& action_invoked() noexcept;
     [[nodiscard]] const std::string& title() const noexcept;
     [[nodiscard]] const std::string& body() const noexcept;
@@ -347,7 +337,6 @@ class DialogWindow final {
 
 class Dialog final : public Control {
   public:
-    using ActionHandler = std::function<void(DialogAction)>;
     using ActionEventSignal = core::EventSignal<DialogAction>;
 
     Dialog();
@@ -361,7 +350,6 @@ class Dialog final : public Control {
     Dialog& set_show_cancel_button(bool show_cancel_button);
     Dialog& set_close_on_confirm(bool close_on_confirm) noexcept;
     Dialog& set_draggable(bool draggable) noexcept;
-    Dialog& set_on_action(ActionHandler handler);
     [[nodiscard]] ActionEventSignal& action_invoked() noexcept;
     [[nodiscard]] const std::string& title() const noexcept;
     [[nodiscard]] const std::string& body() const noexcept;

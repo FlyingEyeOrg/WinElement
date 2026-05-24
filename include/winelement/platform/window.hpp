@@ -52,9 +52,6 @@ struct WindowOptions {
     bool defer_render_thread_until_show = false;
     bool trim_render_memory_on_idle = true;
     WindowCreateHook on_before_create;
-    WindowMessageHook on_message;
-    WindowMessageHook on_message_processed;
-    std::function<void()> on_closed;
 };
 
 class Window final {
@@ -77,8 +74,6 @@ class Window final {
     [[nodiscard]] const elements::UIElement* content() const noexcept;
     void set_title(std::wstring_view title);
     [[nodiscard]] NativeWindowHandle native_handle() const noexcept;
-    void set_message_hook(WindowMessageHook hook);
-    void set_post_message_hook(WindowMessageHook hook);
     MessageFilterToken add_window_message_filter(WindowMessageHook filter);
     void remove_window_message_filter(MessageFilterToken token) noexcept;
     MessageFilterToken add_post_window_message_filter(WindowMessageHook filter);

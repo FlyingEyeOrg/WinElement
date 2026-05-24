@@ -465,17 +465,14 @@ bool handle_overlay_drag(elements::UIElement& element, bool draggable, bool& dra
 
 struct Message::EventState {
     CloseEventSignal closed;
-    core::EventToken legacy_closed_token = 0U;
 };
 
 struct MessageBox::EventState {
     ActionEventSignal action_invoked;
-    core::EventToken legacy_action_token = 0U;
 };
 
 struct Dialog::EventState {
     ActionEventSignal action_invoked;
-    core::EventToken legacy_action_token = 0U;
 };
 
 Message::Message() : Control() {
@@ -545,14 +542,6 @@ Message& Message::set_show_close(bool show_close) {
     return *this;
 }
 
-Message& Message::set_on_close(CloseHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.closed, state.legacy_closed_token,
-        handler ? CloseEventSignal::Handler{std::move(handler)} : CloseEventSignal::Handler{});
-    return *this;
-}
-
 Message::CloseEventSignal& Message::closed() noexcept {
     return ensure_event_state().closed;
 }
@@ -587,8 +576,7 @@ Message& Message::show(elements::UIElement& host, MessageOptions options) {
     auto message = std::make_unique<Message>();
     message->set_text(options.text)
         .set_type(options.type)
-        .set_show_close(options.show_close)
-        .set_on_close(std::move(options.on_close));
+        .set_show_close(options.show_close);
     message->width_ = width;
     message->height_ = size.height;
     message->top_offset_ = std::max(options.top, 0.0F);
@@ -1035,18 +1023,6 @@ MessageBox& MessageBox::set_draggable(bool draggable) noexcept {
     return *this;
 }
 
-MessageBox& MessageBox::set_on_action(ActionHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.action_invoked, state.legacy_action_token,
-        handler ? ActionEventSignal::Handler{
-                      [handler = std::move(handler)](const ActionEvent& event) {
-                          handler(event.action, std::string(event.input_text));
-                      }}
-                : ActionEventSignal::Handler{});
-    return *this;
-}
-
 MessageBox::ActionEventSignal& MessageBox::action_invoked() noexcept {
     return ensure_event_state().action_invoked;
 }
@@ -1118,8 +1094,7 @@ MessageBox& MessageBox::show(elements::UIElement& host, MessageBoxOptions option
         .set_content_builder(std::move(options.content_builder))
         .set_input_error_message(options.input_error_message)
         .set_input_validator(std::move(options.input_validator))
-        .set_draggable(options.draggable)
-        .set_on_action(std::move(options.on_action));
+        .set_draggable(options.draggable);
     const auto size = layout::Size{width, height};
     configure_feedback_surface(*box, size);
     auto& box_ref = *box;
@@ -1636,14 +1611,6 @@ class DialogWindowImpl final {
         return *this;
     }
 
-    DialogWindowImpl& set_on_action(DialogWindow::ActionHandler handler) {
-        core::replace_handler_subscription(
-            action_invoked_, legacy_action_token_,
-            handler ? DialogWindow::ActionEventSignal::Handler{std::move(handler)}
-                    : DialogWindow::ActionEventSignal::Handler{});
-        return *this;
-    }
-
     [[nodiscard]] DialogWindow::ActionEventSignal& action_invoked() noexcept {
         return action_invoked_;
     }
@@ -1729,10 +1696,10 @@ class DialogWindowImpl final {
         window_options.owner = options.owner;
         window_options.modal = options.modal;
         window_options.center_on_owner = true;
-        window_options.on_closed = [this]() { handle_window_closed(); };
 
         window_ = std::make_unique<platform::Window>(std::move(window_options));
         window_->set_content(build_content_tree());
+        window_->closed_event() += [this]() { handle_window_closed(); };
     }
 
     [[nodiscard]] std::unique_ptr<elements::UIElement> build_content_tree() {
@@ -1817,7 +1784,6 @@ class DialogWindowImpl final {
     Button* confirm_button_ = nullptr;
     Button* cancel_button_ = nullptr;
     DialogWindow::ActionEventSignal action_invoked_;
-    core::EventToken legacy_action_token_ = 0U;
     std::string title_ = "Dialog";
     std::string body_;
     std::string confirm_button_text_ = "Confirm";
@@ -1884,11 +1850,6 @@ DialogWindow& DialogWindow::set_window_size(int width, int height) noexcept {
 
 DialogWindow& DialogWindow::set_owner(platform::Window* owner) noexcept {
     impl_->set_owner(owner);
-    return *this;
-}
-
-DialogWindow& DialogWindow::set_on_action(ActionHandler handler) {
-    impl_->set_on_action(std::move(handler));
     return *this;
 }
 
@@ -2083,14 +2044,6 @@ void Dialog::apply_visual_state() {
     invalidate_paint();
 }
 
-Dialog& Dialog::set_on_action(ActionHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.action_invoked, state.legacy_action_token,
-        handler ? ActionEventSignal::Handler{std::move(handler)} : ActionEventSignal::Handler{});
-    return *this;
-}
-
 Dialog::ActionEventSignal& Dialog::action_invoked() noexcept {
     return ensure_event_state().action_invoked;
 }
@@ -2144,8 +2097,7 @@ Dialog& Dialog::show(elements::UIElement& host, DialogOptions options) {
         .set_show_close(options.show_close)
         .set_show_cancel_button(options.show_cancel_button)
         .set_close_on_confirm(options.close_on_confirm)
-        .set_draggable(options.draggable)
-        .set_on_action(std::move(options.on_action));
+        .set_draggable(options.draggable);
     dialog->apply_visual_state();
     if (options.fullscreen) {
         dialog->configure_layout([](layout::LayoutElement& item) {

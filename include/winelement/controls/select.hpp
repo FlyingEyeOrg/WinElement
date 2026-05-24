@@ -36,11 +36,8 @@ enum class SelectFilterMode { AsciiCaseInsensitive, UnicodeCaseInsensitive, Cust
 
 class Select : public Control {
   public:
-    using ChangeHandler = std::function<void(std::optional<std::size_t>)>;
-    using MultiChangeHandler = std::function<void(const std::vector<std::size_t>&)>;
     using FilterPredicate = std::function<bool(std::string_view, std::string_view)>;
     using LabelFormatter = std::function<std::string(const SelectOption&, std::size_t)>;
-    using RemoteSearchHandler = std::function<void(std::string_view)>;
     using ChangeEventSignal = core::EventSignal<std::optional<std::size_t>>;
     using MultiChangeEventSignal = core::EventSignal<const std::vector<std::size_t>&>;
     using RemoteSearchEventSignal = core::EventSignal<std::string_view>;
@@ -61,13 +58,10 @@ class Select : public Control {
     Select& set_filter_mode(SelectFilterMode mode);
     Select& set_filter_predicate(FilterPredicate predicate);
     Select& set_remote_search(bool remote) noexcept;
-    Select& set_remote_search_handler(RemoteSearchHandler handler);
     Select& set_option_groups(std::vector<SelectOptionGroup> groups);
     Select& set_label_formatter(LabelFormatter formatter);
     Select& set_loading(bool loading) noexcept;
     Select& set_size(SelectSize size);
-    Select& set_on_change(ChangeHandler handler);
-    Select& set_on_multi_change(MultiChangeHandler handler);
     [[nodiscard]] ChangeEventSignal& selection_changed() noexcept;
     [[nodiscard]] MultiChangeEventSignal& multi_selection_changed() noexcept;
     [[nodiscard]] RemoteSearchEventSignal& remote_search_requested() noexcept;

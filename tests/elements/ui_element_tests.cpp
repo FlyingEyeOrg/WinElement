@@ -2124,26 +2124,34 @@ TEST(UIElementTests, UIElementHooksObserveAndInterceptTunnelAndBubbleRoutes) {
     auto& panel_ref = static_cast<RecordingElement&>(root.append_child(std::move(panel)));
     auto& leaf_ref = static_cast<RecordingElement&>(panel_ref.append_child(std::move(leaf)));
 
-    root.set_pointer_tunnel_hook(
-            [&route_log](PointerEvent& event) {
-                route_log.push_back("hook:T:root");
-                EXPECT_EQ(event.phase, EventRoutePhase::Tunnel);
-            })
-        .set_key_tunnel_hook(
-            [&route_log](KeyEvent& event) {
-                route_log.push_back("hook:K:T:root");
-                EXPECT_EQ(event.phase, EventRoutePhase::Tunnel);
-            });
-    leaf_ref.set_pointer_bubble_hook(
-        [&route_log](PointerEvent& event) {
+    root.add_routed_event_filter(
+        [&route_log](RoutedEventFilterContext& context) {
+            route_log.push_back("hook:T:root");
+            EXPECT_EQ(context.phase, EventRoutePhase::Tunnel);
+        },
+        RoutedEventFilterOptions{.type = RoutedEventType::PointerDown,
+                                 .phase = EventRoutePhase::Tunnel});
+    root.add_routed_event_filter(
+        [&route_log](RoutedEventFilterContext& context) {
+            route_log.push_back("hook:K:T:root");
+            EXPECT_EQ(context.phase, EventRoutePhase::Tunnel);
+        },
+        RoutedEventFilterOptions{.type = RoutedEventType::KeyDown,
+                                 .phase = EventRoutePhase::Tunnel});
+    leaf_ref.add_routed_event_filter(
+        [&route_log](RoutedEventFilterContext& context) {
             route_log.push_back("hook:B:leaf");
-            event.handled = true;
-        });
-    leaf_ref.set_key_bubble_hook(
-        [&route_log](KeyEvent& event) {
+            context.set_handled();
+        },
+        RoutedEventFilterOptions{.type = RoutedEventType::PointerDown,
+                                 .phase = EventRoutePhase::Bubble});
+    leaf_ref.add_routed_event_filter(
+        [&route_log](RoutedEventFilterContext& context) {
             route_log.push_back("hook:K:B:leaf");
-            event.handled = true;
-        });
+            context.set_handled();
+        },
+        RoutedEventFilterOptions{.type = RoutedEventType::KeyDown,
+                                 .phase = EventRoutePhase::Bubble});
 
     LayoutConstraints constraints;
     constraints.width = 240.0F;
@@ -2156,9 +2164,6 @@ TEST(UIElementTests, UIElementHooksObserveAndInterceptTunnelAndBubbleRoutes) {
     EXPECT_TRUE(pointer_result.handled);
     EXPECT_EQ(pointer_result.handled_by, &leaf_ref);
     EXPECT_EQ(pointer_result.handled_phase, EventRoutePhase::Bubble);
-    EXPECT_TRUE(root.has_event_hooks());
-    EXPECT_FALSE(panel_ref.has_event_hooks());
-    EXPECT_TRUE(leaf_ref.has_event_hooks());
     EXPECT_TRUE(leaf_ref.pointer_records.empty());
 
     ASSERT_TRUE(router.focus_manager().set_focus(&leaf_ref));
@@ -2172,13 +2177,6 @@ TEST(UIElementTests, UIElementHooksObserveAndInterceptTunnelAndBubbleRoutes) {
     EXPECT_EQ(route_log,
               std::vector<std::string>({"hook:T:root", "hook:B:leaf", "hook:K:T:root",
                                         "hook:K:B:leaf"}));
-
-    leaf_ref.clear_key_bubble_hook();
-    leaf_ref.clear_pointer_bubble_hook();
-    root.clear_pointer_tunnel_hook().clear_key_tunnel_hook();
-    EXPECT_FALSE(root.has_event_hooks());
-    EXPECT_FALSE(panel_ref.has_event_hooks());
-    EXPECT_FALSE(leaf_ref.has_event_hooks());
 }
 
 TEST(UIElementTests, RoutedEventFiltersAndObserversSupportTokenSubscription) {
@@ -2443,16 +2441,15 @@ TEST(UIElementTests, TopLayerLightDismissOnlyClosesTopmostEntry) {
     auto bottom_dismissed = 0;
     auto& bottom_ref = root.push_top_layer(
         std::move(bottom),
-        TopLayerOptions{.bounds = Rect{10.0F, 10.0F, 80.0F, 50.0F},
-                        .light_dismiss = true,
-                        .on_dismissed = [&bottom_dismissed]() { ++bottom_dismissed; }});
+        TopLayerOptions{.bounds = Rect{10.0F, 10.0F, 80.0F, 50.0F}, .light_dismiss = true});
+    bottom_ref.dismissed_event() += [&bottom_dismissed]() { ++bottom_dismissed; };
 
     auto top = std::make_unique<RecordingElement>();
     auto top_dismissed = 0;
-    root.push_top_layer(std::move(top),
-                        TopLayerOptions{.bounds = Rect{30.0F, 30.0F, 30.0F, 20.0F},
-                                        .light_dismiss = true,
-                                        .on_dismissed = [&top_dismissed]() { ++top_dismissed; }});
+    auto& top_ref = root.push_top_layer(
+        std::move(top),
+        TopLayerOptions{.bounds = Rect{30.0F, 30.0F, 30.0F, 20.0F}, .light_dismiss = true});
+    top_ref.dismissed_event() += [&top_dismissed]() { ++top_dismissed; };
 
     root.calculate_layout(LayoutConstraints{.width = 120.0F, .height = 80.0F});
 
@@ -2480,16 +2477,15 @@ TEST(UIElementTests, TopLayerEscapeOnlyClosesTopmostCloseableEntry) {
     auto bottom_dismissed = 0;
     auto& bottom_ref = root.push_top_layer(
         std::move(bottom),
-        TopLayerOptions{.bounds = Rect{10.0F, 10.0F, 80.0F, 50.0F},
-                        .light_dismiss = true,
-                        .on_dismissed = [&bottom_dismissed]() { ++bottom_dismissed; }});
+        TopLayerOptions{.bounds = Rect{10.0F, 10.0F, 80.0F, 50.0F}, .light_dismiss = true});
+    bottom_ref.dismissed_event() += [&bottom_dismissed]() { ++bottom_dismissed; };
 
     auto top = std::make_unique<RecordingElement>();
     auto top_dismissed = 0;
-    root.push_top_layer(std::move(top),
-                        TopLayerOptions{.bounds = Rect{30.0F, 30.0F, 30.0F, 20.0F},
-                                        .light_dismiss = true,
-                                        .on_dismissed = [&top_dismissed]() { ++top_dismissed; }});
+    auto& top_ref = root.push_top_layer(
+        std::move(top),
+        TopLayerOptions{.bounds = Rect{30.0F, 30.0F, 30.0F, 20.0F}, .light_dismiss = true});
+    top_ref.dismissed_event() += [&top_dismissed]() { ++top_dismissed; };
 
     root.calculate_layout(LayoutConstraints{.width = 120.0F, .height = 80.0F});
 
@@ -2512,11 +2508,10 @@ TEST(UIElementTests, TopLayerPersistentBackdropBlocksUnderlyingDismissal) {
 
     auto bottom = std::make_unique<RecordingElement>();
     auto bottom_dismissed = 0;
-    root.push_top_layer(
+    auto& bottom_ref = root.push_top_layer(
         std::move(bottom),
-        TopLayerOptions{.bounds = Rect{10.0F, 10.0F, 80.0F, 50.0F},
-                        .light_dismiss = true,
-                        .on_dismissed = [&bottom_dismissed]() { ++bottom_dismissed; }});
+        TopLayerOptions{.bounds = Rect{10.0F, 10.0F, 80.0F, 50.0F}, .light_dismiss = true});
+    bottom_ref.dismissed_event() += [&bottom_dismissed]() { ++bottom_dismissed; };
 
     auto top = std::make_unique<RecordingElement>();
     auto& top_ref = static_cast<RecordingElement&>(root.push_top_layer(
@@ -2862,8 +2857,10 @@ TEST(UIElementTests, RemovingLogicalOwnerRemovesOwnedTopLayerEntries) {
                            PopupOptions{.anchor_rect = owner_ref.absolute_frame(),
                                         .size = Size{50.0F, 24.0F},
                                         .placement = PopupPlacement::BottomStart,
-                                        .light_dismiss = true,
-                                        .on_dismissed = [&dismissed]() { ++dismissed; }});
+                                        .light_dismiss = true});
+    if (auto* popup = popup_manager.element(opened.handle); popup != nullptr) {
+        popup->dismissed_event() += [&dismissed]() { ++dismissed; };
+    }
     root.calculate_layout(LayoutConstraints{.width = 140.0F, .height = 90.0F});
 
     ASSERT_TRUE(opened.handle.valid());
@@ -2887,15 +2884,13 @@ TEST(UIElementTests, TopLayerDismissCallbackMayMutateTopLayerStack) {
     auto dismissed = 0;
     auto& dismissed_layer = root.push_top_layer(
         std::make_unique<RecordingElement>(),
-        TopLayerOptions{.bounds = Rect{10.0F, 10.0F, 30.0F, 20.0F},
-                        .light_dismiss = false,
-                        .on_dismissed = [&]() {
-                            ++dismissed;
-                            root.push_top_layer(
-                                std::make_unique<RecordingElement>(),
-                                TopLayerOptions{.bounds = Rect{70.0F, 10.0F, 30.0F, 20.0F},
-                                                .light_dismiss = false});
-                        }});
+        TopLayerOptions{.bounds = Rect{10.0F, 10.0F, 30.0F, 20.0F}, .light_dismiss = false});
+    dismissed_layer.dismissed_event() += [&]() {
+        ++dismissed;
+        root.push_top_layer(
+            std::make_unique<RecordingElement>(),
+            TopLayerOptions{.bounds = Rect{70.0F, 10.0F, 30.0F, 20.0F}, .light_dismiss = false});
+    };
     auto& stable_layer = root.push_top_layer(
         std::make_unique<RecordingElement>(),
         TopLayerOptions{.bounds = Rect{40.0F, 10.0F, 30.0F, 20.0F}, .light_dismiss = false});

@@ -45,7 +45,6 @@ struct PopupOptions {
     rendering::Color backdrop_color = rendering::Color{0, 0, 0, 0};
     bool close_on_escape = true;
     bool modal = false;
-    std::function<void()> on_dismissed;
     const UIElement* logical_owner = nullptr;
 };
 

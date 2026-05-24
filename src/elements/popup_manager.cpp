@@ -29,7 +29,6 @@ PopupOpenResult PopupManager::open(std::unique_ptr<UIElement> element, PopupOpti
                                                     .backdrop_color = options.backdrop_color,
                                                     .close_on_escape = options.close_on_escape,
                                                     .modal = options.modal,
-                                                    .on_dismissed = std::move(options.on_dismissed),
                                                     .logical_owner = logical_owner},
                                     &id);
     return PopupOpenResult{.handle = PopupHandle{id},

@@ -30,9 +30,6 @@ struct Scrollbar::EventState {
     ScrollEventSignal scrolled;
     ScrollDataEventSignal scroll_data_changed;
     EndReachedEventSignal end_reached;
-    core::EventToken legacy_scroll_token = 0U;
-    core::EventToken legacy_scroll_data_token = 0U;
-    core::EventToken legacy_end_reached_token = 0U;
 };
 
 Scrollbar::Scrollbar() : Control() {
@@ -281,33 +278,6 @@ Scrollbar& Scrollbar::set_scroll_left(float scroll_left) {
     if (orientation_ == ScrollbarOrientation::Horizontal) {
         set_value(scroll_left);
     }
-    return *this;
-}
-
-Scrollbar& Scrollbar::set_on_scroll(ScrollHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.scrolled, state.legacy_scroll_token,
-        handler ? ScrollEventSignal::Handler{std::move(handler)} : ScrollEventSignal::Handler{});
-    return *this;
-}
-
-Scrollbar& Scrollbar::set_on_scroll_data(ScrollDataHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.scroll_data_changed, state.legacy_scroll_data_token,
-        handler ? ScrollDataEventSignal::Handler{std::move(handler)}
-                : ScrollDataEventSignal::Handler{});
-    return *this;
-}
-
-Scrollbar& Scrollbar::set_on_end_reached(EndReachedHandler handler) {
-    auto& state = ensure_event_state();
-    core::replace_handler_subscription(
-        state.end_reached, state.legacy_end_reached_token,
-        handler ? EndReachedEventSignal::Handler{std::move(handler)}
-                : EndReachedEventSignal::Handler{});
-    reset_end_reached_latches();
     return *this;
 }
 
