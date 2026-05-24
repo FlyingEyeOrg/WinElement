@@ -49,6 +49,8 @@ class EventRouter final {
     [[nodiscard]] RoutedEventResult update_hover_target(UIElement* target, PointerEvent event);
     [[nodiscard]] layout::Point local_position_for(const UIElement& element,
                                                    layout::Point position) const noexcept;
+    void invoke_pointer_hook(UIElement& current, EventRoutePhase phase, PointerEvent& event);
+    void invoke_key_hook(UIElement& current, EventRoutePhase phase, KeyEvent& event);
     [[nodiscard]] RoutedEventResult dispatch_pointer_event(UIElement& target, PointerEvent event);
     [[nodiscard]] RoutedEventResult dispatch_key_event(UIElement& target, KeyEvent event);
 

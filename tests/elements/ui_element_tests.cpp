@@ -2097,6 +2097,90 @@ TEST(UIElementTests, RoutesPointerEventsThroughTunnelBeforeBubble) {
     EXPECT_EQ(route_log, std::vector<std::string>({"T:root", "T:panel"}));
 }
 
+TEST(UIElementTests, UIElementHooksObserveAndInterceptTunnelAndBubbleRoutes) {
+    auto engine = create_unrounded_engine();
+    std::vector<std::string> route_log;
+
+    RecordingElement root;
+    root.bind_layout_tree(engine);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(240.0F), Length::points(120.0F));
+    });
+
+    auto panel = std::make_unique<RecordingElement>();
+    panel->configure_layout([](LayoutElement& layout) {
+        layout.set_position_type(PositionType::Absolute)
+            .set_position(Edge::Left, Length::points(20.0F))
+            .set_position(Edge::Top, Length::points(10.0F))
+            .set_size(Length::points(120.0F), Length::points(60.0F));
+    });
+
+    auto leaf = std::make_unique<RecordingElement>();
+    leaf->set_focusable(true);
+    leaf->configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(30.0F), Length::points(20.0F));
+    });
+
+    auto& panel_ref = static_cast<RecordingElement&>(root.append_child(std::move(panel)));
+    auto& leaf_ref = static_cast<RecordingElement&>(panel_ref.append_child(std::move(leaf)));
+
+    root.set_pointer_tunnel_hook(
+            [&route_log](PointerEvent& event) {
+                route_log.push_back("hook:T:root");
+                EXPECT_EQ(event.phase, EventRoutePhase::Tunnel);
+            })
+        .set_key_tunnel_hook(
+            [&route_log](KeyEvent& event) {
+                route_log.push_back("hook:K:T:root");
+                EXPECT_EQ(event.phase, EventRoutePhase::Tunnel);
+            });
+    leaf_ref.set_pointer_bubble_hook(
+        [&route_log](PointerEvent& event) {
+            route_log.push_back("hook:B:leaf");
+            event.handled = true;
+        });
+    leaf_ref.set_key_bubble_hook(
+        [&route_log](KeyEvent& event) {
+            route_log.push_back("hook:K:B:leaf");
+            event.handled = true;
+        });
+
+    LayoutConstraints constraints;
+    constraints.width = 240.0F;
+    constraints.height = 120.0F;
+    root.calculate_layout(constraints);
+
+    EventRouter router(root);
+    const auto pointer_result = router.route_pointer_event(PointerEvent{
+        .kind = PointerEventKind::Down, .position = Point{25.0F, 15.0F}, .button = PointerButton::Primary});
+    EXPECT_TRUE(pointer_result.handled);
+    EXPECT_EQ(pointer_result.handled_by, &leaf_ref);
+    EXPECT_EQ(pointer_result.handled_phase, EventRoutePhase::Bubble);
+    EXPECT_TRUE(root.has_event_hooks());
+    EXPECT_FALSE(panel_ref.has_event_hooks());
+    EXPECT_TRUE(leaf_ref.has_event_hooks());
+    EXPECT_TRUE(leaf_ref.pointer_records.empty());
+
+    ASSERT_TRUE(router.focus_manager().set_focus(&leaf_ref));
+    const auto key_result =
+        router.route_key_event(KeyEvent{.kind = KeyEventKind::Down, .key = Key::Enter});
+    EXPECT_TRUE(key_result.handled);
+    EXPECT_EQ(key_result.handled_by, &leaf_ref);
+    EXPECT_EQ(key_result.handled_phase, EventRoutePhase::Bubble);
+    EXPECT_TRUE(leaf_ref.key_records.empty());
+
+    EXPECT_EQ(route_log,
+              std::vector<std::string>({"hook:T:root", "hook:B:leaf", "hook:K:T:root",
+                                        "hook:K:B:leaf"}));
+
+    leaf_ref.clear_key_bubble_hook();
+    leaf_ref.clear_pointer_bubble_hook();
+    root.clear_pointer_tunnel_hook().clear_key_tunnel_hook();
+    EXPECT_FALSE(root.has_event_hooks());
+    EXPECT_FALSE(panel_ref.has_event_hooks());
+    EXPECT_FALSE(leaf_ref.has_event_hooks());
+}
+
 TEST(UIElementTests, MovesFocusWithTabAndRoutesKeysToFocusedElement) {
     auto engine = create_unrounded_engine();
     RecordingElement root;

@@ -90,6 +90,7 @@ struct PointerEvent {
 
 struct KeyEvent {
     KeyEventKind kind = KeyEventKind::Down;
+    EventRoutePhase phase = EventRoutePhase::Bubble;
     Key key = Key::Unknown;
     std::string text;
     KeyModifiers modifiers{};
@@ -97,6 +98,9 @@ struct KeyEvent {
     UIElement* current_target = nullptr;
     bool handled = false;
 };
+
+using PointerEventHook = std::function<void(PointerEvent&)>;
+using KeyEventHook = std::function<void(KeyEvent&)>;
 
 struct FocusChangeEvent {
     bool focused = false;

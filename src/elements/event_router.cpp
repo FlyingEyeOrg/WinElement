@@ -442,6 +442,14 @@ layout::Point EventRouter::local_position_for(const UIElement& element,
     return to_local_point(mapped_position, element.absolute_frame());
 }
 
+void EventRouter::invoke_pointer_hook(UIElement& current, EventRoutePhase phase, PointerEvent& event) {
+    current.dispatch_pointer_hook(phase, event);
+}
+
+void EventRouter::invoke_key_hook(UIElement& current, EventRoutePhase phase, KeyEvent& event) {
+    current.dispatch_key_hook(phase, event);
+}
+
 RoutedEventResult EventRouter::dispatch_pointer_event(UIElement& target, PointerEvent event) {
     RoutedEventResult result{.target = &target};
     event.target = &target;
@@ -471,6 +479,13 @@ RoutedEventResult EventRouter::dispatch_pointer_event(UIElement& target, Pointer
         auto* current = route[index - 1U];
         event.current_target = current;
         event.local_position = local_positions[index - 1U];
+        invoke_pointer_hook(*current, EventRoutePhase::Tunnel, event);
+        if (event.handled) {
+            result.handled = true;
+            result.handled_by = current;
+            result.handled_phase = EventRoutePhase::Tunnel;
+            return result;
+        }
         current->on_pointer_tunnel_event(event);
         if (event.handled) {
             result.handled = true;
@@ -485,6 +500,13 @@ RoutedEventResult EventRouter::dispatch_pointer_event(UIElement& target, Pointer
         auto* current = route[index];
         event.current_target = current;
         event.local_position = local_positions[index];
+        invoke_pointer_hook(*current, EventRoutePhase::Bubble, event);
+        if (event.handled) {
+            result.handled = true;
+            result.handled_by = current;
+            result.handled_phase = EventRoutePhase::Bubble;
+            return result;
+        }
         current->on_pointer_event(event);
         if (event.handled) {
             result.handled = true;
@@ -501,12 +523,46 @@ RoutedEventResult EventRouter::dispatch_key_event(UIElement& target, KeyEvent ev
     RoutedEventResult result{.target = &target};
     event.target = &target;
 
+    auto route = std::vector<UIElement*>{};
+    for (auto* current = &target; current != nullptr; current = current->parent_) {
+        route.push_back(current);
+    }
+
+    event.phase = EventRoutePhase::Tunnel;
+    for (auto index = route.size(); index > 0U; --index) {
+        auto* current = route[index - 1U];
+        event.current_target = current;
+        invoke_key_hook(*current, EventRoutePhase::Tunnel, event);
+        if (event.handled) {
+            result.handled = true;
+            result.handled_by = current;
+            result.handled_phase = EventRoutePhase::Tunnel;
+            return result;
+        }
+        current->on_key_tunnel_event(event);
+        if (event.handled) {
+            result.handled = true;
+            result.handled_by = current;
+            result.handled_phase = EventRoutePhase::Tunnel;
+            return result;
+        }
+    }
+
+    event.phase = EventRoutePhase::Bubble;
     for (auto* current = &target; current != nullptr; current = current->parent_) {
         event.current_target = current;
+        invoke_key_hook(*current, EventRoutePhase::Bubble, event);
+        if (event.handled) {
+            result.handled = true;
+            result.handled_by = current;
+            result.handled_phase = EventRoutePhase::Bubble;
+            return result;
+        }
         current->on_key_event(event);
         if (event.handled) {
             result.handled = true;
             result.handled_by = current;
+            result.handled_phase = EventRoutePhase::Bubble;
             return result;
         }
     }

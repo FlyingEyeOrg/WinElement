@@ -469,6 +469,15 @@ class UIElement {
     [[nodiscard]] bool
     text_input_context_menu_hit_test(layout::Point absolute_position) const noexcept;
     bool handle_text_input_context_menu_pointer(PointerEvent& event);
+    UIElement& set_pointer_tunnel_hook(PointerEventHook hook);
+    UIElement& set_pointer_bubble_hook(PointerEventHook hook);
+    UIElement& set_key_tunnel_hook(KeyEventHook hook);
+    UIElement& set_key_bubble_hook(KeyEventHook hook);
+    UIElement& clear_pointer_tunnel_hook() noexcept;
+    UIElement& clear_pointer_bubble_hook() noexcept;
+    UIElement& clear_key_tunnel_hook() noexcept;
+    UIElement& clear_key_bubble_hook() noexcept;
+    [[nodiscard]] bool has_event_hooks() const noexcept;
 
     void visit_paint_order(const VisitCallback& visitor);
     void visit_paint_order(const ConstVisitCallback& visitor) const;
@@ -481,6 +490,7 @@ class UIElement {
   protected:
     virtual void on_pointer_tunnel_event(PointerEvent& event);
     virtual void on_pointer_event(PointerEvent& event);
+    virtual void on_key_tunnel_event(KeyEvent& event);
     virtual void on_key_event(KeyEvent& event);
     virtual void on_focus_changed(const FocusChangeEvent& event);
     [[nodiscard]] virtual PointerCursor
@@ -531,6 +541,8 @@ class UIElement {
     void dismiss_topmost_on_escape();
     bool light_dismiss_outside(layout::Point position);
     void clear_focus_outside_topmost_modal() noexcept;
+    void dispatch_pointer_hook(EventRoutePhase phase, PointerEvent& event);
+    void dispatch_key_hook(EventRoutePhase phase, KeyEvent& event);
     UIElement& bind_value(std::uint64_t target_id, const core::PropertyMetadata* target_metadata,
                           Binding binding,
                           std::function<bool(const core::PropertyValue& value)> apply,
@@ -672,6 +684,8 @@ class UIElement {
     [[nodiscard]] StyleState& ensure_style_state();
     [[nodiscard]] TextState& ensure_text_state();
     [[nodiscard]] SemanticsElementState& ensure_semantics_state();
+    struct EventHookState;
+    [[nodiscard]] EventHookState& ensure_event_hook_state();
     [[nodiscard]] RenderState& ensure_render_state() const;
     struct VirtualChildrenState;
     [[nodiscard]] layout::LayoutElement& mutable_layout() noexcept;
@@ -753,6 +767,7 @@ class UIElement {
     std::unique_ptr<BindingState> binding_state_;
     std::unique_ptr<AnimationState> animation_state_;
     std::unique_ptr<SemanticsElementState> semantics_state_;
+    std::unique_ptr<EventHookState> event_hook_state_;
     mutable std::unique_ptr<RenderState> render_state_;
 };
 

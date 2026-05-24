@@ -598,11 +598,23 @@ class Window::Impl final {
         return content_.get();
     }
 
+    [[nodiscard]] NativeWindowHandle native_handle() const noexcept {
+        return hwnd_;
+    }
+
     void set_title(std::wstring_view title) {
         options_.title.assign(title);
         if (hwnd_ != nullptr) {
             SetWindowTextW(hwnd_, options_.title.c_str());
         }
+    }
+
+    void set_message_hook(WindowMessageHook hook) {
+        options_.on_message = std::move(hook);
+    }
+
+    void set_post_message_hook(WindowMessageHook hook) {
+        options_.on_message_processed = std::move(hook);
     }
 
     void show() {
@@ -669,6 +681,18 @@ class Window::Impl final {
     }
 
     [[nodiscard]] LRESULT handle_message(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+        auto hook_message = WindowMessage{.hwnd = hwnd,
+                                          .id = message,
+                                          .wparam = static_cast<std::uintptr_t>(wparam),
+                                          .lparam = static_cast<std::intptr_t>(lparam)};
+        if (options_.on_message) {
+            options_.on_message(hook_message);
+            if (hook_message.handled) {
+                return static_cast<LRESULT>(hook_message.result);
+            }
+        }
+
+        const auto result = [&]() -> LRESULT {
         switch (message) {
         case WM_ENTERSIZEMOVE:
             interactive_resize_ = true;
@@ -859,6 +883,16 @@ class Window::Impl final {
         default:
             return DefWindowProcW(hwnd, message, wparam, lparam);
         }
+        }();
+
+        if (options_.on_message_processed) {
+            hook_message.result = static_cast<std::intptr_t>(result);
+            options_.on_message_processed(hook_message);
+            if (hook_message.handled) {
+                return static_cast<LRESULT>(hook_message.result);
+            }
+        }
+        return result;
     }
 
   private:
@@ -1184,18 +1218,34 @@ class Window::Impl final {
     }
 
     void create_window() {
-        RECT rect{0, 0, std::max(options_.width, 1), std::max(options_.height, 1)};
-        AdjustWindowRectEx(&rect, WS_OVERLAPPEDWINDOW, FALSE, 0);
-
-        const auto extended_style =
-            options_.use_no_redirection_bitmap ? WS_EX_NOREDIRECTIONBITMAP : DWORD{0};
         owner_hwnd_ = options_.owner != nullptr && options_.owner->impl_ != nullptr
                           ? options_.owner->impl_->async_hwnd_.load(std::memory_order_acquire)
                           : nullptr;
+        auto create_params = WindowCreateParams{
+            .title = options_.title,
+            .x = use_default_window_coordinate,
+            .y = use_default_window_coordinate,
+            .width = std::max(options_.width, 1),
+            .height = std::max(options_.height, 1),
+            .style = WS_OVERLAPPEDWINDOW,
+            .extended_style =
+                options_.use_no_redirection_bitmap ? WS_EX_NOREDIRECTIONBITMAP : DWORD{0},
+            .owner_handle = owner_hwnd_};
+        if (options_.on_before_create) {
+            options_.on_before_create(create_params);
+        }
 
-        auto x = CW_USEDEFAULT;
-        auto y = CW_USEDEFAULT;
-        if (owner_hwnd_ != nullptr && options_.center_on_owner) {
+        options_.title = create_params.title;
+        RECT rect{0, 0, std::max(create_params.width, 1), std::max(create_params.height, 1)};
+        AdjustWindowRectEx(&rect, static_cast<DWORD>(create_params.style), FALSE,
+                           static_cast<DWORD>(create_params.extended_style));
+
+        owner_hwnd_ = static_cast<HWND>(create_params.owner_handle);
+        auto x = create_params.x == use_default_window_coordinate ? CW_USEDEFAULT : create_params.x;
+        auto y = create_params.y == use_default_window_coordinate ? CW_USEDEFAULT : create_params.y;
+        if (create_params.x == use_default_window_coordinate &&
+            create_params.y == use_default_window_coordinate && owner_hwnd_ != nullptr &&
+            options_.center_on_owner) {
             RECT owner_rect{};
             if (GetWindowRect(owner_hwnd_, &owner_rect) != FALSE) {
                 const auto width = rect.right - rect.left;
@@ -1207,9 +1257,10 @@ class Window::Impl final {
             }
         }
 
-        hwnd_ = CreateWindowExW(extended_style, class_name, options_.title.c_str(),
-                                WS_OVERLAPPEDWINDOW, x, y, rect.right - rect.left,
-                                rect.bottom - rect.top, owner_hwnd_, nullptr,
+        hwnd_ = CreateWindowExW(static_cast<DWORD>(create_params.extended_style), class_name,
+                                options_.title.c_str(), static_cast<DWORD>(create_params.style), x,
+                                y, rect.right - rect.left, rect.bottom - rect.top, owner_hwnd_,
+                                nullptr,
                                 GetModuleHandleW(nullptr), this);
         if (hwnd_ == nullptr) {
             throw make_win32_error("failed to create WinElement window");
@@ -1831,6 +1882,18 @@ const elements::UIElement* Window::content() const noexcept {
 
 void Window::set_title(std::wstring_view title) {
     impl_->set_title(title);
+}
+
+NativeWindowHandle Window::native_handle() const noexcept {
+    return impl_->native_handle();
+}
+
+void Window::set_message_hook(WindowMessageHook hook) {
+    impl_->set_message_hook(std::move(hook));
+}
+
+void Window::set_post_message_hook(WindowMessageHook hook) {
+    impl_->set_post_message_hook(std::move(hook));
 }
 
 void Window::show() {

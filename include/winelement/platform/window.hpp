@@ -5,13 +5,40 @@
 #include <winelement/rendering/render_resource_queue.hpp>
 
 #include <functional>
+#include <cstdint>
 #include <memory>
+#include <limits>
 #include <string>
 #include <string_view>
 
 namespace winelement::platform {
 
 class Window;
+using NativeWindowHandle = void*;
+inline constexpr int use_default_window_coordinate = (std::numeric_limits<int>::min)();
+
+struct WindowCreateParams {
+    std::wstring title = L"WinElement";
+    int x = use_default_window_coordinate;
+    int y = use_default_window_coordinate;
+    int width = 960;
+    int height = 640;
+    std::uint32_t style = 0;
+    std::uint32_t extended_style = 0;
+    NativeWindowHandle owner_handle = nullptr;
+};
+
+struct WindowMessage {
+    NativeWindowHandle hwnd = nullptr;
+    std::uint32_t id = 0;
+    std::uintptr_t wparam = 0;
+    std::intptr_t lparam = 0;
+    std::intptr_t result = 0;
+    bool handled = false;
+};
+
+using WindowCreateHook = std::function<void(WindowCreateParams&)>;
+using WindowMessageHook = std::function<void(WindowMessage&)>;
 
 struct WindowOptions {
     std::wstring title = L"WinElement";
@@ -23,6 +50,9 @@ struct WindowOptions {
     bool use_no_redirection_bitmap = true;
     bool defer_render_thread_until_show = false;
     bool trim_render_memory_on_idle = true;
+    WindowCreateHook on_before_create;
+    WindowMessageHook on_message;
+    WindowMessageHook on_message_processed;
     std::function<void()> on_closed;
 };
 
@@ -43,6 +73,9 @@ class Window final {
     [[nodiscard]] elements::UIElement* content() noexcept;
     [[nodiscard]] const elements::UIElement* content() const noexcept;
     void set_title(std::wstring_view title);
+    [[nodiscard]] NativeWindowHandle native_handle() const noexcept;
+    void set_message_hook(WindowMessageHook hook);
+    void set_post_message_hook(WindowMessageHook hook);
 
     void show();
     int show_modal();

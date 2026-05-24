@@ -114,6 +114,51 @@ TEST(WindowTests, BindsDetachedContentTreeWithoutExplicitEngine) {
     window.close();
 }
 
+TEST(WindowTests, SupportsCustomCreateParametersAndNativeMessageHooks) {
+#ifdef _WIN32
+    std::atomic_int pre_hook_hits = 0;
+    std::atomic_int post_hook_hits = 0;
+    platform::Window window(platform::WindowOptions{
+        .title = L"WinElement Hook Source",
+        .width = 320,
+        .height = 200,
+        .on_before_create =
+            [](platform::WindowCreateParams& params) {
+                params.title = L"WinElement Hooked Window";
+                params.width = 420;
+            },
+        .on_message =
+            [&pre_hook_hits](platform::WindowMessage& message) {
+                if (message.id == WM_APP + 41U) {
+                    pre_hook_hits.fetch_add(1, std::memory_order_acq_rel);
+                    message.handled = true;
+                    message.result = 91;
+                }
+            },
+        .on_message_processed =
+            [&post_hook_hits](platform::WindowMessage& message) {
+                if (message.id == WM_APP + 42U) {
+                    post_hook_hits.fetch_add(1, std::memory_order_acq_rel);
+                    message.handled = true;
+                    message.result = 123;
+                }
+            }});
+
+    auto* hwnd = static_cast<HWND>(window.native_handle());
+    ASSERT_NE(hwnd, nullptr);
+    EXPECT_EQ(FindWindowW(L"WinElementWindow", L"WinElement Hooked Window"), hwnd);
+
+    EXPECT_EQ(SendMessageW(hwnd, WM_APP + 41U, 0, 0), 91);
+    EXPECT_EQ(pre_hook_hits.load(std::memory_order_acquire), 1);
+    EXPECT_EQ(SendMessageW(hwnd, WM_APP + 42U, 0, 0), 123);
+    EXPECT_EQ(post_hook_hits.load(std::memory_order_acquire), 1);
+
+    window.close();
+#else
+    GTEST_SKIP() << "Native hook test is only available on Win32.";
+#endif
+}
+
 TEST(WindowTests, ModalWindowDisablesOwnerUntilClose) {
 #ifdef _WIN32
     const auto owner_title = std::wstring{L"WinElement Modal Owner"};

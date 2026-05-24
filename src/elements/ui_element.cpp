@@ -322,6 +322,13 @@ struct UIElement::SemanticsElementState {
     bool dirty : 1 = true;
 };
 
+struct UIElement::EventHookState {
+    PointerEventHook pointer_tunnel_hook;
+    PointerEventHook pointer_bubble_hook;
+    KeyEventHook key_tunnel_hook;
+    KeyEventHook key_bubble_hook;
+};
+
 struct UIElement::RenderState {
     mutable RenderObject render_object;
     mutable layout::Rect visible_subtree_bounds{};
@@ -350,6 +357,13 @@ UIElement::SemanticsElementState& UIElement::ensure_semantics_state() {
         semantics_state_ = std::make_unique<SemanticsElementState>();
     }
     return *semantics_state_;
+}
+
+UIElement::EventHookState& UIElement::ensure_event_hook_state() {
+    if (event_hook_state_ == nullptr) {
+        event_hook_state_ = std::make_unique<EventHookState>();
+    }
+    return *event_hook_state_;
 }
 
 UIElement::RenderState& UIElement::ensure_render_state() const {
@@ -3134,6 +3148,88 @@ bool UIElement::handle_text_input_context_menu_pointer(PointerEvent& event) {
     return false;
 }
 
+UIElement& UIElement::set_pointer_tunnel_hook(PointerEventHook hook) {
+    ensure_event_hook_state().pointer_tunnel_hook = std::move(hook);
+    return *this;
+}
+
+UIElement& UIElement::set_pointer_bubble_hook(PointerEventHook hook) {
+    ensure_event_hook_state().pointer_bubble_hook = std::move(hook);
+    return *this;
+}
+
+UIElement& UIElement::set_key_tunnel_hook(KeyEventHook hook) {
+    ensure_event_hook_state().key_tunnel_hook = std::move(hook);
+    return *this;
+}
+
+UIElement& UIElement::set_key_bubble_hook(KeyEventHook hook) {
+    ensure_event_hook_state().key_bubble_hook = std::move(hook);
+    return *this;
+}
+
+UIElement& UIElement::clear_pointer_tunnel_hook() noexcept {
+    if (event_hook_state_ != nullptr) {
+        event_hook_state_->pointer_tunnel_hook = nullptr;
+    }
+    return *this;
+}
+
+UIElement& UIElement::clear_pointer_bubble_hook() noexcept {
+    if (event_hook_state_ != nullptr) {
+        event_hook_state_->pointer_bubble_hook = nullptr;
+    }
+    return *this;
+}
+
+UIElement& UIElement::clear_key_tunnel_hook() noexcept {
+    if (event_hook_state_ != nullptr) {
+        event_hook_state_->key_tunnel_hook = nullptr;
+    }
+    return *this;
+}
+
+UIElement& UIElement::clear_key_bubble_hook() noexcept {
+    if (event_hook_state_ != nullptr) {
+        event_hook_state_->key_bubble_hook = nullptr;
+    }
+    return *this;
+}
+
+bool UIElement::has_event_hooks() const noexcept {
+    if (event_hook_state_ == nullptr) {
+        return false;
+    }
+    return static_cast<bool>(event_hook_state_->pointer_tunnel_hook) ||
+           static_cast<bool>(event_hook_state_->pointer_bubble_hook) ||
+           static_cast<bool>(event_hook_state_->key_tunnel_hook) ||
+           static_cast<bool>(event_hook_state_->key_bubble_hook);
+}
+
+void UIElement::dispatch_pointer_hook(EventRoutePhase phase, PointerEvent& event) {
+    if (event_hook_state_ == nullptr) {
+        return;
+    }
+
+    auto& hook = phase == EventRoutePhase::Tunnel ? event_hook_state_->pointer_tunnel_hook
+                                                  : event_hook_state_->pointer_bubble_hook;
+    if (hook) {
+        hook(event);
+    }
+}
+
+void UIElement::dispatch_key_hook(EventRoutePhase phase, KeyEvent& event) {
+    if (event_hook_state_ == nullptr) {
+        return;
+    }
+
+    auto& hook = phase == EventRoutePhase::Tunnel ? event_hook_state_->key_tunnel_hook
+                                                  : event_hook_state_->key_bubble_hook;
+    if (hook) {
+        hook(event);
+    }
+}
+
 void UIElement::visit_paint_order(const VisitCallback& visitor) {
     verify_thread_access();
 
@@ -3290,6 +3386,10 @@ void UIElement::on_pointer_event(PointerEvent& event) {
 
     const auto current_scroll = scroll_offset_value();
     event.handled = current_scroll.x != previous_scroll.x || current_scroll.y != previous_scroll.y;
+}
+
+void UIElement::on_key_tunnel_event(KeyEvent& event) {
+    static_cast<void>(event);
 }
 
 void UIElement::on_key_event(KeyEvent& event) {
