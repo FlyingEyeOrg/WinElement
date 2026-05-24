@@ -82,6 +82,32 @@ inverse_transform_point(layout::Point point, rendering::Transform2D transform) n
                          (transform.m11 * y - transform.m12 * x) / determinant};
 }
 
+[[nodiscard]] std::optional<layout::Rect>
+inverse_transform_rect(layout::Rect rect, rendering::Transform2D transform) noexcept {
+    const auto top_left = inverse_transform_point(layout::Point{rect.x, rect.y}, transform);
+    const auto top_right =
+        inverse_transform_point(layout::Point{rect.x + rect.width, rect.y}, transform);
+    const auto bottom_left =
+        inverse_transform_point(layout::Point{rect.x, rect.y + rect.height}, transform);
+    const auto bottom_right = inverse_transform_point(
+        layout::Point{rect.x + rect.width, rect.y + rect.height}, transform);
+    if (!top_left.has_value() || !top_right.has_value() || !bottom_left.has_value() ||
+        !bottom_right.has_value()) {
+        return std::nullopt;
+    }
+
+    const auto min_x =
+        std::min({top_left->x, top_right->x, bottom_left->x, bottom_right->x});
+    const auto max_x =
+        std::max({top_left->x, top_right->x, bottom_left->x, bottom_right->x});
+    const auto min_y =
+        std::min({top_left->y, top_right->y, bottom_left->y, bottom_right->y});
+    const auto max_y =
+        std::max({top_left->y, top_right->y, bottom_left->y, bottom_right->y});
+    return layout::Rect{min_x, min_y, std::max(0.0F, max_x - min_x),
+                        std::max(0.0F, max_y - min_y)};
+}
+
 [[nodiscard]] bool is_finite_transform(rendering::Transform2D transform) noexcept {
     return std::isfinite(transform.m11) && std::isfinite(transform.m12) &&
            std::isfinite(transform.m21) && std::isfinite(transform.m22) &&
@@ -3717,6 +3743,10 @@ void UIElement::append_content_scene_subtree(
     }
 
     const auto layer_options = render_layer_options();
+    auto subtree_clip_rect = clip_rect;
+    if (has_render_layer() && clip_rect.has_value()) {
+        subtree_clip_rect = inverse_transform_rect(*clip_rect, layer_options.transform);
+    }
     auto node =
         rendering::RenderNode{.kind = has_render_layer() ? rendering::RenderNodeKind::Layer
                                                          : rendering::RenderNodeKind::Picture,
@@ -3743,7 +3773,7 @@ void UIElement::append_content_scene_subtree(
     const auto viewport_rect =
         clip_children ? effective_absolute_child_clip_rect() : layout::Rect{};
     const auto child_clip_rect =
-        clip_children ? intersect_clip_rect(clip_rect, viewport_rect) : clip_rect;
+        clip_children ? intersect_clip_rect(subtree_clip_rect, viewport_rect) : subtree_clip_rect;
     rendering::RenderNode clip_node{.kind = rendering::RenderNodeKind::Clip,
                                     .bounds = viewport_rect,
                                     .cache_policy = {.generation = layout_generation_}};

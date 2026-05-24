@@ -1,5 +1,6 @@
 #include <winelement/controls.hpp>
 #include <winelement/layout.hpp>
+#include <winelement/rendering/render_scene.hpp>
 
 #include <gtest/gtest.h>
 
@@ -44,6 +45,24 @@ struct ScopedThemeReset {
         return layout != nullptr ? std::string_view{layout->text} : std::string_view{};
     }
     return {};
+}
+
+[[nodiscard]] bool command_list_contains_text(const RenderCommandList& commands,
+                                              std::string_view text) {
+    return std::any_of(commands.commands().begin(), commands.commands().end(),
+                       [text](const RenderOpcodeRecord& command) {
+                           return command_text(command) == text;
+                       });
+}
+
+[[nodiscard]] bool render_node_contains_text(const RenderNode& node, std::string_view text) {
+    if (command_list_contains_text(node.commands, text)) {
+        return true;
+    }
+    return std::any_of(node.children.begin(), node.children.end(),
+                       [text](const RenderNode& child) {
+                           return render_node_contains_text(child, text);
+                       });
 }
 
 [[nodiscard]] const TextStyle& command_text_style(const RenderOpcodeRecord& command) {
@@ -855,6 +874,52 @@ TEST(BasicControlsTests, VirtualizationPlannerComputesOverscannedWindow) {
     EXPECT_EQ(window.count, 8U);
     EXPECT_FLOAT_EQ(window.leading_spacer, 60.0F);
     EXPECT_GT(window.trailing_spacer, 0.0F);
+}
+
+TEST(BasicControlsTests, VirtualizingPanelKeepsTransformedItemTextInClippedScene) {
+    auto engine = create_unrounded_engine();
+    Panel viewport;
+    viewport.bind_layout_tree(engine);
+    viewport.set_overflow(Overflow::Hidden);
+    viewport.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(200.0F), Length::points(40.0F));
+    });
+
+    auto virtual_panel = std::make_unique<VirtualizingPanel>();
+    virtual_panel->set_item_count(20U)
+        .set_item_extent(20.0F)
+        .set_overscan(1U)
+        .set_viewport_extent(40.0F)
+        .set_slot_factory([] {
+            auto slot = std::make_unique<Panel>();
+            slot->set_background(Color::rgba(245, 247, 250));
+            slot->configure_layout([](LayoutElement& layout) {
+                layout.set_width(Length::percent(100.0F))
+                    .set_height(Length::percent(100.0F))
+                    .set_padding(Edge::Horizontal, Length::points(4.0F))
+                    .set_align_items(Align::Center);
+            });
+            slot->append_new_child<Text>().set_font_size(12.0F);
+            return slot;
+        })
+        .set_item_binder([](UIElement& slot, std::size_t index) {
+            auto& label = static_cast<Text&>(slot.child_at(0));
+            label.set_text("Item #" + std::to_string(index));
+        });
+    auto& virtual_ref =
+        static_cast<VirtualizingPanel&>(viewport.append_child(std::move(virtual_panel)));
+
+    virtual_ref.refresh_virtualization();
+    viewport.calculate_layout(LayoutConstraints{.width = 200.0F, .height = 40.0F});
+    viewport.set_scroll_offset(Point{0.0F, 160.0F});
+    virtual_ref.set_scroll_offset(160.0F).refresh_virtualization();
+    viewport.calculate_layout(LayoutConstraints{.width = 200.0F, .height = 40.0F});
+
+    RenderScene scene;
+    viewport.commit_render_scene(scene, nullptr);
+
+    ASSERT_NE(scene.root(), nullptr);
+    EXPECT_TRUE(render_node_contains_text(*scene.root(), "Item #8"));
 }
 
 TEST(BasicControlsTests, RecyclePoolDropsItemsBeyondCapacity) {
