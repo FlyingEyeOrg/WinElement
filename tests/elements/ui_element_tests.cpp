@@ -1225,6 +1225,41 @@ TEST(UIElementTests, VirtualChildrenScrollOffsetMarksRootLayoutDirtyAndRendersBo
     EXPECT_LT(content.child_count(), 100U);
 }
 
+TEST(UIElementTests, VirtualChildrenScrollJumpDoesNotVirtualizeFreshUnlaidOutRows) {
+    auto engine = create_unrounded_engine();
+    UIElement root;
+    root.bind_layout_tree(engine);
+    root.set_overflow(Overflow::Hidden);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(100.0F), Length::points(40.0F));
+    });
+
+    auto& content = root.append_new_child<UIElement>();
+    content.configure_layout([](LayoutElement& layout) {
+        layout.set_flex_direction(FlexDirection::Column);
+    });
+    content.set_virtual_children(UIElement::VirtualChildrenOptions{
+        .count = 100U,
+        .item_extent = 10.0F,
+        .orientation = UIElement::VirtualChildrenOrientation::Vertical,
+        .overscan_extent = 0.0F,
+        .materializer =
+            [](std::size_t index) {
+                auto child = std::make_unique<UIElement>();
+                child->set_text("Item #" + std::to_string(index));
+                return child;
+            }});
+
+    root.calculate_layout(LayoutConstraints{.width = 100.0F, .height = 40.0F});
+    root.set_scroll_offset(Point{0.0F, root.max_scroll_offset().y});
+
+    EXPECT_TRUE(root.needs_layout());
+    EXPECT_EQ(content.virtualized_child_count(), 0U);
+
+    root.calculate_layout(LayoutConstraints{.width = 100.0F, .height = 40.0F});
+    EXPECT_EQ(content.child_at(content.child_count() - 2U).text(), "Item #99");
+}
+
 TEST(UIElementTests, BaseElementChildClipKeepsContentInsideVisibleBorder) {
     auto engine = create_unrounded_engine();
     UIElement container;

@@ -4717,8 +4717,14 @@ void UIElement::update_child_virtualization(layout::Rect clip_rect) noexcept {
         return;
     }
 
-    auto changed = false;
-    changed = update_virtual_children(clip_rect) || changed;
+    auto changed = update_virtual_children(clip_rect);
+    if (changed) {
+        mark_z_order_dirty();
+        invalidate_render_commands();
+        invalidate_paint();
+        return;
+    }
+
     for (auto& child : children_) {
         if (child == nullptr) {
             continue;
