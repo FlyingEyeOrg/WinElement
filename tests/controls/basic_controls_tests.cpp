@@ -878,17 +878,14 @@ TEST(BasicControlsTests, ScrollbarCallbackKeepsVirtualChildrenRenderableAfterThu
     content.configure_layout([](LayoutElement& layout) {
         layout.set_flex_direction(FlexDirection::Column);
     });
-    content.set_virtual_children(UIElement::VirtualChildrenOptions{
-        .count = 100U,
-        .item_extent = 10.0F,
-        .orientation = UIElement::VirtualChildrenOrientation::Vertical,
-        .overscan_extent = 0.0F,
-        .materializer =
-            [](std::size_t index) {
-                auto child = std::make_unique<UIElement>();
-                child->set_text("Item #" + std::to_string(index));
-                return child;
-            }});
+    content.set_vertical_virtual_children(
+        100U, 10.0F,
+        [](std::size_t index) {
+            auto child = std::make_unique<UIElement>();
+            child->set_text("Item #" + std::to_string(index));
+            return child;
+        },
+        0.0F);
 
     const auto constraints = LayoutConstraints{.width = 100.0F, .height = 40.0F};
     root.calculate_layout(constraints);

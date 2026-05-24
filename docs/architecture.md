@@ -5,14 +5,15 @@ WinElement 按层划分。上层依赖下层，下层不得依赖控件或平台
 ## 层依赖图
 
 ```text
-platform
-  controls
-    elements
-      style
-        animation
-        layout
-        rendering
-          core
+winelement aggregate
+  platform ───────────────┐
+  controls ───────────┐   │
+  elements ───────┐   │   │
+  style ───────┐  │   │   │
+  animation ─┐ │  │   │   │
+  layout ────┼─┼──┘   │   │
+  rendering ─┘ │      │   │
+  core <───────┴──────┴───┘
 ```
 
 顶层 `WinElement::winelement` 目标链接了整个堆栈，适用于不需要精细链接的应用。
@@ -76,7 +77,9 @@ UI 树拥有 `LayoutElement` 的挂载关系。控件应通过 `configure_layout
 - 复用来自下层的布局、输入、主题和渲染原语。
 - 避免存储 `UIElement` 已经表示的重复状态。
 
-`ItemsControl` 是主要的虚拟化边界。它仅实现可见窗口范围加上过扫区域，并通过有界对象池回收容器。
+长内容虚拟化应优先使用 `UIElement::set_virtual_children(...)` 或
+`set_vertical_virtual_children(...)`。`ItemsControl` 只保留选择、分组和容器复用等控件语义；
+不再作为框架唯一虚拟化入口，避免控件层和元素树层出现两套重复机制。
 
 ## Platform（平台层）
 

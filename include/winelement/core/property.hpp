@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include <new>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -114,6 +115,26 @@ struct PropertyChange {
     bool changed = false;
     bool had_local_value = false;
     PropertyInvalidation invalidation = PropertyInvalidation::None;
+
+    [[nodiscard]] bool requires_layout() const noexcept {
+        return changed && has_invalidation(invalidation, PropertyInvalidation::Layout);
+    }
+
+    [[nodiscard]] bool requires_paint() const noexcept {
+        return changed && has_invalidation(invalidation, PropertyInvalidation::Paint);
+    }
+
+    [[nodiscard]] bool requires_style() const noexcept {
+        return changed && has_invalidation(invalidation, PropertyInvalidation::Style);
+    }
+
+    [[nodiscard]] bool requires_semantics() const noexcept {
+        return changed && has_invalidation(invalidation, PropertyInvalidation::Semantics);
+    }
+
+    [[nodiscard]] bool is_inherited() const noexcept {
+        return changed && has_invalidation(invalidation, PropertyInvalidation::Inherited);
+    }
 };
 
 class PropertyValue final {
@@ -302,6 +323,39 @@ class PropertyStore final {
     }
 
     template <typename T>
+    [[nodiscard]] std::optional<T> try_value(const PropertyMetadata& metadata) const {
+        verify_type<T>(metadata);
+        verify_id(metadata);
+        const auto iterator = find_entry(metadata.id);
+        if (iterator == values_.end() || iterator->id != metadata.id) {
+            return std::nullopt;
+        }
+        const auto* value = iterator->value.template get<T>();
+        if (value == nullptr) {
+            throw std::invalid_argument("property value type does not match metadata");
+        }
+        return *value;
+    }
+
+    template <typename T>
+    [[nodiscard]] std::optional<T> try_value(const Property<T>& property) const {
+        return try_value<T>(property.metadata);
+    }
+
+    template <typename T, typename U = T>
+    [[nodiscard]] T value_or(const PropertyMetadata& metadata, U&& default_value) const {
+        auto found = try_value<T>(metadata);
+        return found.has_value() ? std::move(*found) : T(std::forward<U>(default_value));
+    }
+
+    template <typename T, typename U = typename Property<T>::value_type>
+    [[nodiscard]] typename Property<T>::value_type value_or(const Property<T>& property,
+                                                            U&& default_value) const {
+        using ValueType = typename Property<T>::value_type;
+        return value_or<ValueType>(property.metadata, std::forward<U>(default_value));
+    }
+
+    template <typename T>
     [[nodiscard]] const T* local_value(const PropertyMetadata& metadata) const {
         verify_type<T>(metadata);
         verify_id(metadata);
@@ -354,6 +408,13 @@ class PropertyStore final {
     [[nodiscard]] bool has_local_value(const Property<T>& property) const noexcept {
         return has_local_value(property.metadata);
     }
+    [[nodiscard]] bool contains(const PropertyMetadata& metadata) const noexcept {
+        return has_local_value(metadata);
+    }
+    template <typename T>
+    [[nodiscard]] bool contains(const Property<T>& property) const noexcept {
+        return contains(property.metadata);
+    }
     PropertyChange clear_value(const PropertyMetadata& metadata);
     template <typename T> PropertyChange clear_value(const Property<T>& property) {
         return clear_value(property.metadata);
@@ -363,6 +424,9 @@ class PropertyStore final {
     ObserverToken add_observer(Observer observer);
     void remove_observer(ObserverToken token) noexcept;
     void clear_observers() noexcept;
+    [[nodiscard]] bool empty() const noexcept {
+        return values_.empty();
+    }
     [[nodiscard]] std::size_t local_value_count() const noexcept;
 
     void copy_local_values_to(PropertyStore& target) const {

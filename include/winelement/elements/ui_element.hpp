@@ -320,16 +320,23 @@ class UIElement {
     UIElement& mark_measure_dirty();
 
     UIElement& set_visible(bool visible);
+    UIElement& show();
+    UIElement& hide();
     [[nodiscard]] bool visible() const noexcept;
 
     UIElement& set_hit_test_visible(bool hit_test_visible);
+    UIElement& set_hit_test_enabled(bool enabled);
     [[nodiscard]] bool hit_test_visible() const noexcept;
     [[nodiscard]] UIElement* hit_test(layout::Point absolute_point);
     [[nodiscard]] const UIElement* hit_test(layout::Point absolute_point) const;
     [[nodiscard]] bool is_hovered() const noexcept;
 
     UIElement& set_disabled(bool disabled);
+    UIElement& set_enabled(bool enabled);
+    UIElement& enable();
+    UIElement& disable();
     [[nodiscard]] bool disabled() const noexcept;
+    [[nodiscard]] bool enabled() const noexcept;
 
     UIElement& set_opacity(float opacity);
     [[nodiscard]] float opacity() const noexcept;
@@ -408,6 +415,7 @@ class UIElement {
     UIElement& set_min_width(float min_width);
     [[nodiscard]] float min_width() const noexcept;
     UIElement& set_min_height(float min_height);
+    UIElement& set_min_size(float min_width, float min_height);
     [[nodiscard]] float min_height() const noexcept;
     UIElement& set_z_index(int z_index);
     [[nodiscard]] int z_index() const noexcept;

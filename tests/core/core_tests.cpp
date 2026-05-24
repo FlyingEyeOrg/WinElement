@@ -111,4 +111,34 @@ TEST(CoreTests, BindingExpressionEvaluatesNestedObjectListAndDefault) {
     EXPECT_EQ(first_item->get<std::string>("title"), std::optional<std::string>{"Beta"});
 }
 
+TEST(CoreTests, PropertyStoreOffersHumanReadableQueriesAndChangeFlags) {
+    auto property = make_property<int>(
+        "demo.score",
+        PropertyInvalidation::Layout | PropertyInvalidation::Paint |
+            PropertyInvalidation::Semantics);
+    PropertyStore store;
+
+    EXPECT_TRUE(store.empty());
+    EXPECT_FALSE(store.contains(property));
+    EXPECT_EQ(store.try_value(property), std::nullopt);
+    EXPECT_EQ(store.value_or(property, 7), 7);
+
+    const auto change = store.set_value(property, 42);
+    EXPECT_TRUE(change.changed);
+    EXPECT_TRUE(change.requires_layout());
+    EXPECT_TRUE(change.requires_paint());
+    EXPECT_FALSE(change.requires_style());
+    EXPECT_TRUE(change.requires_semantics());
+    EXPECT_FALSE(change.is_inherited());
+    EXPECT_FALSE(store.empty());
+    EXPECT_TRUE(store.contains(property));
+    EXPECT_EQ(store.try_value(property), std::optional<int>{42});
+    EXPECT_EQ(store.value_or(property, 7), 42);
+
+    const auto noop_change = store.set_value(property, 42);
+    EXPECT_FALSE(noop_change.changed);
+    EXPECT_FALSE(noop_change.requires_layout());
+    EXPECT_FALSE(noop_change.requires_paint());
+}
+
 } // namespace

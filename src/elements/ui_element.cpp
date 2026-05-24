@@ -2206,12 +2206,24 @@ UIElement& UIElement::set_visible(bool visible) {
     return set_property(core::property_keys::visible(), visible);
 }
 
+UIElement& UIElement::show() {
+    return set_visible(true);
+}
+
+UIElement& UIElement::hide() {
+    return set_visible(false);
+}
+
 bool UIElement::visible() const noexcept {
     return visible_;
 }
 
 UIElement& UIElement::set_hit_test_visible(bool hit_test_visible) {
     return set_property(core::property_keys::hit_test_visible(), hit_test_visible);
+}
+
+UIElement& UIElement::set_hit_test_enabled(bool enabled) {
+    return set_hit_test_visible(enabled);
 }
 
 bool UIElement::hit_test_visible() const noexcept {
@@ -2226,8 +2238,24 @@ UIElement& UIElement::set_disabled(bool disabled) {
     return set_property(core::property_keys::disabled(), disabled);
 }
 
+UIElement& UIElement::set_enabled(bool enabled) {
+    return set_disabled(!enabled);
+}
+
+UIElement& UIElement::enable() {
+    return set_enabled(true);
+}
+
+UIElement& UIElement::disable() {
+    return set_enabled(false);
+}
+
 bool UIElement::disabled() const noexcept {
     return disabled_;
+}
+
+bool UIElement::enabled() const noexcept {
+    return !disabled_;
 }
 
 UIElement& UIElement::set_opacity(float opacity) {
@@ -2891,6 +2919,10 @@ UIElement& UIElement::set_min_height(float min_height) {
     mark_intrinsic_text_measure_dirty();
     invalidate_layout();
     return *this;
+}
+
+UIElement& UIElement::set_min_size(float min_width, float min_height) {
+    return set_min_width(min_width).set_min_height(min_height);
 }
 
 float UIElement::min_height() const noexcept {

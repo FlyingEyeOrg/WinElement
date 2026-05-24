@@ -834,6 +834,7 @@ TEST(UIElementTests, ConvenienceApiConfiguresLayoutStyleScrollAndVirtualization)
         .set_margin(1.0F)
         .set_border(Color::rgba(64, 158, 255))
         .set_corner_radius(6.0F)
+        .set_min_size(20.0F, 12.0F)
         .set_overflow(Overflow::Hidden)
         .set_virtualization_overscan(0.0F);
 
@@ -841,7 +842,24 @@ TEST(UIElementTests, ConvenienceApiConfiguresLayoutStyleScrollAndVirtualization)
     EXPECT_EQ(root.margin(), (EdgeInsets{1.0F, 1.0F, 1.0F, 1.0F}));
     EXPECT_FLOAT_EQ(root.border_width(), 1.0F);
     EXPECT_EQ(root.corner_radius(), CornerRadius::uniform(6.0F));
+    EXPECT_FLOAT_EQ(root.min_width(), 20.0F);
+    EXPECT_FLOAT_EQ(root.min_height(), 12.0F);
     EXPECT_FLOAT_EQ(root.subtree_virtualization_overscan(), 0.0F);
+    EXPECT_TRUE(root.visible());
+    root.hide();
+    EXPECT_FALSE(root.visible());
+    root.show();
+    EXPECT_TRUE(root.visible());
+    root.disable();
+    EXPECT_TRUE(root.disabled());
+    EXPECT_FALSE(root.enabled());
+    root.enable();
+    EXPECT_FALSE(root.disabled());
+    EXPECT_TRUE(root.enabled());
+    root.set_hit_test_enabled(false);
+    EXPECT_FALSE(root.hit_test_visible());
+    root.set_hit_test_enabled(true);
+    EXPECT_TRUE(root.hit_test_visible());
 
     auto& child = root.append_new_child<UIElement>();
     child.set_width(100.0F)

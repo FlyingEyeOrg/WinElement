@@ -4,9 +4,14 @@ WinElement 首先追求流畅的交互，然后通过保持稳态缓存有界且
 
 ## UI 虚拟化
 
-`ItemsControl` 使用虚拟化规划器计算可见项目范围加上过扫区域。它只实现该范围内的项目，并通过有界回收池复用容器。
+UI 虚拟化收敛在 `UIElement` 树层：
 
-这使得大型列表不会为每个逻辑项目都创建渲染缓存和元素子树。
+- 普通子树离开有效视口后由元素层自动 detach/trim，可恢复子树可通过 materializer 压缩后重建。
+- 数据驱动长列表使用 `UIElement::set_virtual_children(...)` 或
+  `set_vertical_virtual_children(...)`，只 materialize 可视窗口和 overscan 内的真实子节点。
+- `ItemsControl` 保留选择、分组和容器复用语义，但不再是框架级虚拟化的唯一入口。
+
+这使大型列表不会为每个逻辑项目都创建渲染缓存和元素子树，同时滚动范围仍按完整数据集保持稳定。
 
 ## 渲染命令复用
 

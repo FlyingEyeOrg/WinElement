@@ -25,6 +25,8 @@ const winelement::core::Property<float>& progress_property() {
 element.set_property(progress_property(), 0.0F);
 element.animate_property(progress_property(), 1.0F);
 auto progress = element.properties().value(progress_property(), 0.0F);
+auto maybe_progress = element.properties().try_value(progress_property());
+auto fallback_progress = element.properties().value_or(progress_property(), 0.0F);
 ```
 
 ## Layout（布局）
@@ -96,6 +98,19 @@ auto progress = element.properties().value(progress_property(), 0.0F);
 - `elements::PlacementEngine`
 
 `UIElement` 管理树结构、布局挂载、样式应用、命中测试、命令缓存失效、顶层图层集成和文本编辑钩子。
+
+常用的布局、可见性、启用状态、滚动和虚拟子节点 API 可以直接链式调用：
+
+```cpp
+content.set_layout_size(320.0F, 240.0F)
+    .set_padding(12.0F)
+    .set_min_size(120.0F, 40.0F)
+    .enable_subtree_virtualization();
+
+content.set_vertical_virtual_children(10000U, 28.0F, make_row, 480.0F);
+content.scroll_to_bottom();
+auto metrics = content.virtualization_metrics();
+```
 
 ## Controls（控件）
 
