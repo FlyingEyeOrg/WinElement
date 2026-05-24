@@ -11,12 +11,13 @@
 - 为 `PropertyChange` 增加 `requires_layout()`、`requires_paint()`、`requires_style()`、`requires_semantics()`、`is_inherited()`。
 - 将测试里的虚拟子节点样例迁移到更易读的 `set_vertical_virtual_children(...)`。
 - 增加 API、属性系统和虚拟化指标相关测试。
+- 将 UIElement 树级虚拟化实现从 `ui_element.cpp` 拆到 `ui_element_virtualization.cpp`，并把虚拟子节点状态放入 elements 内部头，降低核心元素文件的职责密度。
 
 ## 逐项清单
 
 | # | 分类 | 问题 | 优化动作 |
 |---|---|---|---|
-| 1 | 代码结构 | `src/elements/ui_element.cpp` 体积过大，树管理、样式、布局、输入、虚拟化、渲染缓存都集中在一个文件。 | 后续拆成 `ui_element_tree.cpp`、`ui_element_layout.cpp`、`ui_element_render.cpp`、`ui_element_virtualization.cpp`；本轮先补 API 测试锁住行为。 |
+| 1 | 代码结构 | `src/elements/ui_element.cpp` 体积过大，树管理、样式、布局、输入、虚拟化、渲染缓存都集中在一个文件。 | 已先拆出 `ui_element_virtualization.cpp`；后续继续拆 `ui_element_tree.cpp`、`ui_element_layout.cpp`、`ui_element_render.cpp`。 |
 | 2 | 代码结构 | `include/winelement/elements/ui_element.hpp` public API 过长，调用者很难快速发现常用入口。 | 本轮增加更直觉的别名 API；后续按 Tree/Layout/Style/Input/Virtualization 分区整理注释。 |
 | 3 | 代码结构 | `src/controls/input.cpp` 过大，文本模型、指针选择、格式化、布局、绘制耦合。 | 后续抽出 textarea viewport、selection painter、display text mapper；本轮通过属性/API 测试减少改动风险。 |
 | 4 | 代码结构 | `src/controls/feedback.cpp` 同时承载 Message、MessageBox、Loading、Dialog。 | 后续按控件拆分源文件，保持 public header 不变。 |

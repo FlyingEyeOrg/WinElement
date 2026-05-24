@@ -68,6 +68,10 @@ UI 树拥有 `LayoutElement` 的挂载关系。控件应通过 `configure_layout
 
 `EventRouter`、`FocusManager`、`PopupManager` 和 `ThemeManager` 等管理器操作 `UIElement`，但将各自的策略逻辑保留在控件之外。
 
+元素层内部按职责拆分实现文件。`ui_element.cpp` 保留基础树、布局、渲染和输入胶水；
+树级虚拟化与数据驱动虚拟子节点实现位于 `ui_element_virtualization.cpp`，其状态结构保留在
+`src/elements` 内部头中，不进入 public include。
+
 ## Controls（控件层）
 
 控件是 `UIElement` 的专注封装。一个控件应：

@@ -12,6 +12,7 @@ add_library(winelement_elements STATIC
     theme_manager.cpp
     top_layer_manager.cpp
     ui_element.cpp
+    ui_element_virtualization.cpp
     virtual_element.cpp
 )
 
