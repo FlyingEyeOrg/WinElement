@@ -39,6 +39,24 @@ enum class KeyEventKind {
     CompositionUpdate,
     CompositionEnd
 };
+enum class RoutedEventType {
+    PointerMove,
+    PointerDown,
+    PointerUp,
+    PointerClick,
+    PointerDoubleClick,
+    PointerWheel,
+    PointerHorizontalWheel,
+    PointerCancel,
+    PointerEnter,
+    PointerLeave,
+    KeyDown,
+    KeyUp,
+    KeyTextInput,
+    KeyCompositionStart,
+    KeyCompositionUpdate,
+    KeyCompositionEnd
+};
 enum class Key {
     Unknown,
     Tab,
@@ -101,6 +119,33 @@ struct KeyEvent {
 
 using PointerEventHook = std::function<void(PointerEvent&)>;
 using KeyEventHook = std::function<void(KeyEvent&)>;
+struct RoutedEventFilterContext {
+    RoutedEventType type = RoutedEventType::PointerMove;
+    EventRoutePhase phase = EventRoutePhase::Bubble;
+    UIElement* target = nullptr;
+    UIElement* current_target = nullptr;
+    PointerEvent* pointer_event = nullptr;
+    KeyEvent* key_event = nullptr;
+
+    void set_handled(bool handled = true) const noexcept {
+        if (pointer_event != nullptr) {
+            pointer_event->handled = handled;
+        }
+        if (key_event != nullptr) {
+            key_event->handled = handled;
+        }
+    }
+
+    [[nodiscard]] bool handled() const noexcept {
+        return (pointer_event != nullptr && pointer_event->handled) ||
+               (key_event != nullptr && key_event->handled);
+    }
+};
+struct RoutedEventFilterOptions {
+    std::optional<RoutedEventType> type;
+    std::optional<EventRoutePhase> phase;
+};
+using RoutedEventFilter = std::function<void(RoutedEventFilterContext&)>;
 
 struct FocusChangeEvent {
     bool focused = false;

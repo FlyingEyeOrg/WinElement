@@ -617,6 +617,34 @@ class Window::Impl final {
         options_.on_message_processed = std::move(hook);
     }
 
+    Window::MessageFilterToken add_window_message_filter(WindowMessageHook filter) {
+        return message_filters_.add(std::move(filter));
+    }
+
+    void remove_window_message_filter(Window::MessageFilterToken token) noexcept {
+        message_filters_.remove(token);
+    }
+
+    Window::MessageFilterToken add_post_window_message_filter(WindowMessageHook filter) {
+        return post_message_filters_.add(std::move(filter));
+    }
+
+    void remove_post_window_message_filter(Window::MessageFilterToken token) noexcept {
+        post_message_filters_.remove(token);
+    }
+
+    core::EventSignal<WindowMessage&>& window_message_observers() noexcept {
+        return message_observers_;
+    }
+
+    core::EventSignal<WindowMessage&>& post_window_message_observers() noexcept {
+        return post_message_observers_;
+    }
+
+    core::EventSignal<>& closed_event() noexcept {
+        return closed_event_;
+    }
+
     void show() {
         if (hwnd_ != nullptr) {
             ensure_render_worker();
@@ -687,6 +715,18 @@ class Window::Impl final {
                                           .lparam = static_cast<std::intptr_t>(lparam)};
         if (options_.on_message) {
             options_.on_message(hook_message);
+            if (hook_message.handled) {
+                return static_cast<LRESULT>(hook_message.result);
+            }
+        }
+        if (!message_filters_.empty()) {
+            message_filters_.emit(hook_message);
+            if (hook_message.handled) {
+                return static_cast<LRESULT>(hook_message.result);
+            }
+        }
+        if (!message_observers_.empty()) {
+            message_observers_.emit(hook_message);
             if (hook_message.handled) {
                 return static_cast<LRESULT>(hook_message.result);
             }
@@ -888,6 +928,20 @@ class Window::Impl final {
         if (options_.on_message_processed) {
             hook_message.result = static_cast<std::intptr_t>(result);
             options_.on_message_processed(hook_message);
+            if (hook_message.handled) {
+                return static_cast<LRESULT>(hook_message.result);
+            }
+        }
+        if (!post_message_filters_.empty()) {
+            hook_message.result = static_cast<std::intptr_t>(result);
+            post_message_filters_.emit(hook_message);
+            if (hook_message.handled) {
+                return static_cast<LRESULT>(hook_message.result);
+            }
+        }
+        if (!post_message_observers_.empty()) {
+            hook_message.result = static_cast<std::intptr_t>(result);
+            post_message_observers_.emit(hook_message);
             if (hook_message.handled) {
                 return static_cast<LRESULT>(hook_message.result);
             }
@@ -1302,6 +1356,9 @@ class Window::Impl final {
         if (counted_as_live_window_) {
             counted_as_live_window_ = false;
             dispatcher_->unregister_window(hwnd);
+        }
+        if (!closed_event_.empty()) {
+            closed_event_.emit();
         }
         if (options_.on_closed) {
             options_.on_closed();
@@ -1846,6 +1903,11 @@ class Window::Impl final {
     bool animation_timer_resolution_active_ = false;
     bool interactive_resize_ = false;
     bool modal_owner_acquired_ = false;
+    core::EventSignal<WindowMessage&> message_filters_;
+    core::EventSignal<WindowMessage&> post_message_filters_;
+    core::EventSignal<WindowMessage&> message_observers_;
+    core::EventSignal<WindowMessage&> post_message_observers_;
+    core::EventSignal<> closed_event_;
     WindowImeState ime_state_{};
     wchar_t pending_high_surrogate_ = 0;
     bool native_menu_target_invalidated_ = false;
@@ -1894,6 +1956,34 @@ void Window::set_message_hook(WindowMessageHook hook) {
 
 void Window::set_post_message_hook(WindowMessageHook hook) {
     impl_->set_post_message_hook(std::move(hook));
+}
+
+Window::MessageFilterToken Window::add_window_message_filter(WindowMessageHook filter) {
+    return impl_->add_window_message_filter(std::move(filter));
+}
+
+void Window::remove_window_message_filter(MessageFilterToken token) noexcept {
+    impl_->remove_window_message_filter(token);
+}
+
+Window::MessageFilterToken Window::add_post_window_message_filter(WindowMessageHook filter) {
+    return impl_->add_post_window_message_filter(std::move(filter));
+}
+
+void Window::remove_post_window_message_filter(MessageFilterToken token) noexcept {
+    impl_->remove_post_window_message_filter(token);
+}
+
+core::EventSignal<WindowMessage&>& Window::window_message_observers() noexcept {
+    return impl_->window_message_observers();
+}
+
+core::EventSignal<WindowMessage&>& Window::post_window_message_observers() noexcept {
+    return impl_->post_window_message_observers();
+}
+
+core::EventSignal<>& Window::closed_event() noexcept {
+    return impl_->closed_event();
 }
 
 void Window::show() {

@@ -34,6 +34,50 @@ namespace {
     return kind == PointerEventKind::Down || kind == PointerEventKind::DoubleClick;
 }
 
+[[nodiscard]] RoutedEventType routed_event_type(PointerEventKind kind) noexcept {
+    switch (kind) {
+    case PointerEventKind::Move:
+        return RoutedEventType::PointerMove;
+    case PointerEventKind::Down:
+        return RoutedEventType::PointerDown;
+    case PointerEventKind::Up:
+        return RoutedEventType::PointerUp;
+    case PointerEventKind::Click:
+        return RoutedEventType::PointerClick;
+    case PointerEventKind::DoubleClick:
+        return RoutedEventType::PointerDoubleClick;
+    case PointerEventKind::Wheel:
+        return RoutedEventType::PointerWheel;
+    case PointerEventKind::HorizontalWheel:
+        return RoutedEventType::PointerHorizontalWheel;
+    case PointerEventKind::Cancel:
+        return RoutedEventType::PointerCancel;
+    case PointerEventKind::Enter:
+        return RoutedEventType::PointerEnter;
+    case PointerEventKind::Leave:
+        return RoutedEventType::PointerLeave;
+    }
+    return RoutedEventType::PointerMove;
+}
+
+[[nodiscard]] RoutedEventType routed_event_type(KeyEventKind kind) noexcept {
+    switch (kind) {
+    case KeyEventKind::Down:
+        return RoutedEventType::KeyDown;
+    case KeyEventKind::Up:
+        return RoutedEventType::KeyUp;
+    case KeyEventKind::TextInput:
+        return RoutedEventType::KeyTextInput;
+    case KeyEventKind::CompositionStart:
+        return RoutedEventType::KeyCompositionStart;
+    case KeyEventKind::CompositionUpdate:
+        return RoutedEventType::KeyCompositionUpdate;
+    case KeyEventKind::CompositionEnd:
+        return RoutedEventType::KeyCompositionEnd;
+    }
+    return RoutedEventType::KeyDown;
+}
+
 [[nodiscard]] std::size_t pointer_button_index(PointerButton button) noexcept {
     switch (button) {
     case PointerButton::Primary:
@@ -479,6 +523,18 @@ RoutedEventResult EventRouter::dispatch_pointer_event(UIElement& target, Pointer
         auto* current = route[index - 1U];
         event.current_target = current;
         event.local_position = local_positions[index - 1U];
+        auto context = RoutedEventFilterContext{.type = routed_event_type(event.kind),
+                                                .phase = EventRoutePhase::Tunnel,
+                                                .target = &target,
+                                                .current_target = current,
+                                                .pointer_event = &event};
+        current->dispatch_routed_event_filter(context);
+        if (event.handled) {
+            result.handled = true;
+            result.handled_by = current;
+            result.handled_phase = EventRoutePhase::Tunnel;
+            return result;
+        }
         invoke_pointer_hook(*current, EventRoutePhase::Tunnel, event);
         if (event.handled) {
             result.handled = true;
@@ -500,6 +556,18 @@ RoutedEventResult EventRouter::dispatch_pointer_event(UIElement& target, Pointer
         auto* current = route[index];
         event.current_target = current;
         event.local_position = local_positions[index];
+        auto context = RoutedEventFilterContext{.type = routed_event_type(event.kind),
+                                                .phase = EventRoutePhase::Bubble,
+                                                .target = &target,
+                                                .current_target = current,
+                                                .pointer_event = &event};
+        current->dispatch_routed_event_filter(context);
+        if (event.handled) {
+            result.handled = true;
+            result.handled_by = current;
+            result.handled_phase = EventRoutePhase::Bubble;
+            return result;
+        }
         invoke_pointer_hook(*current, EventRoutePhase::Bubble, event);
         if (event.handled) {
             result.handled = true;
@@ -532,6 +600,18 @@ RoutedEventResult EventRouter::dispatch_key_event(UIElement& target, KeyEvent ev
     for (auto index = route.size(); index > 0U; --index) {
         auto* current = route[index - 1U];
         event.current_target = current;
+        auto context = RoutedEventFilterContext{.type = routed_event_type(event.kind),
+                                                .phase = EventRoutePhase::Tunnel,
+                                                .target = &target,
+                                                .current_target = current,
+                                                .key_event = &event};
+        current->dispatch_routed_event_filter(context);
+        if (event.handled) {
+            result.handled = true;
+            result.handled_by = current;
+            result.handled_phase = EventRoutePhase::Tunnel;
+            return result;
+        }
         invoke_key_hook(*current, EventRoutePhase::Tunnel, event);
         if (event.handled) {
             result.handled = true;
@@ -551,6 +631,18 @@ RoutedEventResult EventRouter::dispatch_key_event(UIElement& target, KeyEvent ev
     event.phase = EventRoutePhase::Bubble;
     for (auto* current = &target; current != nullptr; current = current->parent_) {
         event.current_target = current;
+        auto context = RoutedEventFilterContext{.type = routed_event_type(event.kind),
+                                                .phase = EventRoutePhase::Bubble,
+                                                .target = &target,
+                                                .current_target = current,
+                                                .key_event = &event};
+        current->dispatch_routed_event_filter(context);
+        if (event.handled) {
+            result.handled = true;
+            result.handled_by = current;
+            result.handled_phase = EventRoutePhase::Bubble;
+            return result;
+        }
         invoke_key_hook(*current, EventRoutePhase::Bubble, event);
         if (event.handled) {
             result.handled = true;

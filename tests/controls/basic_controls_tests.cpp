@@ -1082,6 +1082,53 @@ TEST(BasicControlsTests, ButtonHandlesPointerAndKeyboardClick) {
     EXPECT_EQ(command_text_style(*text_command).alignment, TextAlignment::Center);
 }
 
+TEST(BasicControlsTests, ButtonClickedEventSupportsObserverTokens) {
+    auto engine = create_unrounded_engine();
+    Panel root;
+    root.bind_layout_tree(engine);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(120.0F), Length::points(40.0F));
+    });
+
+    auto button = std::make_unique<Button>();
+    button->set_text("Open");
+    auto& button_ref = static_cast<Button&>(root.append_child(std::move(button)));
+    root.calculate_layout(LayoutConstraints{.width = 120.0F, .height = 40.0F});
+
+    auto mouse_clicks = 0;
+    auto keyboard_clicks = 0;
+    const auto token = (button_ref.clicked() +=
+                        [&mouse_clicks, &keyboard_clicks](const ButtonClickEvent& event) {
+                            if (event.from_keyboard) {
+                                ++keyboard_clicks;
+                            } else {
+                                ++mouse_clicks;
+                            }
+                        });
+
+    EventRouter router(root);
+    static_cast<void>(router.route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
+                                                              .position = Point{5.0F, 5.0F},
+                                                              .button = PointerButton::Primary}));
+    static_cast<void>(router.route_pointer_event(PointerEvent{.kind = PointerEventKind::Up,
+                                                              .position = Point{5.0F, 5.0F},
+                                                              .button = PointerButton::Primary}));
+    EXPECT_EQ(mouse_clicks, 1);
+    EXPECT_EQ(keyboard_clicks, 0);
+
+    ASSERT_TRUE(router.focus_manager().set_focus(&button_ref));
+    static_cast<void>(router.route_key_event(
+        KeyEvent{.kind = KeyEventKind::Down, .key = Key::Space}));
+    EXPECT_EQ(mouse_clicks, 1);
+    EXPECT_EQ(keyboard_clicks, 1);
+
+    button_ref.clicked() -= token;
+    static_cast<void>(router.route_key_event(
+        KeyEvent{.kind = KeyEventKind::Down, .key = Key::Enter}));
+    EXPECT_EQ(mouse_clicks, 1);
+    EXPECT_EQ(keyboard_clicks, 1);
+}
+
 TEST(BasicControlsTests, ButtonIntrinsicHeightsMatchElementPlusSizes) {
     auto engine = create_unrounded_engine();
     StackPanel root;

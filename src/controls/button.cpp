@@ -77,6 +77,10 @@ struct ButtonColorScale {
 
 } // namespace
 
+struct Button::ClickEventState {
+    ClickEventSignal clicked;
+};
+
 Button::Button() : Control() {
     text_storage() = "Button";
     set_theme_class(style::theme_class::button);
@@ -166,6 +170,17 @@ Button& Button::set_circle(bool circle) {
 Button& Button::set_on_click(ClickHandler handler) {
     click_handler_ = std::move(handler);
     return *this;
+}
+
+Button::ClickEventState& Button::ensure_click_event_state() {
+    if (click_event_state_ == nullptr) {
+        click_event_state_ = std::make_unique<ClickEventState>();
+    }
+    return *click_event_state_;
+}
+
+Button::ClickEventSignal& Button::clicked() noexcept {
+    return ensure_click_event_state().clicked;
 }
 
 Button& Button::set_dashed(bool dashed) {
@@ -490,7 +505,7 @@ void Button::on_key_event(elements::KeyEvent& event) {
     if (event.key == elements::Key::Enter || event.key == elements::Key::Space) {
         focus_visible_ = true;
         invalidate_paint();
-        click();
+        click(true);
         event.handled = true;
     }
 }
@@ -965,7 +980,7 @@ void Button::set_pressed(bool pressed) {
     invalidate_paint();
 }
 
-void Button::click() {
+void Button::click(bool from_keyboard) {
     if (disabled_ || has_flag(flags_, ButtonFlag::Loading)) {
         return;
     }
@@ -973,6 +988,10 @@ void Button::click() {
     animate_click();
     if (click_handler_) {
         click_handler_();
+    }
+    if (click_event_state_ != nullptr && !click_event_state_->clicked.empty()) {
+        const auto event = ButtonClickEvent{.sender = *this, .role = role_, .from_keyboard = from_keyboard};
+        click_event_state_->clicked.emit(event);
     }
 }
 

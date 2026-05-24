@@ -323,10 +323,19 @@ struct UIElement::SemanticsElementState {
 };
 
 struct UIElement::EventHookState {
+    struct FilterEntry {
+        core::EventToken token = 0U;
+        RoutedEventFilter filter;
+        RoutedEventFilterOptions options;
+    };
+
     PointerEventHook pointer_tunnel_hook;
     PointerEventHook pointer_bubble_hook;
     KeyEventHook key_tunnel_hook;
     KeyEventHook key_bubble_hook;
+    core::EventSignal<RoutedEventFilterContext&> observers;
+    std::vector<FilterEntry> filters;
+    core::EventToken next_filter_token = 1U;
 };
 
 struct UIElement::RenderState {
@@ -3203,7 +3212,45 @@ bool UIElement::has_event_hooks() const noexcept {
     return static_cast<bool>(event_hook_state_->pointer_tunnel_hook) ||
            static_cast<bool>(event_hook_state_->pointer_bubble_hook) ||
            static_cast<bool>(event_hook_state_->key_tunnel_hook) ||
-           static_cast<bool>(event_hook_state_->key_bubble_hook);
+           static_cast<bool>(event_hook_state_->key_bubble_hook) ||
+           !event_hook_state_->filters.empty() || !event_hook_state_->observers.empty();
+}
+
+core::EventToken UIElement::add_routed_event_filter(RoutedEventFilter filter,
+                                                    RoutedEventFilterOptions options) {
+    if (!filter) {
+        return 0U;
+    }
+
+    auto& state = ensure_event_hook_state();
+    auto token = state.next_filter_token++;
+    if (token == 0U) {
+        token = state.next_filter_token++;
+    }
+    state.filters.push_back(UIElement::EventHookState::FilterEntry{
+        .token = token, .filter = std::move(filter), .options = std::move(options)});
+    return token;
+}
+
+void UIElement::remove_routed_event_filter(core::EventToken token) noexcept {
+    if (token == 0U || event_hook_state_ == nullptr) {
+        return;
+    }
+    auto& filters = event_hook_state_->filters;
+    filters.erase(std::remove_if(filters.begin(), filters.end(),
+                                 [token](const UIElement::EventHookState::FilterEntry& entry) {
+                                     return entry.token == token;
+                                 }),
+                  filters.end());
+}
+
+core::EventSignal<RoutedEventFilterContext&>& UIElement::routed_event_observers() noexcept {
+    return ensure_event_hook_state().observers;
+}
+
+const core::EventSignal<RoutedEventFilterContext&>& UIElement::routed_event_observers() const noexcept {
+    static const auto empty = core::EventSignal<RoutedEventFilterContext&>{};
+    return event_hook_state_ != nullptr ? event_hook_state_->observers : empty;
 }
 
 void UIElement::dispatch_pointer_hook(EventRoutePhase phase, PointerEvent& event) {
@@ -3227,6 +3274,33 @@ void UIElement::dispatch_key_hook(EventRoutePhase phase, KeyEvent& event) {
                                                   : event_hook_state_->key_bubble_hook;
     if (hook) {
         hook(event);
+    }
+}
+
+void UIElement::dispatch_routed_event_filter(RoutedEventFilterContext& context) {
+    if (event_hook_state_ == nullptr) {
+        return;
+    }
+
+    const auto filters = event_hook_state_->filters;
+    for (const auto& entry : filters) {
+        if (!entry.filter) {
+            continue;
+        }
+        if (entry.options.phase.has_value() && *entry.options.phase != context.phase) {
+            continue;
+        }
+        if (entry.options.type.has_value() && *entry.options.type != context.type) {
+            continue;
+        }
+        entry.filter(context);
+        if (context.handled()) {
+            return;
+        }
+    }
+
+    if (!event_hook_state_->observers.empty()) {
+        event_hook_state_->observers.emit(context);
     }
 }
 

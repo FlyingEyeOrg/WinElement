@@ -3,12 +3,14 @@
 #include <winelement/animation.hpp>
 #include <winelement/controls/control.hpp>
 #include <winelement/controls/control_animation.hpp>
+#include <winelement/core/event.hpp>
 #include <winelement/elements/svg_icon.hpp>
 #include <winelement/rendering/render_types.hpp>
 #include <winelement/rendering/text_engine.hpp>
 #include <winelement/style/ui_element_style.hpp>
 
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -26,6 +28,14 @@ namespace winelement::controls {
 enum class ButtonType { Default, Primary, Success, Warning, Danger, Info, Text };
 enum class ButtonSize { Default, Large, Small };
 enum class ButtonRole { Button, Submit, Reset, Menu, SplitPrimary, SplitSecondary };
+
+class Button;
+
+struct ButtonClickEvent {
+    Button& sender;
+    ButtonRole role = ButtonRole::Button;
+    bool from_keyboard = false;
+};
 
 enum class ButtonFlag : std::uint16_t {
     None = 0,
@@ -74,6 +84,7 @@ constexpr ButtonFlag& operator&=(ButtonFlag& left, ButtonFlag right) noexcept {
 class Button : public Control {
   public:
     using ClickHandler = std::function<void()>;
+    using ClickEventSignal = core::EventSignal<const ButtonClickEvent&>;
 
     Button();
     ~Button() override;
@@ -104,6 +115,7 @@ class Button : public Control {
     Button& set_dark_mode(bool dark);
     Button& set_auto_insert_space(bool auto_space);
     Button& set_on_click(ClickHandler handler);
+    [[nodiscard]] ClickEventSignal& clicked() noexcept;
     Button& set_style(style::UIElementStyle style) override;
     [[nodiscard]] ButtonType type() const noexcept;
     [[nodiscard]] ButtonSize size() const noexcept;
@@ -159,7 +171,9 @@ class Button : public Control {
     void animate_pressed(float target);
     void animate_click();
     void set_pressed(bool pressed);
-    void click();
+    void click(bool from_keyboard = false);
+    struct ClickEventState;
+    [[nodiscard]] ClickEventState& ensure_click_event_state();
 
     ClickHandler click_handler_;
     ButtonType type_ = ButtonType::Default;
@@ -173,6 +187,7 @@ class Button : public Control {
     bool menu_indicator_visible_ = false;
     bool split_ = false;
     bool focus_visible_ = false;
+    std::unique_ptr<ClickEventState> click_event_state_;
     mutable std::string display_text_cache_source_;
     mutable std::string display_text_cache_;
     mutable bool display_text_cache_valid_ = false;

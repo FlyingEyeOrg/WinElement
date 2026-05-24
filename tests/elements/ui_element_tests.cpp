@@ -2181,6 +2181,52 @@ TEST(UIElementTests, UIElementHooksObserveAndInterceptTunnelAndBubbleRoutes) {
     EXPECT_FALSE(leaf_ref.has_event_hooks());
 }
 
+TEST(UIElementTests, RoutedEventFiltersAndObserversSupportTokenSubscription) {
+    auto engine = create_unrounded_engine();
+    std::vector<std::string> route_log;
+
+    RecordingElement root;
+    root.bind_layout_tree(engine);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(180.0F), Length::points(80.0F));
+    });
+
+    auto child = std::make_unique<RecordingElement>();
+    child->configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(80.0F), Length::points(40.0F));
+    });
+    static_cast<void>(root.append_child(std::move(child)));
+
+    root.calculate_layout(LayoutConstraints{.width = 180.0F, .height = 80.0F});
+    EventRouter router(root);
+
+    const auto filter_token = root.add_routed_event_filter(
+        [&route_log](RoutedEventFilterContext& context) {
+            route_log.push_back("filter");
+            EXPECT_EQ(context.type, RoutedEventType::PointerDown);
+            EXPECT_EQ(context.phase, EventRoutePhase::Tunnel);
+        },
+        RoutedEventFilterOptions{.type = RoutedEventType::PointerDown,
+                                 .phase = EventRoutePhase::Tunnel});
+    const auto observer_token = (root.routed_event_observers() +=
+                                 [&route_log](RoutedEventFilterContext& context) {
+                                     route_log.push_back(context.phase == EventRoutePhase::Tunnel
+                                                             ? "observer:tunnel"
+                                                             : "observer:bubble");
+                                 });
+
+    static_cast<void>(router.route_pointer_event(PointerEvent{
+        .kind = PointerEventKind::Down, .position = Point{10.0F, 10.0F}, .button = PointerButton::Primary}));
+    EXPECT_EQ(route_log, std::vector<std::string>({"filter", "observer:tunnel", "observer:bubble"}));
+
+    root.remove_routed_event_filter(filter_token);
+    root.routed_event_observers() -= observer_token;
+    route_log.clear();
+    static_cast<void>(router.route_pointer_event(PointerEvent{
+        .kind = PointerEventKind::Down, .position = Point{10.0F, 10.0F}, .button = PointerButton::Primary}));
+    EXPECT_TRUE(route_log.empty());
+}
+
 TEST(UIElementTests, MovesFocusWithTabAndRoutesKeysToFocusedElement) {
     auto engine = create_unrounded_engine();
     RecordingElement root;

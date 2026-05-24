@@ -1,5 +1,6 @@
 #pragma once
 
+#include <winelement/core/event.hpp>
 #include <winelement/elements/ui_element.hpp>
 #include <winelement/layout/layout_engine.hpp>
 #include <winelement/rendering/render_resource_queue.hpp>
@@ -58,6 +59,8 @@ struct WindowOptions {
 
 class Window final {
   public:
+    using MessageFilterToken = core::EventToken;
+
     explicit Window(WindowOptions options = {});
     ~Window();
 
@@ -76,6 +79,13 @@ class Window final {
     [[nodiscard]] NativeWindowHandle native_handle() const noexcept;
     void set_message_hook(WindowMessageHook hook);
     void set_post_message_hook(WindowMessageHook hook);
+    MessageFilterToken add_window_message_filter(WindowMessageHook filter);
+    void remove_window_message_filter(MessageFilterToken token) noexcept;
+    MessageFilterToken add_post_window_message_filter(WindowMessageHook filter);
+    void remove_post_window_message_filter(MessageFilterToken token) noexcept;
+    [[nodiscard]] core::EventSignal<WindowMessage&>& window_message_observers() noexcept;
+    [[nodiscard]] core::EventSignal<WindowMessage&>& post_window_message_observers() noexcept;
+    [[nodiscard]] core::EventSignal<>& closed_event() noexcept;
 
     void show();
     int show_modal();

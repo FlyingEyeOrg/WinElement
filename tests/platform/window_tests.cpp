@@ -118,6 +118,8 @@ TEST(WindowTests, SupportsCustomCreateParametersAndNativeMessageHooks) {
 #ifdef _WIN32
     std::atomic_int pre_hook_hits = 0;
     std::atomic_int post_hook_hits = 0;
+    std::atomic_int observer_hits = 0;
+    std::atomic_int closed_hits = 0;
     platform::Window window(platform::WindowOptions{
         .title = L"WinElement Hook Source",
         .width = 320,
@@ -143,6 +145,24 @@ TEST(WindowTests, SupportsCustomCreateParametersAndNativeMessageHooks) {
                     message.result = 123;
                 }
             }});
+    const auto pre_filter_token = window.add_window_message_filter(
+        [&pre_hook_hits](platform::WindowMessage& message) {
+            if (message.id == WM_APP + 43U) {
+                pre_hook_hits.fetch_add(1, std::memory_order_acq_rel);
+                message.handled = true;
+                message.result = 77;
+            }
+        });
+    const auto observer_token = (window.window_message_observers() +=
+                                 [&observer_hits](platform::WindowMessage& message) {
+                                     if (message.id == WM_APP + 44U) {
+                                         observer_hits.fetch_add(1, std::memory_order_acq_rel);
+                                         message.handled = true;
+                                         message.result = 66;
+                                     }
+                                 });
+    const auto closed_token =
+        (window.closed_event() += [&closed_hits]() { closed_hits.fetch_add(1, std::memory_order_acq_rel); });
 
     auto* hwnd = static_cast<HWND>(window.native_handle());
     ASSERT_NE(hwnd, nullptr);
@@ -152,8 +172,15 @@ TEST(WindowTests, SupportsCustomCreateParametersAndNativeMessageHooks) {
     EXPECT_EQ(pre_hook_hits.load(std::memory_order_acquire), 1);
     EXPECT_EQ(SendMessageW(hwnd, WM_APP + 42U, 0, 0), 123);
     EXPECT_EQ(post_hook_hits.load(std::memory_order_acquire), 1);
+    EXPECT_EQ(SendMessageW(hwnd, WM_APP + 43U, 0, 0), 77);
+    EXPECT_EQ(SendMessageW(hwnd, WM_APP + 44U, 0, 0), 66);
+    EXPECT_EQ(observer_hits.load(std::memory_order_acquire), 1);
 
+    window.remove_window_message_filter(pre_filter_token);
+    window.window_message_observers() -= observer_token;
+    window.closed_event() -= closed_token;
     window.close();
+    EXPECT_EQ(closed_hits.load(std::memory_order_acquire), 0);
 #else
     GTEST_SKIP() << "Native hook test is only available on Win32.";
 #endif
