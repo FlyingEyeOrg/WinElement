@@ -128,6 +128,15 @@ intersect_clip_rect(const std::optional<layout::Rect>& current, layout::Rect nex
     return !clip_rect.has_value() || (clip_rect->width > 0.0F && clip_rect->height > 0.0F);
 }
 
+[[nodiscard]] bool rect_equals(layout::Rect lhs, layout::Rect rhs) noexcept {
+    return lhs.x == rhs.x && lhs.y == rhs.y && lhs.width == rhs.width &&
+           lhs.height == rhs.height;
+}
+
+[[nodiscard]] bool point_equals(layout::Point lhs, layout::Point rhs) noexcept {
+    return lhs.x == rhs.x && lhs.y == rhs.y;
+}
+
 template <typename Value> void hash_combine(std::size_t& seed, const Value& value) noexcept {
     seed ^= std::hash<Value>{}(value) + 0x9E3779B9U + (seed << 6U) + (seed >> 2U);
 }
@@ -211,6 +220,31 @@ void apply_layout_margin(layout::LayoutElement& layout, layout::EdgeInsets margi
         .set_margin(layout::Edge::Top, layout::Length::points(margin.top))
         .set_margin(layout::Edge::Right, layout::Length::points(margin.right))
         .set_margin(layout::Edge::Bottom, layout::Length::points(margin.bottom));
+}
+
+void configure_virtual_extent(layout::LayoutElement& item,
+                              UIElement::VirtualChildrenOrientation orientation,
+                              float extent) {
+    const auto safe_extent = std::max(std::isfinite(extent) ? extent : 0.0F, 0.0F);
+    item.set_flex_shrink(0.0F);
+    if (orientation == UIElement::VirtualChildrenOrientation::Vertical) {
+        item.set_width(layout::Length::percent(100.0F))
+            .set_height(layout::Length::points(safe_extent));
+    } else {
+        item.set_width(layout::Length::points(safe_extent))
+            .set_height(layout::Length::percent(100.0F));
+    }
+}
+
+[[nodiscard]] std::unique_ptr<UIElement>
+make_virtual_spacer(UIElement::VirtualChildrenOrientation orientation, float extent) {
+    auto spacer = std::make_unique<UIElement>();
+    spacer->set_hit_test_visible(false)
+        .set_subtree_virtualization_enabled(false)
+        .configure_layout([orientation, extent](layout::LayoutElement& item) {
+            configure_virtual_extent(item, orientation, extent);
+        });
+    return spacer;
 }
 
 [[nodiscard]] const style::UIElementStyle& fallback_element_style() noexcept {
@@ -329,6 +363,21 @@ struct UIElement::RenderState {
     mutable bool visible_subtree_bounds_valid = false;
     mutable bool visible_subtree_bounds_needs_paint = false;
     bool repaint_boundary : 1 = false;
+};
+
+struct UIElement::VirtualChildrenState {
+    struct RealizedChild {
+        std::size_t index = 0U;
+        UIElement* element = nullptr;
+    };
+
+    VirtualChildrenOptions options;
+    std::vector<RealizedChild> realized;
+    UIElement* leading_spacer = nullptr;
+    UIElement* trailing_spacer = nullptr;
+    std::size_t realized_start = 0U;
+    std::size_t realized_count = 0U;
+    bool updating : 1 = false;
 };
 
 UIElement::StyleState& UIElement::ensure_style_state() {
@@ -666,6 +715,8 @@ UIElement& UIElement::insert_child(std::size_t index, std::unique_ptr<UIElement>
     child->root_ = root_ != nullptr ? root_ : this;
     const auto iterator = children_.begin() + static_cast<std::ptrdiff_t>(index);
     auto inserted = children_.insert(iterator, std::move(child));
+    ++children_revision_;
+    virtualization_cache_valid_ = false;
     (*inserted)->mark_theme_dirty();
     mark_z_order_dirty();
     if (event_router_ != nullptr) {
@@ -728,6 +779,8 @@ std::unique_ptr<UIElement> UIElement::remove_child_at(std::size_t index) {
         child->detach_focus_manager(*focus_manager_);
     }
     children_.erase(children_.begin() + static_cast<std::ptrdiff_t>(index));
+    ++children_revision_;
+    virtualization_cache_valid_ = false;
     mark_z_order_dirty();
     update_intrinsic_text_measure_callback();
     invalidate_layout();
@@ -1365,6 +1418,76 @@ bool UIElement::has_virtualization_materializer() const noexcept {
     return static_cast<bool>(virtualization_materializer_);
 }
 
+UIElement& UIElement::set_virtual_children(VirtualChildrenOptions options) {
+    verify_thread_access();
+    if (!std::isfinite(options.item_extent) || options.item_extent <= 0.0F) {
+        throw std::invalid_argument("virtual child item extent must be finite and positive");
+    }
+    if (options.overscan_extent < 0.0F || !std::isfinite(options.overscan_extent)) {
+        options.overscan_extent = -1.0F;
+    }
+    if (!options.materializer && options.count > 0U) {
+        throw std::invalid_argument("virtual child materializer must not be empty");
+    }
+
+    clear_children();
+    virtual_children_ = std::make_unique<VirtualChildrenState>();
+    virtual_children_->options = std::move(options);
+    virtual_children_->realized_start = 0U;
+    virtual_children_->realized_count = 0U;
+    const auto total_extent = static_cast<float>(virtual_children_->options.count) *
+                              virtual_children_->options.item_extent;
+    configure_layout([orientation = virtual_children_->options.orientation,
+                      total_extent](layout::LayoutElement& item) {
+        item.set_flex_shrink(0.0F);
+        if (orientation == VirtualChildrenOrientation::Vertical) {
+            item.set_flex_direction(layout::FlexDirection::Column)
+                .set_width(layout::Length::percent(100.0F))
+                .set_height(layout::Length::points(total_extent));
+        } else {
+            item.set_flex_direction(layout::FlexDirection::Row)
+                .set_height(layout::Length::percent(100.0F))
+                .set_width(layout::Length::points(total_extent));
+        }
+    });
+
+    auto leading = make_virtual_spacer(virtual_children_->options.orientation, 0.0F);
+    auto& leading_ref = append_child(std::move(leading));
+    virtual_children_->leading_spacer = &leading_ref;
+
+    auto trailing = make_virtual_spacer(virtual_children_->options.orientation, total_extent);
+    auto& trailing_ref = append_child(std::move(trailing));
+    virtual_children_->trailing_spacer = &trailing_ref;
+
+    virtualization_cache_valid_ = false;
+    invalidate_layout();
+    return *this;
+}
+
+UIElement& UIElement::clear_virtual_children() {
+    verify_thread_access();
+    if (virtual_children_ == nullptr) {
+        return *this;
+    }
+    virtual_children_.reset();
+    clear_children();
+    virtualization_cache_valid_ = false;
+    invalidate_layout();
+    return *this;
+}
+
+bool UIElement::has_virtual_children() const noexcept {
+    return virtual_children_ != nullptr;
+}
+
+std::size_t UIElement::virtual_child_count() const noexcept {
+    return virtual_children_ != nullptr ? virtual_children_->options.count : 0U;
+}
+
+std::size_t UIElement::realized_virtual_child_count() const noexcept {
+    return virtual_children_ != nullptr ? virtual_children_->realized.size() : 0U;
+}
+
 bool UIElement::subtree_virtualized() const noexcept {
     return subtree_virtualized_;
 }
@@ -1908,12 +2031,23 @@ void UIElement::calculate_layout(layout::LayoutConstraints constraints) {
 
     auto* paint_dirty_root = layout_dirty_root_;
     layout_dirty_root_ = nullptr;
-    layout_->calculate_layout(std::move(constraints));
-    const auto generation = layout_generation_ == std::numeric_limits<std::uint64_t>::max()
-                                ? std::uint64_t{1}
-                                : layout_generation_ + std::uint64_t{1};
+    const auto root_constraints = constraints;
+    layout_->calculate_layout(root_constraints);
+    auto generation = layout_generation_ == std::numeric_limits<std::uint64_t>::max()
+                          ? std::uint64_t{1}
+                          : layout_generation_ + std::uint64_t{1};
     sync_layout_snapshot_subtree({}, generation);
+    virtualization_layout_dirty_ = false;
     update_viewport_state_subtree(committed_absolute_frame_);
+    if (virtualization_layout_dirty_ && needs_layout_) {
+        virtualization_layout_dirty_ = false;
+        layout_->calculate_layout(root_constraints);
+        generation = generation == std::numeric_limits<std::uint64_t>::max()
+                         ? std::uint64_t{1}
+                         : generation + std::uint64_t{1};
+        sync_layout_snapshot_subtree({}, generation);
+        update_viewport_state_subtree(committed_absolute_frame_);
+    }
     calculate_top_layer_layouts(constraints, generation);
     mark_layout_clean_subtree();
     if (paint_dirty_root != nullptr && contains(*paint_dirty_root)) {
@@ -3460,6 +3594,9 @@ void UIElement::collect_paint_dirty_region_subtree(rendering::DirtyRegion& dirty
     }
 
     for (const auto& child : children_) {
+        if (child->subtree_virtualized_) {
+            continue;
+        }
         child->collect_paint_dirty_region_subtree(dirty_region);
     }
     for (const auto& entry : top_layer_manager_.entries()) {
@@ -4368,6 +4505,16 @@ bool UIElement::can_virtualize_subtree() const noexcept {
     return true;
 }
 
+layout::Rect UIElement::virtualization_bounds_for_child(const UIElement& child) const noexcept {
+    if (!child.visible_) {
+        return {};
+    }
+    if (child.shadow_visible() || child.has_render_layer() || child.top_layer_count() > 0U) {
+        return child.visible_subtree_bounds();
+    }
+    return child.committed_absolute_frame_;
+}
+
 void UIElement::set_subtree_virtualized(bool virtualized) noexcept {
     if (subtree_virtualized_ == virtualized) {
         return;
@@ -4378,6 +4525,8 @@ void UIElement::set_subtree_virtualized(bool virtualized) noexcept {
             try {
                 virtualized_snapshot_ = compress_subtree();
                 clear_children();
+                virtualization_layout_dirty_ = true;
+                top_layer_host().virtualization_layout_dirty_ = true;
             } catch (...) {
                 virtualized_snapshot_.reset();
                 assert(false && "UIElement subtree compression must not throw");
@@ -4390,6 +4539,8 @@ void UIElement::set_subtree_virtualized(bool virtualized) noexcept {
             if (restored_child != nullptr) {
                 append_child(std::move(restored_child));
             }
+            virtualization_layout_dirty_ = true;
+            top_layer_host().virtualization_layout_dirty_ = true;
             decompress_subtree(*virtualized_snapshot_);
             virtualized_snapshot_.reset();
         } catch (...) {
@@ -4411,6 +4562,132 @@ void UIElement::set_subtree_virtualized(bool virtualized) noexcept {
     invalidate_paint();
 }
 
+bool UIElement::update_virtual_children(layout::Rect clip_rect) noexcept {
+    auto* state = virtual_children_.get();
+    if (state == nullptr || state->updating) {
+        return false;
+    }
+
+    const auto& options = state->options;
+    if (options.count == 0U || options.item_extent <= 0.0F || !options.materializer) {
+        return false;
+    }
+
+    const auto orientation = options.orientation;
+    const auto viewport_start = orientation == VirtualChildrenOrientation::Vertical
+                                    ? clip_rect.y - child_content_absolute_origin().y
+                                    : clip_rect.x - child_content_absolute_origin().x;
+    const auto viewport_extent =
+        orientation == VirtualChildrenOrientation::Vertical ? clip_rect.height : clip_rect.width;
+    const auto overscan =
+        options.overscan_extent >= 0.0F
+            ? options.overscan_extent
+            : effective_subtree_virtualization_overscan(clip_rect);
+    const auto desired_start_offset =
+        std::max(0.0F, (std::isfinite(viewport_start) ? viewport_start : 0.0F) - overscan);
+    const auto desired_end_offset =
+        std::max(desired_start_offset,
+                 (std::isfinite(viewport_start) ? viewport_start : 0.0F) +
+                     std::max(std::isfinite(viewport_extent) ? viewport_extent : 0.0F, 0.0F) +
+                     overscan);
+
+    auto desired_start =
+        std::min(options.count, static_cast<std::size_t>(desired_start_offset / options.item_extent));
+    auto desired_end =
+        std::min(options.count, static_cast<std::size_t>(
+                                    std::ceil(desired_end_offset / options.item_extent)) +
+                                    1U);
+    if (desired_end < desired_start) {
+        desired_end = desired_start;
+    }
+
+    for (const auto& entry : state->realized) {
+        if (entry.element != nullptr && !entry.element->can_virtualize_subtree()) {
+            desired_start = std::min(desired_start, entry.index);
+            desired_end = std::max(desired_end, std::min(options.count, entry.index + 1U));
+        }
+    }
+
+    const auto desired_count = desired_end > desired_start ? desired_end - desired_start : 0U;
+    if (desired_start == state->realized_start && desired_count == state->realized_count &&
+        state->realized.size() == desired_count) {
+        return false;
+    }
+
+    state->updating = true;
+    struct KeptChild {
+        std::size_t index = 0U;
+        std::unique_ptr<UIElement> element;
+    };
+    auto kept = std::vector<KeptChild>{};
+    kept.reserve(desired_count);
+
+    for (const auto& entry : state->realized) {
+        if (entry.element == nullptr) {
+            continue;
+        }
+        auto child = remove_child(*entry.element);
+        if (entry.index >= desired_start && entry.index < desired_end) {
+            kept.push_back(KeptChild{.index = entry.index, .element = std::move(child)});
+        }
+    }
+    state->realized.clear();
+
+    if (state->leading_spacer != nullptr) {
+        static_cast<void>(remove_child(*state->leading_spacer));
+        state->leading_spacer = nullptr;
+    }
+    if (state->trailing_spacer != nullptr) {
+        static_cast<void>(remove_child(*state->trailing_spacer));
+        state->trailing_spacer = nullptr;
+    }
+
+    std::sort(kept.begin(), kept.end(), [](const KeptChild& lhs, const KeptChild& rhs) noexcept {
+        return lhs.index < rhs.index;
+    });
+
+    auto leading = make_virtual_spacer(orientation,
+                                       static_cast<float>(desired_start) * options.item_extent);
+    auto& leading_ref = append_child(std::move(leading));
+    state->leading_spacer = &leading_ref;
+
+    auto kept_index = std::size_t{0U};
+    state->realized.reserve(desired_count);
+    for (auto index = desired_start; index < desired_end; ++index) {
+        std::unique_ptr<UIElement> child;
+        if (kept_index < kept.size() && kept[kept_index].index == index) {
+            child = std::move(kept[kept_index].element);
+            ++kept_index;
+        } else {
+            child = options.materializer(index);
+        }
+        if (child == nullptr) {
+            child = std::make_unique<UIElement>();
+        }
+        child->configure_layout([orientation, extent = options.item_extent](layout::LayoutElement& item) {
+            configure_virtual_extent(item, orientation, extent);
+        });
+        auto& child_ref = append_child(std::move(child));
+        state->realized.push_back(VirtualChildrenState::RealizedChild{.index = index,
+                                                                      .element = &child_ref});
+    }
+
+    const auto trailing_count = options.count > desired_end ? options.count - desired_end : 0U;
+    auto trailing = make_virtual_spacer(orientation,
+                                        static_cast<float>(trailing_count) * options.item_extent);
+    auto& trailing_ref = append_child(std::move(trailing));
+    state->trailing_spacer = &trailing_ref;
+
+    state->realized_start = desired_start;
+    state->realized_count = desired_count;
+    state->updating = false;
+    virtualization_layout_dirty_ = true;
+    top_layer_host().virtualization_layout_dirty_ = true;
+    virtualization_cache_valid_ = false;
+    invalidate_layout();
+    return true;
+}
+
 void UIElement::update_child_virtualization(layout::Rect clip_rect) noexcept {
     if (children_.empty()) {
         return;
@@ -4420,14 +4697,29 @@ void UIElement::update_child_virtualization(layout::Rect clip_rect) noexcept {
     const auto overscan = enabled ? effective_subtree_virtualization_overscan(clip_rect) : 0.0F;
     const auto virtualization_rect =
         enabled ? layout::inflate_rect(clip_rect, overscan) : layout::Rect{};
+    const auto scroll_offset = scroll_offset_value();
+    if (virtualization_cache_valid_ &&
+        virtualization_cache_layout_generation_ == layout_generation_ &&
+        virtualization_cache_children_revision_ == children_revision_ &&
+        virtualization_cache_overscan_ == overscan &&
+        rect_equals(virtualization_cache_clip_rect_, clip_rect) &&
+        point_equals(virtualization_cache_scroll_offset_, scroll_offset)) {
+        return;
+    }
 
     auto changed = false;
+    changed = update_virtual_children(clip_rect) || changed;
     for (auto& child : children_) {
         if (child == nullptr) {
             continue;
         }
+        if (virtual_children_ != nullptr &&
+            (child.get() == virtual_children_->leading_spacer ||
+             child.get() == virtual_children_->trailing_spacer)) {
+            continue;
+        }
         const auto should_virtualize =
-            enabled && !layout::rects_intersect(child->visible_subtree_bounds(),
+            enabled && !layout::rects_intersect(virtualization_bounds_for_child(*child),
                                                 virtualization_rect) &&
             child->can_virtualize_subtree();
         if (child->subtree_virtualized_ != should_virtualize) {
@@ -4441,6 +4733,12 @@ void UIElement::update_child_virtualization(layout::Rect clip_rect) noexcept {
         invalidate_render_commands();
         invalidate_paint();
     }
+    virtualization_cache_valid_ = true;
+    virtualization_cache_layout_generation_ = layout_generation_;
+    virtualization_cache_children_revision_ = children_revision_;
+    virtualization_cache_clip_rect_ = clip_rect;
+    virtualization_cache_scroll_offset_ = scroll_offset;
+    virtualization_cache_overscan_ = overscan;
 }
 
 void UIElement::refresh_virtualization_from_host() noexcept {
@@ -4449,8 +4747,7 @@ void UIElement::refresh_virtualization_from_host() noexcept {
     }
 
     try {
-        auto& host = top_layer_host();
-        host.update_viewport_state_subtree(host.committed_absolute_frame_);
+        update_viewport_state_subtree(committed_absolute_frame_);
     } catch (...) {
         assert(false && "UIElement virtualization refresh must not throw");
     }
@@ -4476,6 +4773,9 @@ layout::Rect UIElement::visible_subtree_bounds() const noexcept {
                                 std::max(shadow_style.blur_radius, 0.0F)));
         }
         for (const auto& child : children_) {
+            if (child->subtree_virtualized_) {
+                continue;
+            }
             bounds = layout::union_rects(bounds, child->visible_subtree_bounds());
         }
         for (const auto& entry : top_layer_manager_.entries()) {

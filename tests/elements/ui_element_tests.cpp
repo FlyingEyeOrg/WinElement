@@ -1090,6 +1090,77 @@ TEST(UIElementTests, SubtreeVirtualizationMaterializerCanStartCompressed) {
     EXPECT_EQ(materialize_count, 1);
 }
 
+TEST(UIElementTests, VirtualChildrenRealizeOnlyVisibleWindowAndKeepExtent) {
+    auto engine = create_unrounded_engine();
+    UIElement root;
+    root.bind_layout_tree(engine);
+    root.set_overflow(Overflow::Hidden);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(100.0F), Length::points(40.0F));
+    });
+
+    auto& content = root.append_new_child<UIElement>();
+    content.configure_layout([](LayoutElement& layout) {
+        layout.set_flex_direction(FlexDirection::Column);
+    });
+    content.set_virtual_children(UIElement::VirtualChildrenOptions{
+        .count = 100U,
+        .item_extent = 10.0F,
+        .orientation = UIElement::VirtualChildrenOrientation::Vertical,
+        .overscan_extent = 0.0F,
+        .materializer =
+            [](std::size_t index) {
+                auto child = std::make_unique<UIElement>();
+                child->set_text("Item #" + std::to_string(index));
+                return child;
+            }});
+
+    root.calculate_layout(LayoutConstraints{.width = 100.0F, .height = 40.0F});
+
+    EXPECT_LT(content.child_count(), 100U);
+    EXPECT_EQ(content.realized_virtual_child_count(), 5U);
+    EXPECT_FLOAT_EQ(root.max_scroll_offset().y, 960.0F);
+    ASSERT_GE(content.child_count(), 3U);
+    EXPECT_FLOAT_EQ(content.child_at(1U).frame().height, 10.0F);
+    EXPECT_EQ(content.child_at(1U).text(), "Item #0");
+}
+
+TEST(UIElementTests, VirtualChildrenRestoreBottomItemAfterScroll) {
+    auto engine = create_unrounded_engine();
+    UIElement root;
+    root.bind_layout_tree(engine);
+    root.set_overflow(Overflow::Hidden);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(100.0F), Length::points(40.0F));
+    });
+
+    auto& content = root.append_new_child<UIElement>();
+    content.configure_layout([](LayoutElement& layout) {
+        layout.set_flex_direction(FlexDirection::Column);
+    });
+    content.set_virtual_children(UIElement::VirtualChildrenOptions{
+        .count = 100U,
+        .item_extent = 10.0F,
+        .orientation = UIElement::VirtualChildrenOrientation::Vertical,
+        .overscan_extent = 0.0F,
+        .materializer =
+            [](std::size_t index) {
+                auto child = std::make_unique<UIElement>();
+                child->set_text("Item #" + std::to_string(index));
+                return child;
+            }});
+
+    root.calculate_layout(LayoutConstraints{.width = 100.0F, .height = 40.0F});
+    root.set_scroll_offset(Point{0.0F, root.max_scroll_offset().y});
+    root.calculate_layout(LayoutConstraints{.width = 100.0F, .height = 40.0F});
+
+    EXPECT_LT(content.child_count(), 100U);
+    EXPECT_EQ(content.realized_virtual_child_count(), 4U);
+    ASSERT_GE(content.child_count(), 3U);
+    EXPECT_EQ(content.child_at(content.child_count() - 2U).text(), "Item #99");
+    EXPECT_FLOAT_EQ(root.max_scroll_offset().y, 960.0F);
+}
+
 TEST(UIElementTests, BaseElementChildClipKeepsContentInsideVisibleBorder) {
     auto engine = create_unrounded_engine();
     UIElement container;

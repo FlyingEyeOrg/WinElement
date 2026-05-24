@@ -329,10 +329,19 @@ struct ShowcaseRenderMetrics {
     rendering::PreparedRenderCacheStats prepared_cache{};
 };
 
+struct ShowcaseScrollSample {
+    float offset = 0.0F;
+    double layout_ms = 0.0;
+    double commit_ms = 0.0;
+    std::size_t element_count = 0U;
+    ShowcaseRenderMetrics render{};
+};
+
 struct ShowcaseScrollProfile {
     float scroll_max = 0.0F;
-    ShowcaseRenderMetrics top{};
-    ShowcaseRenderMetrics bottom{};
+    ShowcaseScrollSample top{};
+    ShowcaseScrollSample middle{};
+    ShowcaseScrollSample bottom{};
 };
 
 struct ProcessMemorySnapshot {
@@ -1795,31 +1804,30 @@ void add_virtualization_section(controls::StackPanel& root) {
 
     auto& content = viewport.append_new_child<controls::StackPanel>();
     content.set_orientation(controls::Orientation::Vertical);
-    content.set_subtree_virtualization_overscan(viewport_height);
     content.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F)).set_flex_shrink(0.0F);
     });
-    for (std::size_t index = 0U; index < item_count; ++index) {
-        auto& slot = content.append_new_child<controls::Panel>();
-        slot.set_background(index % 2 == 0 ? rendering::Color::rgba(255, 100, 100)
-                                           : rendering::Color::rgba(100, 100, 255));
-        slot.set_border(rendering::Color::rgba(235, 238, 245), 1.0F);
-        slot.configure_layout([](layout::LayoutElement& item) {
-            item.set_width(layout::Length::percent(100.0F))
-                .set_height(layout::Length::points(item_height))
-                .set_padding(layout::Edge::Horizontal, layout::Length::points(12.0F))
-                .set_align_items(layout::Align::Center)
-                .set_flex_shrink(0.0F);
-        });
-        slot.set_virtualization_materializer(
-            [index](const elements::ElementSnapshot&) -> std::unique_ptr<elements::UIElement> {
-                auto text = std::make_unique<controls::Text>();
-                text->set_text("Item #" + std::to_string(index))
-                    .set_type(controls::TextType::Info)
-                    .set_font_size(13.0F);
-                return text;
+    content.set_virtual_children(elements::UIElement::VirtualChildrenOptions{
+        .count = item_count,
+        .item_extent = item_height,
+        .orientation = elements::UIElement::VirtualChildrenOrientation::Vertical,
+        .overscan_extent = viewport_height,
+        .materializer =
+            [](std::size_t index) -> std::unique_ptr<elements::UIElement> {
+            auto slot = std::make_unique<controls::Panel>();
+            slot->set_background(index % 2 == 0 ? rendering::Color::rgba(255, 100, 100)
+                                                : rendering::Color::rgba(100, 100, 255));
+            slot->set_border(rendering::Color::rgba(235, 238, 245), 1.0F);
+            slot->configure_layout([](layout::LayoutElement& item) {
+                item.set_padding(layout::Edge::Horizontal, layout::Length::points(12.0F))
+                    .set_align_items(layout::Align::Center);
             });
-    }
+            slot->append_new_child<controls::Text>()
+                .set_text("Item #" + std::to_string(index))
+                .set_type(controls::TextType::Info)
+                .set_font_size(13.0F);
+            return slot;
+        }});
     viewport.set_on_scroll_changed([](layout::Point) {});
 
     const auto scrollbar_max =
@@ -2121,9 +2129,7 @@ void sync_showcase_window_scrollbar(ShowcaseWindowTree& tree) {
 void calculate_showcase_window_layout(elements::UIElement& root, ShowcaseWindowTree& tree,
                                       float width, float height) {
     const auto constraints = layout::LayoutConstraints{.width = width, .height = height};
-    for (auto pass = 0; pass < 4; ++pass) {
-        root.calculate_layout(constraints);
-    }
+    root.calculate_layout(constraints);
     sync_showcase_window_scrollbar(tree);
 }
 
@@ -2195,6 +2201,35 @@ render_metrics_for_scene(const rendering::RenderScene& scene) noexcept {
                               : rendering::PreparedRenderCacheStats{}};
 }
 
+[[nodiscard]] double elapsed_ms(std::chrono::steady_clock::time_point start,
+                                std::chrono::steady_clock::time_point finish) noexcept {
+    return std::chrono::duration<double, std::milli>(finish - start).count();
+}
+
+[[nodiscard]] ShowcaseScrollSample sample_showcase_scroll(ShowcaseWindowTree& tree,
+                                                          rendering::RenderScene& scene,
+                                                          float width, float height,
+                                                          float offset) {
+    if (tree.viewport != nullptr) {
+        tree.viewport->set_scroll_offset(layout::Point{0.0F, offset});
+    }
+
+    const auto layout_start = std::chrono::steady_clock::now();
+    calculate_showcase_window_layout(*tree.root, tree, width, height);
+    const auto layout_finish = std::chrono::steady_clock::now();
+
+    auto dirty = rendering::DirtyRegion{};
+    const auto commit_start = std::chrono::steady_clock::now();
+    tree.root->commit_render_scene(scene, &dirty);
+    const auto commit_finish = std::chrono::steady_clock::now();
+
+    return ShowcaseScrollSample{.offset = offset,
+                                .layout_ms = elapsed_ms(layout_start, layout_finish),
+                                .commit_ms = elapsed_ms(commit_start, commit_finish),
+                                .element_count = count_elements(*tree.root),
+                                .render = render_metrics_for_scene(scene)};
+}
+
 [[nodiscard]] ShowcaseScrollProfile profile_showcase_window_scroll(float width, float height) {
     auto engine = layout::LayoutEngine{};
     auto tree = build_showcase_window_tree(showcase_window_viewport_width(width));
@@ -2202,20 +2237,12 @@ render_metrics_for_scene(const rendering::RenderScene& scene) noexcept {
     calculate_showcase_window_layout(*tree.root, tree, width, height);
 
     auto scene = rendering::RenderScene{};
-    auto dirty = rendering::DirtyRegion{};
-    tree.root->commit_render_scene(scene, &dirty);
-
     auto profile = ShowcaseScrollProfile{};
     profile.scroll_max = tree.viewport != nullptr ? tree.viewport->max_scroll_offset().y : 0.0F;
-    profile.top = render_metrics_for_scene(scene);
-
-    if (tree.viewport != nullptr) {
-        tree.viewport->set_scroll_offset(layout::Point{0.0F, profile.scroll_max});
-        calculate_showcase_window_layout(*tree.root, tree, width, height);
-    }
-    dirty = rendering::DirtyRegion{};
-    tree.root->commit_render_scene(scene, &dirty);
-    profile.bottom = render_metrics_for_scene(scene);
+    profile.top = sample_showcase_scroll(tree, scene, width, height, 0.0F);
+    profile.middle =
+        sample_showcase_scroll(tree, scene, width, height, profile.scroll_max * 0.5F);
+    profile.bottom = sample_showcase_scroll(tree, scene, width, height, profile.scroll_max);
     return profile;
 }
 
@@ -2276,20 +2303,46 @@ int run_headless_showcase() {
     std::cout << "  wide measured content height: " << wide_showcase_metrics.measured_content_height
               << '\n';
     std::cout << "  maximized scroll bottom: " << maximized_scroll_profile.scroll_max << '\n';
-    std::cout << "  maximized top render nodes: " << maximized_scroll_profile.top.node_count
+    std::cout << "  maximized top layout ms: " << maximized_scroll_profile.top.layout_ms << '\n';
+    std::cout << "  maximized top commit ms: " << maximized_scroll_profile.top.commit_ms << '\n';
+    std::cout << "  maximized top ui elements: " << maximized_scroll_profile.top.element_count
               << '\n';
-    std::cout << "  maximized top render commands: " << maximized_scroll_profile.top.command_count
-              << '\n';
+    std::cout << "  maximized top render nodes: "
+              << maximized_scroll_profile.top.render.node_count << '\n';
+    std::cout << "  maximized top render commands: "
+              << maximized_scroll_profile.top.render.command_count << '\n';
     std::cout << "  maximized top prepared glyphs: "
-              << maximized_scroll_profile.top.prepared_cache.text_glyph_entries << " ("
-              << maximized_scroll_profile.top.prepared_cache.text_glyph_bytes << " bytes)\n";
-    std::cout << "  maximized bottom render nodes: " << maximized_scroll_profile.bottom.node_count
+              << maximized_scroll_profile.top.render.prepared_cache.text_glyph_entries << " ("
+              << maximized_scroll_profile.top.render.prepared_cache.text_glyph_bytes
+              << " bytes)\n";
+    std::cout << "  maximized middle layout ms: " << maximized_scroll_profile.middle.layout_ms
               << '\n';
+    std::cout << "  maximized middle commit ms: " << maximized_scroll_profile.middle.commit_ms
+              << '\n';
+    std::cout << "  maximized middle ui elements: "
+              << maximized_scroll_profile.middle.element_count << '\n';
+    std::cout << "  maximized middle render nodes: "
+              << maximized_scroll_profile.middle.render.node_count << '\n';
+    std::cout << "  maximized middle render commands: "
+              << maximized_scroll_profile.middle.render.command_count << '\n';
+    std::cout << "  maximized middle prepared glyphs: "
+              << maximized_scroll_profile.middle.render.prepared_cache.text_glyph_entries << " ("
+              << maximized_scroll_profile.middle.render.prepared_cache.text_glyph_bytes
+              << " bytes)\n";
+    std::cout << "  maximized bottom layout ms: " << maximized_scroll_profile.bottom.layout_ms
+              << '\n';
+    std::cout << "  maximized bottom commit ms: " << maximized_scroll_profile.bottom.commit_ms
+              << '\n';
+    std::cout << "  maximized bottom ui elements: "
+              << maximized_scroll_profile.bottom.element_count << '\n';
+    std::cout << "  maximized bottom render nodes: "
+              << maximized_scroll_profile.bottom.render.node_count << '\n';
     std::cout << "  maximized bottom render commands: "
-              << maximized_scroll_profile.bottom.command_count << '\n';
+              << maximized_scroll_profile.bottom.render.command_count << '\n';
     std::cout << "  maximized bottom prepared glyphs: "
-              << maximized_scroll_profile.bottom.prepared_cache.text_glyph_entries << " ("
-              << maximized_scroll_profile.bottom.prepared_cache.text_glyph_bytes << " bytes)\n";
+              << maximized_scroll_profile.bottom.render.prepared_cache.text_glyph_entries << " ("
+              << maximized_scroll_profile.bottom.render.prepared_cache.text_glyph_bytes
+              << " bytes)\n";
     std::cout << "  animation active during warmup: " << (animation_active ? "yes" : "no") << '\n';
     std::cout << "  dirty empty: " << (dirty.empty() ? "yes" : "no") << '\n';
     const auto content_height_matches_width =
@@ -2301,7 +2354,7 @@ int run_headless_showcase() {
                    showcase_metrics.scrollbar_max > 0.0F &&
                    wide_showcase_metrics.scroll_max > 0.0F && content_height_matches_width &&
                    maximized_scroll_profile.scroll_max > 0.0F &&
-                   maximized_scroll_profile.bottom.command_count > 0U
+                   maximized_scroll_profile.bottom.render.command_count > 0U
                ? 0
                : 1;
 }
