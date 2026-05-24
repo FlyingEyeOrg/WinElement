@@ -464,15 +464,15 @@ bool handle_overlay_drag(elements::UIElement& element, bool draggable, bool& dra
 } // namespace
 
 struct Message::EventState {
-    CloseEventSignal closed;
+    CloseEventHandler closed;
 };
 
 struct MessageBox::EventState {
-    ActionEventSignal action_invoked;
+    ActionEventHandler action_invoked;
 };
 
 struct Dialog::EventState {
-    ActionEventSignal action_invoked;
+    ActionEventHandler action_invoked;
 };
 
 Message::Message() : Control() {
@@ -542,7 +542,7 @@ Message& Message::set_show_close(bool show_close) {
     return *this;
 }
 
-Message::CloseEventSignal& Message::closed() noexcept {
+Message::CloseEventHandler& Message::closed() noexcept {
     return ensure_event_state().closed;
 }
 
@@ -1023,7 +1023,7 @@ MessageBox& MessageBox::set_draggable(bool draggable) noexcept {
     return *this;
 }
 
-MessageBox::ActionEventSignal& MessageBox::action_invoked() noexcept {
+MessageBox::ActionEventHandler& MessageBox::action_invoked() noexcept {
     return ensure_event_state().action_invoked;
 }
 
@@ -1611,7 +1611,7 @@ class DialogWindowImpl final {
         return *this;
     }
 
-    [[nodiscard]] DialogWindow::ActionEventSignal& action_invoked() noexcept {
+    [[nodiscard]] DialogWindow::ActionEventHandler& action_invoked() noexcept {
         return action_invoked_;
     }
 
@@ -1783,7 +1783,7 @@ class DialogWindowImpl final {
     Text* body_label_ = nullptr;
     Button* confirm_button_ = nullptr;
     Button* cancel_button_ = nullptr;
-    DialogWindow::ActionEventSignal action_invoked_;
+    DialogWindow::ActionEventHandler action_invoked_;
     std::string title_ = "Dialog";
     std::string body_;
     std::string confirm_button_text_ = "Confirm";
@@ -1853,7 +1853,7 @@ DialogWindow& DialogWindow::set_owner(platform::Window* owner) noexcept {
     return *this;
 }
 
-DialogWindow::ActionEventSignal& DialogWindow::action_invoked() noexcept {
+DialogWindow::ActionEventHandler& DialogWindow::action_invoked() noexcept {
     return impl_->action_invoked();
 }
 
@@ -2044,7 +2044,7 @@ void Dialog::apply_visual_state() {
     invalidate_paint();
 }
 
-Dialog::ActionEventSignal& Dialog::action_invoked() noexcept {
+Dialog::ActionEventHandler& Dialog::action_invoked() noexcept {
     return ensure_event_state().action_invoked;
 }
 
@@ -2178,3 +2178,4 @@ void Dialog::apply_open_animation() noexcept {
 }
 
 } // namespace winelement::controls
+

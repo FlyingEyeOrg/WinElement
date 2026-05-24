@@ -78,9 +78,9 @@ class Window final {
     void remove_window_message_filter(MessageFilterToken token) noexcept;
     MessageFilterToken add_post_window_message_filter(WindowMessageHook filter);
     void remove_post_window_message_filter(MessageFilterToken token) noexcept;
-    [[nodiscard]] core::EventSignal<WindowMessage&>& window_message_observers() noexcept;
-    [[nodiscard]] core::EventSignal<WindowMessage&>& post_window_message_observers() noexcept;
-    [[nodiscard]] core::EventSignal<>& closed_event() noexcept;
+    [[nodiscard]] core::EventHandler<WindowMessage&>& window_message_observers() noexcept;
+    [[nodiscard]] core::EventHandler<WindowMessage&>& post_window_message_observers() noexcept;
+    [[nodiscard]] core::EventHandler<>& closed_event() noexcept;
 
     void show();
     int show_modal();
@@ -96,3 +96,4 @@ class Window final {
 };
 
 } // namespace winelement::platform
+

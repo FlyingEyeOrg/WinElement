@@ -31,9 +31,9 @@ struct ScrollbarScrollData {
 class Scrollbar final : public Control {
   public:
     using RangeProvider = std::function<ScrollbarRange()>;
-    using ScrollEventSignal = core::EventSignal<float>;
-    using ScrollDataEventSignal = core::EventSignal<ScrollbarScrollData>;
-    using EndReachedEventSignal = core::EventSignal<ScrollbarEndDirection>;
+    using ScrollEventHandler = core::EventHandler<float>;
+    using ScrollDataEventHandler = core::EventHandler<ScrollbarScrollData>;
+    using EndReachedEventHandler = core::EventHandler<ScrollbarEndDirection>;
 
     Scrollbar();
     ~Scrollbar() override;
@@ -60,9 +60,9 @@ class Scrollbar final : public Control {
     Scrollbar& scroll_to(float scroll_left, float scroll_top);
     Scrollbar& set_scroll_top(float scroll_top);
     Scrollbar& set_scroll_left(float scroll_left);
-    [[nodiscard]] ScrollEventSignal& scrolled() noexcept;
-    [[nodiscard]] ScrollDataEventSignal& scroll_data_changed() noexcept;
-    [[nodiscard]] EndReachedEventSignal& end_reached() noexcept;
+    [[nodiscard]] ScrollEventHandler& scrolled() noexcept;
+    [[nodiscard]] ScrollDataEventHandler& scroll_data_changed() noexcept;
+    [[nodiscard]] EndReachedEventHandler& end_reached() noexcept;
     Scrollbar& set_style(style::UIElementStyle style) override;
     [[nodiscard]] ScrollbarOrientation orientation() const noexcept;
     [[nodiscard]] ScrollbarVisibility visibility_mode() const noexcept;
@@ -155,3 +155,4 @@ class Scrollbar final : public Control {
 };
 
 } // namespace winelement::controls
+

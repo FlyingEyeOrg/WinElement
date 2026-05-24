@@ -146,9 +146,9 @@ constexpr auto pi = 3.14159265358979323846F;
 } // namespace
 
 struct Select::EventState {
-    ChangeEventSignal selection_changed;
-    MultiChangeEventSignal multi_selection_changed;
-    RemoteSearchEventSignal remote_search_requested;
+    ChangeEventHandler selection_changed;
+    MultiChangeEventHandler multi_selection_changed;
+    RemoteSearchEventHandler remote_search_requested;
 };
 
 class SelectDropdown final : public elements::UIElement {
@@ -738,15 +738,15 @@ Select& Select::set_size(SelectSize size) {
     return *this;
 }
 
-Select::ChangeEventSignal& Select::selection_changed() noexcept {
+Select::ChangeEventHandler& Select::selection_changed() noexcept {
     return ensure_event_state().selection_changed;
 }
 
-Select::MultiChangeEventSignal& Select::multi_selection_changed() noexcept {
+Select::MultiChangeEventHandler& Select::multi_selection_changed() noexcept {
     return ensure_event_state().multi_selection_changed;
 }
 
-Select::RemoteSearchEventSignal& Select::remote_search_requested() noexcept {
+Select::RemoteSearchEventHandler& Select::remote_search_requested() noexcept {
     return ensure_event_state().remote_search_requested;
 }
 
@@ -1478,3 +1478,4 @@ void Select::animate_popup_indicator(float target) {
 }
 
 } // namespace winelement::controls
+

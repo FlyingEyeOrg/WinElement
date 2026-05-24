@@ -78,7 +78,7 @@ struct ButtonColorScale {
 } // namespace
 
 struct Button::ClickEventState {
-    ClickEventSignal clicked;
+    ClickEventHandler clicked;
 };
 
 Button::Button() : Control() {
@@ -174,7 +174,7 @@ Button::ClickEventState& Button::ensure_click_event_state() {
     return *click_event_state_;
 }
 
-Button::ClickEventSignal& Button::clicked() noexcept {
+Button::ClickEventHandler& Button::clicked() noexcept {
     return ensure_click_event_state().clicked;
 }
 
@@ -989,3 +989,4 @@ void Button::click(bool from_keyboard) {
 }
 
 } // namespace winelement::controls
+

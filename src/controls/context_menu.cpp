@@ -220,8 +220,8 @@ void paint_context_menu_item(rendering::RenderContext& context, layout::Rect ite
 } // namespace
 
 struct ContextMenu::EventState {
-    SelectEventSignal selected;
-    DismissEventSignal dismissed;
+    SelectEventHandler selected;
+    DismissEventHandler dismissed;
 };
 
 ContextMenu::ContextMenu() : Control() {
@@ -251,11 +251,11 @@ ContextMenu& ContextMenu::set_items(std::vector<ContextMenuItem> items) {
     return *this;
 }
 
-ContextMenu::SelectEventSignal& ContextMenu::selected() noexcept {
+ContextMenu::SelectEventHandler& ContextMenu::selected() noexcept {
     return ensure_event_state().selected;
 }
 
-ContextMenu::DismissEventSignal& ContextMenu::dismissed() noexcept {
+ContextMenu::DismissEventHandler& ContextMenu::dismissed() noexcept {
     return ensure_event_state().dismissed;
 }
 
@@ -638,3 +638,4 @@ float ContextMenu::animated_open_progress() const {
 }
 
 } // namespace winelement::controls
+

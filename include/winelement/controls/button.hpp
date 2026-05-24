@@ -83,7 +83,7 @@ constexpr ButtonFlag& operator&=(ButtonFlag& left, ButtonFlag right) noexcept {
 
 class Button : public Control {
   public:
-    using ClickEventSignal = core::EventSignal<const ButtonClickEvent&>;
+    using ClickEventHandler = core::EventHandler<const ButtonClickEvent&>;
 
     Button();
     ~Button() override;
@@ -113,7 +113,7 @@ class Button : public Control {
     Button& clear_custom_color();
     Button& set_dark_mode(bool dark);
     Button& set_auto_insert_space(bool auto_space);
-    [[nodiscard]] ClickEventSignal& clicked() noexcept;
+    [[nodiscard]] ClickEventHandler& clicked() noexcept;
     Button& set_style(style::UIElementStyle style) override;
     [[nodiscard]] ButtonType type() const noexcept;
     [[nodiscard]] ButtonSize size() const noexcept;
@@ -195,3 +195,4 @@ class Button : public Control {
 };
 
 } // namespace winelement::controls
+

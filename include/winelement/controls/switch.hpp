@@ -16,7 +16,7 @@ enum class SwitchSize { Default, Large, Small };
 
 class Switch : public Control {
   public:
-    using ChangeEventSignal = core::EventSignal<bool>;
+    using ChangeEventHandler = core::EventHandler<bool>;
 
     Switch();
     ~Switch() override;
@@ -30,7 +30,7 @@ class Switch : public Control {
     Switch& set_active_value(std::string_view value);
     Switch& set_inactive_value(std::string_view value);
     Switch& set_controlled(bool controlled) noexcept;
-    [[nodiscard]] ChangeEventSignal& changed() noexcept;
+    [[nodiscard]] ChangeEventHandler& changed() noexcept;
     Switch& set_style(style::UIElementStyle style) override;
     [[nodiscard]] bool checked() const noexcept;
     [[nodiscard]] bool disabled() const noexcept;
@@ -75,3 +75,4 @@ class Switch : public Control {
 };
 
 } // namespace winelement::controls
+

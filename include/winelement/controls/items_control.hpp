@@ -38,9 +38,9 @@ class ItemsControl final : public Control {
         std::size_t from_index = 0;
         std::size_t to_index = 0;
     };
-    using SelectionChangedEventSignal = core::EventSignal<std::optional<std::size_t>>;
-    using MultiSelectionChangedEventSignal = core::EventSignal<const std::vector<std::size_t>&>;
-    using ReorderEventSignal = core::EventSignal<const ReorderEvent&>;
+    using SelectionChangedEventHandler = core::EventHandler<std::optional<std::size_t>>;
+    using MultiSelectionChangedEventHandler = core::EventHandler<const std::vector<std::size_t>&>;
+    using ReorderEventHandler = core::EventHandler<const ReorderEvent&>;
 
     ItemsControl();
     ~ItemsControl() override;
@@ -52,9 +52,9 @@ class ItemsControl final : public Control {
     ItemsControl& set_selection_mode(SelectionMode mode);
     ItemsControl& set_selected_index(std::optional<std::size_t> index);
     ItemsControl& set_selected_indices(std::vector<std::size_t> indices);
-    [[nodiscard]] SelectionChangedEventSignal& selection_changed() noexcept;
-    [[nodiscard]] MultiSelectionChangedEventSignal& multi_selection_changed() noexcept;
-    [[nodiscard]] ReorderEventSignal& reordered() noexcept;
+    [[nodiscard]] SelectionChangedEventHandler& selection_changed() noexcept;
+    [[nodiscard]] MultiSelectionChangedEventHandler& multi_selection_changed() noexcept;
+    [[nodiscard]] ReorderEventHandler& reordered() noexcept;
     ItemsControl& set_reusable_container_limit(std::size_t limit);
     ItemsControl& set_realized_range(std::size_t start_index, std::size_t count);
     ItemsControl& set_groups(std::vector<ItemGroup> groups);
@@ -113,3 +113,4 @@ class ItemsControl final : public Control {
 };
 
 } // namespace winelement::controls
+

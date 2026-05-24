@@ -25,11 +25,11 @@ constexpr auto indicator_gap = 8.0F;
 } // namespace
 
 struct RadioGroupContext::EventState {
-    ChangeEventSignal changed;
+    ChangeEventHandler changed;
 };
 
 struct Radio::EventState {
-    ChangeEventSignal changed;
+    ChangeEventHandler changed;
 };
 
 RadioGroupContext::RadioGroupContext() = default;
@@ -68,7 +68,7 @@ RadioGroupContext& RadioGroupContext::clear_value() {
     return *this;
 }
 
-RadioGroupContext::ChangeEventSignal& RadioGroupContext::changed() noexcept {
+RadioGroupContext::ChangeEventHandler& RadioGroupContext::changed() noexcept {
     return ensure_event_state().changed;
 }
 
@@ -218,7 +218,7 @@ Radio& Radio::set_disabled(bool disabled) noexcept {
     return *this;
 }
 
-Radio::ChangeEventSignal& Radio::changed() noexcept {
+Radio::ChangeEventHandler& Radio::changed() noexcept {
     return ensure_event_state().changed;
 }
 
@@ -387,3 +387,4 @@ void Radio::activate() {
 }
 
 } // namespace winelement::controls
+

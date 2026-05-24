@@ -48,15 +48,15 @@ class ContextMenu final : public Control {
         const ContextMenuItem& item;
         std::size_t index = 0;
     };
-    using SelectEventSignal = core::EventSignal<const SelectEvent&>;
-    using DismissEventSignal = core::EventSignal<>;
+    using SelectEventHandler = core::EventHandler<const SelectEvent&>;
+    using DismissEventHandler = core::EventHandler<>;
 
     ContextMenu();
     ~ContextMenu() override;
 
     ContextMenu& set_items(std::vector<ContextMenuItem> items);
-    [[nodiscard]] SelectEventSignal& selected() noexcept;
-    [[nodiscard]] DismissEventSignal& dismissed() noexcept;
+    [[nodiscard]] SelectEventHandler& selected() noexcept;
+    [[nodiscard]] DismissEventHandler& dismissed() noexcept;
     ContextMenu& set_metrics(ContextMenuMetrics metrics);
 
     [[nodiscard]] const std::vector<ContextMenuItem>& items() const noexcept;
@@ -99,3 +99,4 @@ class ContextMenu final : public Control {
 };
 
 } // namespace winelement::controls
+

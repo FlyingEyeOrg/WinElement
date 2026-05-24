@@ -361,17 +361,17 @@ text_offset_for_display_code_point_offset(std::string_view text,
 } // namespace
 
 struct Input::EventState {
-    TextEventSignal input_changed;
-    TextEventSignal change_committed;
-    VoidEventSignal cleared;
-    VoidEventSignal focused;
-    VoidEventSignal blurred;
-    KeyEventSignal key_down;
-    VoidEventSignal mouse_entered;
-    VoidEventSignal mouse_left;
-    VoidEventSignal composition_started;
-    TextEventSignal composition_updated;
-    TextEventSignal composition_ended;
+    TextEventHandler input_changed;
+    TextEventHandler change_committed;
+    VoidEventHandler cleared;
+    VoidEventHandler focused;
+    VoidEventHandler blurred;
+    KeyEventHandler key_down;
+    VoidEventHandler mouse_entered;
+    VoidEventHandler mouse_left;
+    VoidEventHandler composition_started;
+    TextEventHandler composition_updated;
+    TextEventHandler composition_ended;
 };
 
 class Input::TextInputHandlerAdapter final : public elements::TextInputHandler {
@@ -743,47 +743,47 @@ Input& Input::set_parser(TextTransform parser) {
     return *this;
 }
 
-Input::TextEventSignal& Input::input_changed() noexcept {
+Input::TextEventHandler& Input::input_changed() noexcept {
     return ensure_event_state().input_changed;
 }
 
-Input::TextEventSignal& Input::change_committed() noexcept {
+Input::TextEventHandler& Input::change_committed() noexcept {
     return ensure_event_state().change_committed;
 }
 
-Input::VoidEventSignal& Input::cleared() noexcept {
+Input::VoidEventHandler& Input::cleared() noexcept {
     return ensure_event_state().cleared;
 }
 
-Input::VoidEventSignal& Input::focus_received() noexcept {
+Input::VoidEventHandler& Input::focus_received() noexcept {
     return ensure_event_state().focused;
 }
 
-Input::VoidEventSignal& Input::focus_lost() noexcept {
+Input::VoidEventHandler& Input::focus_lost() noexcept {
     return ensure_event_state().blurred;
 }
 
-Input::KeyEventSignal& Input::key_down() noexcept {
+Input::KeyEventHandler& Input::key_down() noexcept {
     return ensure_event_state().key_down;
 }
 
-Input::VoidEventSignal& Input::mouse_entered() noexcept {
+Input::VoidEventHandler& Input::mouse_entered() noexcept {
     return ensure_event_state().mouse_entered;
 }
 
-Input::VoidEventSignal& Input::mouse_left() noexcept {
+Input::VoidEventHandler& Input::mouse_left() noexcept {
     return ensure_event_state().mouse_left;
 }
 
-Input::VoidEventSignal& Input::composition_started() noexcept {
+Input::VoidEventHandler& Input::composition_started() noexcept {
     return ensure_event_state().composition_started;
 }
 
-Input::TextEventSignal& Input::composition_updated() noexcept {
+Input::TextEventHandler& Input::composition_updated() noexcept {
     return ensure_event_state().composition_updated;
 }
 
-Input::TextEventSignal& Input::composition_ended() noexcept {
+Input::TextEventHandler& Input::composition_ended() noexcept {
     return ensure_event_state().composition_ended;
 }
 
@@ -2860,3 +2860,4 @@ void Input::mark_text_transform_generation_changed() noexcept {
 }
 
 } // namespace winelement::controls
+

@@ -27,9 +27,9 @@ constexpr auto element_scrollbar_min_hit_cross_extent = 12.0F;
 } // namespace
 
 struct Scrollbar::EventState {
-    ScrollEventSignal scrolled;
-    ScrollDataEventSignal scroll_data_changed;
-    EndReachedEventSignal end_reached;
+    ScrollEventHandler scrolled;
+    ScrollDataEventHandler scroll_data_changed;
+    EndReachedEventHandler end_reached;
 };
 
 Scrollbar::Scrollbar() : Control() {
@@ -281,15 +281,15 @@ Scrollbar& Scrollbar::set_scroll_left(float scroll_left) {
     return *this;
 }
 
-Scrollbar::ScrollEventSignal& Scrollbar::scrolled() noexcept {
+Scrollbar::ScrollEventHandler& Scrollbar::scrolled() noexcept {
     return ensure_event_state().scrolled;
 }
 
-Scrollbar::ScrollDataEventSignal& Scrollbar::scroll_data_changed() noexcept {
+Scrollbar::ScrollDataEventHandler& Scrollbar::scroll_data_changed() noexcept {
     return ensure_event_state().scroll_data_changed;
 }
 
-Scrollbar::EndReachedEventSignal& Scrollbar::end_reached() noexcept {
+Scrollbar::EndReachedEventHandler& Scrollbar::end_reached() noexcept {
     return ensure_event_state().end_reached;
 }
 
@@ -1040,3 +1040,4 @@ void Scrollbar::reset_end_reached_latches() {
 }
 
 } // namespace winelement::controls
+

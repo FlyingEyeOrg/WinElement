@@ -23,7 +23,7 @@ namespace {
 } // namespace
 
 struct Switch::EventState {
-    ChangeEventSignal changed;
+    ChangeEventHandler changed;
 };
 
 Switch::Switch() : Control() {
@@ -85,7 +85,7 @@ Switch& Switch::set_controlled(bool controlled) noexcept {
     return *this;
 }
 
-Switch::ChangeEventSignal& Switch::changed() noexcept {
+Switch::ChangeEventHandler& Switch::changed() noexcept {
     return ensure_event_state().changed;
 }
 
@@ -304,3 +304,4 @@ void Switch::toggle() {
 }
 
 } // namespace winelement::controls
+

@@ -473,11 +473,11 @@ class UIElement {
     core::EventToken add_routed_event_filter(RoutedEventFilter filter,
                                              RoutedEventFilterOptions options = {});
     void remove_routed_event_filter(core::EventToken token) noexcept;
-    [[nodiscard]] core::EventSignal<RoutedEventFilterContext&>& routed_event_observers() noexcept;
-    [[nodiscard]] const core::EventSignal<RoutedEventFilterContext&>&
+    [[nodiscard]] core::EventHandler<RoutedEventFilterContext&>& routed_event_observers() noexcept;
+    [[nodiscard]] const core::EventHandler<RoutedEventFilterContext&>&
     routed_event_observers() const noexcept;
-    [[nodiscard]] core::EventSignal<>& dismissed_event() noexcept;
-    [[nodiscard]] const core::EventSignal<>& dismissed_event() const noexcept;
+    [[nodiscard]] core::EventHandler<>& dismissed_event() noexcept;
+    [[nodiscard]] const core::EventHandler<>& dismissed_event() const noexcept;
 
     void visit_paint_order(const VisitCallback& visitor);
     void visit_paint_order(const ConstVisitCallback& visitor) const;
@@ -771,3 +771,4 @@ class UIElement {
 };
 
 } // namespace winelement::elements
+

@@ -39,7 +39,7 @@ struct MessageOptions {
 
 class Message final : public Control {
   public:
-    using CloseEventSignal = core::EventSignal<>;
+    using CloseEventHandler = core::EventHandler<>;
 
     Message();
     ~Message() override;
@@ -47,7 +47,7 @@ class Message final : public Control {
     Message& set_text(std::string_view text);
     Message& set_type(MessageType type);
     Message& set_show_close(bool show_close);
-    [[nodiscard]] CloseEventSignal& closed() noexcept;
+    [[nodiscard]] CloseEventHandler& closed() noexcept;
     [[nodiscard]] const std::string& text() const noexcept;
     [[nodiscard]] MessageType type() const noexcept;
     [[nodiscard]] bool show_close() const noexcept;
@@ -128,7 +128,7 @@ class MessageBox final : public Control {
         MessageBoxAction action = MessageBoxAction::Close;
         std::string_view input_text;
     };
-    using ActionEventSignal = core::EventSignal<const ActionEvent&>;
+    using ActionEventHandler = core::EventHandler<const ActionEvent&>;
 
     MessageBox();
     ~MessageBox() override;
@@ -151,7 +151,7 @@ class MessageBox final : public Control {
     MessageBox& set_input_error_message(std::string_view text);
     MessageBox& set_input_validator(MessageBoxInputValidator validator);
     MessageBox& set_draggable(bool draggable) noexcept;
-    [[nodiscard]] ActionEventSignal& action_invoked() noexcept;
+    [[nodiscard]] ActionEventHandler& action_invoked() noexcept;
     [[nodiscard]] const std::string& title() const noexcept;
     [[nodiscard]] const std::string& message() const noexcept;
     [[nodiscard]] MessageBoxKind kind() const noexcept;
@@ -301,7 +301,7 @@ struct DialogWindowOptions {
 
 class DialogWindow final {
   public:
-    using ActionEventSignal = core::EventSignal<DialogAction>;
+    using ActionEventHandler = core::EventHandler<DialogAction>;
 
     DialogWindow();
     ~DialogWindow();
@@ -320,7 +320,7 @@ class DialogWindow final {
     DialogWindow& set_modal(bool modal) noexcept;
     DialogWindow& set_window_size(int width, int height = 0) noexcept;
     DialogWindow& set_owner(platform::Window* owner) noexcept;
-    [[nodiscard]] ActionEventSignal& action_invoked() noexcept;
+    [[nodiscard]] ActionEventHandler& action_invoked() noexcept;
     [[nodiscard]] const std::string& title() const noexcept;
     [[nodiscard]] const std::string& body() const noexcept;
     [[nodiscard]] bool show_cancel_button() const noexcept;
@@ -337,7 +337,7 @@ class DialogWindow final {
 
 class Dialog final : public Control {
   public:
-    using ActionEventSignal = core::EventSignal<DialogAction>;
+    using ActionEventHandler = core::EventHandler<DialogAction>;
 
     Dialog();
     ~Dialog() override;
@@ -350,7 +350,7 @@ class Dialog final : public Control {
     Dialog& set_show_cancel_button(bool show_cancel_button);
     Dialog& set_close_on_confirm(bool close_on_confirm) noexcept;
     Dialog& set_draggable(bool draggable) noexcept;
-    [[nodiscard]] ActionEventSignal& action_invoked() noexcept;
+    [[nodiscard]] ActionEventHandler& action_invoked() noexcept;
     [[nodiscard]] const std::string& title() const noexcept;
     [[nodiscard]] const std::string& body() const noexcept;
     [[nodiscard]] bool show_close() const noexcept;
@@ -396,3 +396,4 @@ class Dialog final : public Control {
 };
 
 } // namespace winelement::controls
+

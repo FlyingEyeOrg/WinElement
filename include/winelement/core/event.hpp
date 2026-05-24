@@ -10,16 +10,16 @@ namespace winelement::core {
 
 using EventToken = std::uint64_t;
 
-template <typename... Args> class EventSignal final {
+template <typename... Args> class EventHandler final {
   public:
     using Handler = std::function<void(Args...)>;
 
-    EventSignal() = default;
+    EventHandler() = default;
 
-    EventSignal(const EventSignal&) = delete;
-    EventSignal& operator=(const EventSignal&) = delete;
-    EventSignal(EventSignal&&) noexcept = default;
-    EventSignal& operator=(EventSignal&&) noexcept = default;
+    EventHandler(const EventHandler&) = delete;
+    EventHandler& operator=(const EventHandler&) = delete;
+    EventHandler(EventHandler&&) noexcept = default;
+    EventHandler& operator=(EventHandler&&) noexcept = default;
 
     EventToken add(Handler handler) {
         if (!handler) {
@@ -112,3 +112,4 @@ template <typename... Args> class EventSignal final {
 };
 
 } // namespace winelement::core
+

@@ -285,9 +285,9 @@ class ProgressTrackPanel final : public controls::Panel {
 
 class SyncedViewportPanel final : public controls::Panel {
   public:
-    using ScrollChangedSignal = core::EventSignal<layout::Point>;
+    using ScrollChangedHandler = core::EventHandler<layout::Point>;
 
-    [[nodiscard]] ScrollChangedSignal& scroll_changed() noexcept {
+    [[nodiscard]] ScrollChangedHandler& scroll_changed() noexcept {
         return scroll_changed_;
     }
 
@@ -302,7 +302,7 @@ class SyncedViewportPanel final : public controls::Panel {
     }
 
   private:
-    ScrollChangedSignal scroll_changed_;
+    ScrollChangedHandler scroll_changed_;
 };
 
 struct ShowcaseWindowTree {
@@ -2576,3 +2576,4 @@ int main(int argc, char** argv) {
     return run_window_showcase();
 }
 #endif
+

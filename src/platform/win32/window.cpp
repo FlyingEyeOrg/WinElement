@@ -625,15 +625,15 @@ class Window::Impl final {
         post_message_filters_.remove(token);
     }
 
-    core::EventSignal<WindowMessage&>& window_message_observers() noexcept {
+    core::EventHandler<WindowMessage&>& window_message_observers() noexcept {
         return message_observers_;
     }
 
-    core::EventSignal<WindowMessage&>& post_window_message_observers() noexcept {
+    core::EventHandler<WindowMessage&>& post_window_message_observers() noexcept {
         return post_message_observers_;
     }
 
-    core::EventSignal<>& closed_event() noexcept {
+    core::EventHandler<>& closed_event() noexcept {
         return closed_event_;
     }
 
@@ -1879,11 +1879,11 @@ class Window::Impl final {
     bool animation_timer_resolution_active_ = false;
     bool interactive_resize_ = false;
     bool modal_owner_acquired_ = false;
-    core::EventSignal<WindowMessage&> message_filters_;
-    core::EventSignal<WindowMessage&> post_message_filters_;
-    core::EventSignal<WindowMessage&> message_observers_;
-    core::EventSignal<WindowMessage&> post_message_observers_;
-    core::EventSignal<> closed_event_;
+    core::EventHandler<WindowMessage&> message_filters_;
+    core::EventHandler<WindowMessage&> post_message_filters_;
+    core::EventHandler<WindowMessage&> message_observers_;
+    core::EventHandler<WindowMessage&> post_message_observers_;
+    core::EventHandler<> closed_event_;
     WindowImeState ime_state_{};
     wchar_t pending_high_surrogate_ = 0;
     bool native_menu_target_invalidated_ = false;
@@ -1942,15 +1942,15 @@ void Window::remove_post_window_message_filter(MessageFilterToken token) noexcep
     impl_->remove_post_window_message_filter(token);
 }
 
-core::EventSignal<WindowMessage&>& Window::window_message_observers() noexcept {
+core::EventHandler<WindowMessage&>& Window::window_message_observers() noexcept {
     return impl_->window_message_observers();
 }
 
-core::EventSignal<WindowMessage&>& Window::post_window_message_observers() noexcept {
+core::EventHandler<WindowMessage&>& Window::post_window_message_observers() noexcept {
     return impl_->post_window_message_observers();
 }
 
-core::EventSignal<>& Window::closed_event() noexcept {
+core::EventHandler<>& Window::closed_event() noexcept {
     return impl_->closed_event();
 }
 
@@ -1983,3 +1983,4 @@ int Window::run_message_loop() {
 }
 
 } // namespace winelement::platform
+

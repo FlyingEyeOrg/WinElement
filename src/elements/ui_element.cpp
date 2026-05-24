@@ -329,8 +329,8 @@ struct UIElement::EventHookState {
         RoutedEventFilterOptions options;
     };
 
-    core::EventSignal<> dismissed;
-    core::EventSignal<RoutedEventFilterContext&> observers;
+    core::EventHandler<> dismissed;
+    core::EventHandler<RoutedEventFilterContext&> observers;
     std::vector<FilterEntry> filters;
     core::EventToken next_filter_token = 1U;
 };
@@ -3181,21 +3181,21 @@ void UIElement::remove_routed_event_filter(core::EventToken token) noexcept {
                   filters.end());
 }
 
-core::EventSignal<RoutedEventFilterContext&>& UIElement::routed_event_observers() noexcept {
+core::EventHandler<RoutedEventFilterContext&>& UIElement::routed_event_observers() noexcept {
     return ensure_event_hook_state().observers;
 }
 
-const core::EventSignal<RoutedEventFilterContext&>& UIElement::routed_event_observers() const noexcept {
-    static const auto empty = core::EventSignal<RoutedEventFilterContext&>{};
+const core::EventHandler<RoutedEventFilterContext&>& UIElement::routed_event_observers() const noexcept {
+    static const auto empty = core::EventHandler<RoutedEventFilterContext&>{};
     return event_hook_state_ != nullptr ? event_hook_state_->observers : empty;
 }
 
-core::EventSignal<>& UIElement::dismissed_event() noexcept {
+core::EventHandler<>& UIElement::dismissed_event() noexcept {
     return ensure_event_hook_state().dismissed;
 }
 
-const core::EventSignal<>& UIElement::dismissed_event() const noexcept {
-    static const auto empty = core::EventSignal<>{};
+const core::EventHandler<>& UIElement::dismissed_event() const noexcept {
+    static const auto empty = core::EventHandler<>{};
     return event_hook_state_ != nullptr ? event_hook_state_->dismissed : empty;
 }
 
@@ -5024,3 +5024,4 @@ const UIElement* UIElement::top_layer_pointer_target(layout::Point absolute_poin
 }
 
 } // namespace winelement::elements
+

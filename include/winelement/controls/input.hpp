@@ -51,9 +51,9 @@ class Input : public Control {
   public:
     using TextTransform = std::function<std::string(std::string_view)>;
     using GraphemeCountHandler = std::function<std::size_t(std::string_view)>;
-    using TextEventSignal = core::EventSignal<std::string_view>;
-    using VoidEventSignal = core::EventSignal<>;
-    using KeyEventSignal = core::EventSignal<const elements::KeyEvent&>;
+    using TextEventHandler = core::EventHandler<std::string_view>;
+    using VoidEventHandler = core::EventHandler<>;
+    using KeyEventHandler = core::EventHandler<const elements::KeyEvent&>;
 
     Input();
     ~Input() override;
@@ -93,17 +93,17 @@ class Input : public Control {
     Input& set_autosize_limits(std::size_t min_rows, std::size_t max_rows);
     Input& set_formatter(TextTransform formatter);
     Input& set_parser(TextTransform parser);
-    [[nodiscard]] TextEventSignal& input_changed() noexcept;
-    [[nodiscard]] TextEventSignal& change_committed() noexcept;
-    [[nodiscard]] VoidEventSignal& cleared() noexcept;
-    [[nodiscard]] VoidEventSignal& focus_received() noexcept;
-    [[nodiscard]] VoidEventSignal& focus_lost() noexcept;
-    [[nodiscard]] KeyEventSignal& key_down() noexcept;
-    [[nodiscard]] VoidEventSignal& mouse_entered() noexcept;
-    [[nodiscard]] VoidEventSignal& mouse_left() noexcept;
-    [[nodiscard]] VoidEventSignal& composition_started() noexcept;
-    [[nodiscard]] TextEventSignal& composition_updated() noexcept;
-    [[nodiscard]] TextEventSignal& composition_ended() noexcept;
+    [[nodiscard]] TextEventHandler& input_changed() noexcept;
+    [[nodiscard]] TextEventHandler& change_committed() noexcept;
+    [[nodiscard]] VoidEventHandler& cleared() noexcept;
+    [[nodiscard]] VoidEventHandler& focus_received() noexcept;
+    [[nodiscard]] VoidEventHandler& focus_lost() noexcept;
+    [[nodiscard]] KeyEventHandler& key_down() noexcept;
+    [[nodiscard]] VoidEventHandler& mouse_entered() noexcept;
+    [[nodiscard]] VoidEventHandler& mouse_left() noexcept;
+    [[nodiscard]] VoidEventHandler& composition_started() noexcept;
+    [[nodiscard]] TextEventHandler& composition_updated() noexcept;
+    [[nodiscard]] TextEventHandler& composition_ended() noexcept;
     Input& set_style(style::UIElementStyle style) override;
     Input& set_caret_byte_offset(std::size_t byte_offset);
     Input& set_selection(std::size_t anchor_byte_offset, std::size_t active_byte_offset);
@@ -364,3 +364,4 @@ class Input : public Control {
 };
 
 } // namespace winelement::controls
+

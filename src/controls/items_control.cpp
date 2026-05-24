@@ -200,9 +200,9 @@ void configure_items_layout(elements::UIElement& element) {
 } // namespace
 
 struct ItemsControl::EventState {
-    SelectionChangedEventSignal selection_changed;
-    MultiSelectionChangedEventSignal multi_selection_changed;
-    ReorderEventSignal reordered;
+    SelectionChangedEventHandler selection_changed;
+    MultiSelectionChangedEventHandler multi_selection_changed;
+    ReorderEventHandler reordered;
 };
 
 ItemsControl::ItemsControl() : Control() {
@@ -356,15 +356,15 @@ ItemsControl& ItemsControl::set_selected_indices(std::vector<std::size_t> indice
     return *this;
 }
 
-ItemsControl::SelectionChangedEventSignal& ItemsControl::selection_changed() noexcept {
+ItemsControl::SelectionChangedEventHandler& ItemsControl::selection_changed() noexcept {
     return ensure_event_state().selection_changed;
 }
 
-ItemsControl::MultiSelectionChangedEventSignal& ItemsControl::multi_selection_changed() noexcept {
+ItemsControl::MultiSelectionChangedEventHandler& ItemsControl::multi_selection_changed() noexcept {
     return ensure_event_state().multi_selection_changed;
 }
 
-ItemsControl::ReorderEventSignal& ItemsControl::reordered() noexcept {
+ItemsControl::ReorderEventHandler& ItemsControl::reordered() noexcept {
     return ensure_event_state().reordered;
 }
 
@@ -684,3 +684,4 @@ void ItemsControl::recycle_container(std::unique_ptr<elements::UIElement> contai
 }
 
 } // namespace winelement::controls
+

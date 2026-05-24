@@ -38,9 +38,9 @@ class Select : public Control {
   public:
     using FilterPredicate = std::function<bool(std::string_view, std::string_view)>;
     using LabelFormatter = std::function<std::string(const SelectOption&, std::size_t)>;
-    using ChangeEventSignal = core::EventSignal<std::optional<std::size_t>>;
-    using MultiChangeEventSignal = core::EventSignal<const std::vector<std::size_t>&>;
-    using RemoteSearchEventSignal = core::EventSignal<std::string_view>;
+    using ChangeEventHandler = core::EventHandler<std::optional<std::size_t>>;
+    using MultiChangeEventHandler = core::EventHandler<const std::vector<std::size_t>&>;
+    using RemoteSearchEventHandler = core::EventHandler<std::string_view>;
 
     Select();
     ~Select() override;
@@ -62,9 +62,9 @@ class Select : public Control {
     Select& set_label_formatter(LabelFormatter formatter);
     Select& set_loading(bool loading) noexcept;
     Select& set_size(SelectSize size);
-    [[nodiscard]] ChangeEventSignal& selection_changed() noexcept;
-    [[nodiscard]] MultiChangeEventSignal& multi_selection_changed() noexcept;
-    [[nodiscard]] RemoteSearchEventSignal& remote_search_requested() noexcept;
+    [[nodiscard]] ChangeEventHandler& selection_changed() noexcept;
+    [[nodiscard]] MultiChangeEventHandler& multi_selection_changed() noexcept;
+    [[nodiscard]] RemoteSearchEventHandler& remote_search_requested() noexcept;
     Select& set_style(style::UIElementStyle style) override;
     [[nodiscard]] const std::vector<SelectOption>& options() const noexcept;
     [[nodiscard]] const std::vector<SelectOptionGroup>& option_groups() const noexcept;
@@ -160,3 +160,4 @@ class Select : public Control {
 };
 
 } // namespace winelement::controls
+
