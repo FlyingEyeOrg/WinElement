@@ -11,11 +11,20 @@
 #include <winelement/rendering/render_types.hpp>
 
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 
+namespace winelement::platform {
+class Window;
+}
+
 namespace winelement::controls {
+
+namespace detail {
+class DialogWindowImpl;
+}
 
 enum class MessageType { Primary, Success, Warning, Info, Error };
 
@@ -268,6 +277,56 @@ struct DialogOptions {
     float width = 520.0F;
     float height = 0.0F;
     std::function<void(DialogAction)> on_action;
+};
+
+struct DialogWindowOptions {
+    std::string title = "Dialog";
+    std::string body;
+    std::string confirm_button_text = "Confirm";
+    std::string cancel_button_text = "Cancel";
+    bool show_cancel_button = true;
+    bool modal = true;
+    bool close_on_confirm = true;
+    int width = 520;
+    int height = 0;
+    platform::Window* owner = nullptr;
+    std::function<void(DialogAction)> on_action;
+};
+
+class DialogWindow final {
+  public:
+    using ActionHandler = std::function<void(DialogAction)>;
+
+    DialogWindow();
+    ~DialogWindow();
+
+    DialogWindow(const DialogWindow&) = delete;
+    DialogWindow& operator=(const DialogWindow&) = delete;
+    DialogWindow(DialogWindow&&) noexcept;
+    DialogWindow& operator=(DialogWindow&&) noexcept;
+
+    DialogWindow& set_title(std::string_view title);
+    DialogWindow& set_body(std::string_view body);
+    DialogWindow& set_confirm_button_text(std::string_view text);
+    DialogWindow& set_cancel_button_text(std::string_view text);
+    DialogWindow& set_show_cancel_button(bool show_cancel_button);
+    DialogWindow& set_close_on_confirm(bool close_on_confirm) noexcept;
+    DialogWindow& set_modal(bool modal) noexcept;
+    DialogWindow& set_window_size(int width, int height = 0) noexcept;
+    DialogWindow& set_owner(platform::Window* owner) noexcept;
+    DialogWindow& set_on_action(ActionHandler handler);
+    [[nodiscard]] const std::string& title() const noexcept;
+    [[nodiscard]] const std::string& body() const noexcept;
+    [[nodiscard]] bool show_cancel_button() const noexcept;
+    [[nodiscard]] bool modal() const noexcept;
+    [[nodiscard]] bool is_open() const noexcept;
+
+    void show();
+    [[nodiscard]] DialogAction show_modal();
+    void close();
+
+  private:
+    std::unique_ptr<detail::DialogWindowImpl> impl_;
 };
 
 class Dialog final : public Control {

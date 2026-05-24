@@ -1,6 +1,7 @@
 #include <winelement/controls/feedback.hpp>
 
 #include <winelement/elements/all_icons.hpp>
+#include <winelement/platform/window.hpp>
 #include <winelement/rendering/render_context.hpp>
 #include <winelement/style/ui_element_style.hpp>
 
@@ -10,6 +11,19 @@
 #include <limits>
 #include <stdexcept>
 #include <utility>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#ifdef MessageBox
+#undef MessageBox
+#endif
+#endif
 
 namespace winelement::controls {
 namespace {
@@ -205,6 +219,48 @@ void apply_entry_animation(elements::UIElement& element, float progress, float y
     const auto height = dialog_padding * 2.0F + dialog_header_min_height + dialog_header_body_gap +
                         body_height + 16.0F + 32.0F;
     return std::min(std::max(std::ceil(height), 128.0F), std::max(viewport.height - 48.0F, 128.0F));
+}
+
+[[nodiscard]] int dialog_window_client_height_for(const DialogWindowOptions& options,
+                                                  float width) noexcept {
+    if (options.height > 0) {
+        return std::max(options.height, 120);
+    }
+
+    const auto content_width = std::max(120.0F, width - dialog_padding * 2.0F);
+    const auto estimated_chars_per_line =
+        std::max(12.0F, std::floor(content_width / (14.0F * 0.52F)));
+    const auto line_count = options.body.empty()
+                                ? 1.0F
+                                : std::clamp(std::ceil(static_cast<float>(options.body.size()) /
+                                                       estimated_chars_per_line),
+                                             1.0F, 14.0F);
+    const auto body_height = std::max(22.0F, line_count * 22.0F);
+    const auto height = dialog_padding * 2.0F + body_height + 16.0F + 32.0F;
+    return static_cast<int>(std::max(std::ceil(height), 120.0F));
+}
+
+[[nodiscard]] std::wstring utf8_to_wide(std::string_view value) {
+    if (value.empty()) {
+        return {};
+    }
+#ifdef _WIN32
+    if (value.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+        return {};
+    }
+
+    const auto byte_count = static_cast<int>(value.size());
+    const auto char_count = MultiByteToWideChar(CP_UTF8, 0, value.data(), byte_count, nullptr, 0);
+    if (char_count <= 0) {
+        return {};
+    }
+
+    std::wstring text(static_cast<std::size_t>(char_count), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, value.data(), byte_count, text.data(), char_count);
+    return text;
+#else
+    return std::wstring(value.begin(), value.end());
+#endif
 }
 
 void set_text_alignment(Text& text, rendering::TextAlignment alignment) {
@@ -1452,6 +1508,362 @@ void Loading::restart_open_animation() noexcept {
 
 void Loading::apply_open_animation() noexcept {
     apply_entry_animation(*this, open_progress_.value(), -8.0F);
+}
+
+namespace detail {
+
+class DialogWindowImpl final {
+  public:
+    DialogWindowImpl() = default;
+
+    DialogWindowImpl& set_title(std::string_view title) {
+        if (title_ == title) {
+            return *this;
+        }
+        title_ = std::string(title);
+        if (window_ != nullptr) {
+            window_->set_title(utf8_to_wide(title_));
+        }
+        return *this;
+    }
+
+    DialogWindowImpl& set_body(std::string_view body) {
+        if (body_ == body) {
+            return *this;
+        }
+        body_ = std::string(body);
+        if (body_label_ != nullptr) {
+            body_label_->set_text(body_);
+        }
+        return *this;
+    }
+
+    DialogWindowImpl& set_confirm_button_text(std::string_view text) {
+        confirm_button_text_ = std::string(text);
+        if (confirm_button_ != nullptr) {
+            confirm_button_->set_text(confirm_button_text_);
+        }
+        return *this;
+    }
+
+    DialogWindowImpl& set_cancel_button_text(std::string_view text) {
+        cancel_button_text_ = std::string(text);
+        if (cancel_button_ != nullptr) {
+            cancel_button_->set_text(cancel_button_text_);
+        }
+        return *this;
+    }
+
+    DialogWindowImpl& set_show_cancel_button(bool show_cancel_button) {
+        show_cancel_button_ = show_cancel_button;
+        if (cancel_button_ != nullptr) {
+            cancel_button_->set_visible(show_cancel_button_);
+        }
+        return *this;
+    }
+
+    DialogWindowImpl& set_close_on_confirm(bool close_on_confirm) noexcept {
+        close_on_confirm_ = close_on_confirm;
+        return *this;
+    }
+
+    DialogWindowImpl& set_modal(bool modal) noexcept {
+        modal_ = modal;
+        return *this;
+    }
+
+    DialogWindowImpl& set_window_size(int width, int height) noexcept {
+        width_ = std::max(width, 360);
+        height_ = std::max(height, 0);
+        return *this;
+    }
+
+    DialogWindowImpl& set_owner(platform::Window* owner) noexcept {
+        owner_ = owner;
+        return *this;
+    }
+
+    DialogWindowImpl& set_on_action(DialogWindow::ActionHandler handler) {
+        action_handler_ = std::move(handler);
+        return *this;
+    }
+
+    [[nodiscard]] const std::string& title() const noexcept {
+        return title_;
+    }
+
+    [[nodiscard]] const std::string& body() const noexcept {
+        return body_;
+    }
+
+    [[nodiscard]] bool show_cancel_button() const noexcept {
+        return show_cancel_button_;
+    }
+
+    [[nodiscard]] bool modal() const noexcept {
+        return modal_;
+    }
+
+    [[nodiscard]] bool is_open() const noexcept {
+        return window_ != nullptr && window_->is_open();
+    }
+
+    void show() {
+        ensure_window(modal_);
+        if (window_ != nullptr) {
+            window_->show();
+        }
+    }
+
+    [[nodiscard]] DialogAction show_modal() {
+        ensure_window(true);
+        last_action_ = DialogAction::Close;
+        if (window_ != nullptr) {
+            static_cast<void>(window_->show_modal());
+            if (!window_->is_open()) {
+                window_.reset();
+            }
+        }
+        return last_action_;
+    }
+
+    void close() {
+        if (window_ != nullptr) {
+            window_->close();
+            if (!window_->is_open()) {
+                window_.reset();
+            }
+        }
+    }
+
+  private:
+    void ensure_window(bool modal) {
+        if (window_ != nullptr && !window_->is_open()) {
+            window_.reset();
+        }
+        if (window_ != nullptr && window_->is_open()) {
+            return;
+        }
+
+        body_label_ = nullptr;
+        confirm_button_ = nullptr;
+        cancel_button_ = nullptr;
+        pending_action_.reset();
+        last_action_ = DialogAction::Close;
+
+        DialogWindowOptions options;
+        options.title = title_;
+        options.body = body_;
+        options.confirm_button_text = confirm_button_text_;
+        options.cancel_button_text = cancel_button_text_;
+        options.show_cancel_button = show_cancel_button_;
+        options.modal = modal;
+        options.close_on_confirm = close_on_confirm_;
+        options.width = width_;
+        options.height = height_;
+        options.owner = owner_;
+        options.on_action = action_handler_;
+
+        platform::WindowOptions window_options;
+        window_options.title = utf8_to_wide(options.title);
+        window_options.width = std::max(options.width, 360);
+        window_options.height = dialog_window_client_height_for(options, static_cast<float>(window_options.width));
+        window_options.owner = options.owner;
+        window_options.modal = options.modal;
+        window_options.center_on_owner = true;
+        window_options.on_closed = [this]() { handle_window_closed(); };
+
+        window_ = std::make_unique<platform::Window>(std::move(window_options));
+        window_->set_content(build_content_tree());
+    }
+
+    [[nodiscard]] std::unique_ptr<elements::UIElement> build_content_tree() {
+        auto root = std::make_unique<StackPanel>();
+        root->set_theme_class("wm.dialog-window")
+            .set_background(rendering::Color::rgba(255, 255, 255))
+            .set_border(rendering::Color::rgba(235, 238, 245), 1.0F);
+        root->configure_layout([](layout::LayoutElement& item) {
+            item.set_size(layout::Length::percent(100.0F), layout::Length::percent(100.0F))
+                .set_flex_direction(layout::FlexDirection::Column)
+                .set_padding(layout::Edge::All, layout::Length::points(dialog_padding));
+        });
+
+        auto& body = root->append_new_child<Text>();
+        body.set_font_size(14.0F)
+            .set_color(rendering::Color::rgba(96, 98, 102))
+            .set_max_lines(14U)
+            .set_text(body_);
+        body.configure_layout([](layout::LayoutElement& item) {
+            item.set_width(layout::Length::percent(100.0F))
+                .set_flex_grow(1.0F)
+                .set_flex_shrink(1.0F);
+        });
+        body_label_ = &body;
+
+        auto& footer = root->append_new_child<StackPanel>();
+        footer.set_orientation(Orientation::Horizontal)
+            .set_wrap(layout::Wrap::Wrap)
+            .set_gap(10.0F)
+            .set_justify_content(layout::JustifyContent::FlexEnd)
+            .set_align_items(layout::Align::Center);
+        footer.configure_layout([](layout::LayoutElement& item) {
+            item.set_width(layout::Length::percent(100.0F))
+                .set_margin(layout::Edge::Top, layout::Length::points(16.0F))
+                .set_flex_shrink(0.0F);
+        });
+
+        auto& cancel = footer.append_new_child<Button>();
+        configure_footer_button(cancel, cancel_button_text_, ButtonType::Default);
+        cancel.set_visible(show_cancel_button_);
+        cancel.set_on_click([this]() { close_with_action(DialogAction::Cancel); });
+        cancel_button_ = &cancel;
+
+        auto& confirm = footer.append_new_child<Button>();
+        configure_footer_button(confirm, confirm_button_text_, ButtonType::Primary);
+        confirm.set_on_click([this]() { close_with_action(DialogAction::Confirm); });
+        confirm_button_ = &confirm;
+
+        return root;
+    }
+
+    void close_with_action(DialogAction action) {
+        if (action == DialogAction::Confirm && !close_on_confirm_) {
+            last_action_ = action;
+            if (action_handler_) {
+                action_handler_(action);
+            }
+            return;
+        }
+
+        pending_action_ = action;
+        last_action_ = action;
+        if (window_ != nullptr) {
+            window_->close();
+        }
+    }
+
+    void handle_window_closed() {
+        const auto action = pending_action_.value_or(DialogAction::Close);
+        pending_action_.reset();
+        last_action_ = action;
+        body_label_ = nullptr;
+        confirm_button_ = nullptr;
+        cancel_button_ = nullptr;
+        auto handler = action_handler_;
+        if (handler) {
+            handler(action);
+        }
+    }
+
+    std::unique_ptr<platform::Window> window_;
+    Text* body_label_ = nullptr;
+    Button* confirm_button_ = nullptr;
+    Button* cancel_button_ = nullptr;
+    DialogWindow::ActionHandler action_handler_;
+    std::string title_ = "Dialog";
+    std::string body_;
+    std::string confirm_button_text_ = "Confirm";
+    std::string cancel_button_text_ = "Cancel";
+    bool show_cancel_button_ = true;
+    bool close_on_confirm_ = true;
+    bool modal_ = true;
+    int width_ = 520;
+    int height_ = 0;
+    platform::Window* owner_ = nullptr;
+    std::optional<DialogAction> pending_action_;
+    DialogAction last_action_ = DialogAction::Close;
+};
+
+} // namespace detail
+
+DialogWindow::DialogWindow() : impl_(std::make_unique<detail::DialogWindowImpl>()) {}
+
+DialogWindow::~DialogWindow() = default;
+
+DialogWindow::DialogWindow(DialogWindow&&) noexcept = default;
+
+DialogWindow& DialogWindow::operator=(DialogWindow&&) noexcept = default;
+
+DialogWindow& DialogWindow::set_title(std::string_view title) {
+    impl_->set_title(title);
+    return *this;
+}
+
+DialogWindow& DialogWindow::set_body(std::string_view body) {
+    impl_->set_body(body);
+    return *this;
+}
+
+DialogWindow& DialogWindow::set_confirm_button_text(std::string_view text) {
+    impl_->set_confirm_button_text(text);
+    return *this;
+}
+
+DialogWindow& DialogWindow::set_cancel_button_text(std::string_view text) {
+    impl_->set_cancel_button_text(text);
+    return *this;
+}
+
+DialogWindow& DialogWindow::set_show_cancel_button(bool show_cancel_button) {
+    impl_->set_show_cancel_button(show_cancel_button);
+    return *this;
+}
+
+DialogWindow& DialogWindow::set_close_on_confirm(bool close_on_confirm) noexcept {
+    impl_->set_close_on_confirm(close_on_confirm);
+    return *this;
+}
+
+DialogWindow& DialogWindow::set_modal(bool modal) noexcept {
+    impl_->set_modal(modal);
+    return *this;
+}
+
+DialogWindow& DialogWindow::set_window_size(int width, int height) noexcept {
+    impl_->set_window_size(width, height);
+    return *this;
+}
+
+DialogWindow& DialogWindow::set_owner(platform::Window* owner) noexcept {
+    impl_->set_owner(owner);
+    return *this;
+}
+
+DialogWindow& DialogWindow::set_on_action(ActionHandler handler) {
+    impl_->set_on_action(std::move(handler));
+    return *this;
+}
+
+const std::string& DialogWindow::title() const noexcept {
+    return impl_->title();
+}
+
+const std::string& DialogWindow::body() const noexcept {
+    return impl_->body();
+}
+
+bool DialogWindow::show_cancel_button() const noexcept {
+    return impl_->show_cancel_button();
+}
+
+bool DialogWindow::modal() const noexcept {
+    return impl_->modal();
+}
+
+bool DialogWindow::is_open() const noexcept {
+    return impl_->is_open();
+}
+
+void DialogWindow::show() {
+    impl_->show();
+}
+
+DialogAction DialogWindow::show_modal() {
+    return impl_->show_modal();
+}
+
+void DialogWindow::close() {
+    impl_->close();
 }
 
 Dialog::Dialog() : Control() {

@@ -1296,8 +1296,18 @@ void add_image_section(controls::StackPanel& root) {
                      layout::Size{220.0F, 140.0F}, std::nullopt, 0.5F, 0.5F, 0.56F);
 }
 
-void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedback_host) {
+void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedback_host,
+                          platform::Window* host_window = nullptr) {
     auto& section = add_section(root, "Feedback components");
+    auto dialog_windows = std::make_shared<std::vector<std::shared_ptr<controls::DialogWindow>>>();
+    auto prune_dialog_windows = [dialog_windows]() {
+        dialog_windows->erase(
+            std::remove_if(dialog_windows->begin(), dialog_windows->end(),
+                           [](const std::shared_ptr<controls::DialogWindow>& dialog) {
+                               return dialog == nullptr || !dialog->is_open();
+                           }),
+            dialog_windows->end());
+    };
 
     auto& messages = add_demo_group(section, "Message");
     auto& message_row = messages.append_new_child<controls::StackPanel>();
@@ -1576,6 +1586,73 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
                                 .draggable = true,
                                 .width = 460.0F});
                     }});
+        });
+
+    auto& dialog_windows_group = add_demo_group(section, "DialogWindow");
+    auto& dialog_window_row = dialog_windows_group.append_new_child<controls::StackPanel>();
+    configure_row(dialog_window_row);
+    add_button(dialog_window_row, "Modal window", controls::ButtonType::Primary)
+        .set_on_click([&feedback_host, host_window]() {
+            controls::DialogWindow dialog;
+            dialog.set_title("DialogWindow")
+                .set_body("Independent Win32 window with native title bar and Element Plus "
+                          "style dialog body and footer actions.")
+                .set_show_cancel_button(true)
+                .set_modal(true)
+                .set_owner(host_window)
+                .set_on_action([&feedback_host](controls::DialogAction action) {
+                    controls::Message::show(feedback_host,
+                                            controls::MessageOptions{
+                                                .text = "DialogWindow " +
+                                                        dialog_action_label(action),
+                                                .type = controls::MessageType::Primary,
+                                                .show_close = true});
+                });
+            static_cast<void>(dialog.show_modal());
+        });
+    add_button(dialog_window_row, "Non-modal window", controls::ButtonType::Info)
+        .set_on_click([&feedback_host, host_window, dialog_windows, prune_dialog_windows]() {
+            prune_dialog_windows();
+            auto dialog = std::make_shared<controls::DialogWindow>();
+            dialog->set_title("Non-modal DialogWindow")
+                .set_body("This is a standalone Win32 window. Its title lives in the native "
+                          "caption bar, while the body and footer stay aligned with the "
+                          "Element Plus dialog rhythm.")
+                .set_show_cancel_button(true)
+                .set_modal(false)
+                .set_owner(host_window)
+                .set_on_action([&feedback_host](controls::DialogAction action) {
+                    controls::Message::show(
+                        feedback_host,
+                        controls::MessageOptions{
+                            .text = "DialogWindow " + dialog_action_label(action),
+                            .type = controls::MessageType::Info,
+                            .show_close = true});
+                });
+            dialog->show();
+            dialog_windows->push_back(std::move(dialog));
+        });
+    add_button(dialog_window_row, "Large content", controls::ButtonType::Success)
+        .set_on_click([&feedback_host, host_window, dialog_windows, prune_dialog_windows]() {
+            prune_dialog_windows();
+            auto dialog = std::make_shared<controls::DialogWindow>();
+            dialog->set_title("Large content window")
+                .set_body(long_feedback_copy("DialogWindow") + " " +
+                          long_feedback_copy("DialogWindow"))
+                .set_show_cancel_button(true)
+                .set_modal(false)
+                .set_window_size(640, 320)
+                .set_owner(host_window)
+                .set_on_action([&feedback_host](controls::DialogAction action) {
+                    controls::Message::show(
+                        feedback_host,
+                        controls::MessageOptions{
+                            .text = "DialogWindow " + dialog_action_label(action),
+                            .type = controls::MessageType::Success,
+                            .show_close = true});
+                });
+            dialog->show();
+            dialog_windows->push_back(std::move(dialog));
         });
 
     auto& loading_group = add_demo_group(section, "Loading");
@@ -1897,7 +1974,8 @@ controls::Text& append_showcase_title(elements::UIElement& root) {
 }
 
 void add_showcase_section(ShowcaseSectionId section, controls::StackPanel& root,
-                          elements::UIElement& feedback_host) {
+                          elements::UIElement& feedback_host,
+                          platform::Window* host_window = nullptr) {
     switch (section) {
     case ShowcaseSectionId::Buttons:
         add_button_section(root);
@@ -1915,7 +1993,7 @@ void add_showcase_section(ShowcaseSectionId section, controls::StackPanel& root,
         add_image_section(root);
         return;
     case ShowcaseSectionId::Feedback:
-        add_feedback_section(root, feedback_host);
+        add_feedback_section(root, feedback_host, host_window);
         return;
     case ShowcaseSectionId::Animations:
         add_animation_section(root);
@@ -1938,7 +2016,7 @@ void add_showcase_section(ShowcaseSectionId section, controls::StackPanel& root,
     scratch.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F)).set_flex_shrink(0.0F);
     });
-    add_showcase_section(section, scratch, feedback_host);
+    add_showcase_section(section, scratch, feedback_host, nullptr);
     scratch.bind_layout_tree(engine);
     scratch.calculate_layout(
         layout::LayoutConstraints{.width = showcase_section_measure_width(viewport_width)});
@@ -1978,17 +2056,8 @@ void compact_showcase_measurement_heap() noexcept {
 }
 
 [[nodiscard]] std::unique_ptr<controls::StackPanel>
-build_showcase_section_payload(ShowcaseSectionId section, elements::UIElement& feedback_host) {
-    auto payload = std::make_unique<controls::StackPanel>();
-    payload->configure_layout([](layout::LayoutElement& item) {
-        item.set_width(layout::Length::percent(100.0F)).set_flex_shrink(0.0F);
-    });
-    add_showcase_section(section, *payload, feedback_host);
-    return payload;
-}
-
-[[nodiscard]] std::unique_ptr<controls::StackPanel>
-build_showcase_content(elements::UIElement& feedback_host, float viewport_width) {
+build_showcase_content(elements::UIElement& feedback_host, float viewport_width,
+                       platform::Window* host_window = nullptr) {
     auto root = std::make_unique<controls::StackPanel>();
     configure_showcase_content_stack(*root);
     append_showcase_title(*root);
@@ -2004,8 +2073,14 @@ build_showcase_content(elements::UIElement& feedback_host, float viewport_width)
                 .set_flex_shrink(0.0F);
         });
         slot.set_virtualization_materializer(
-            [section, feedback_host_ptr = &feedback_host](const elements::ElementSnapshot&) {
-                return build_showcase_section_payload(section, *feedback_host_ptr);
+            [section, feedback_host_ptr = &feedback_host,
+             host_window](const elements::ElementSnapshot&) {
+                auto payload = std::make_unique<controls::StackPanel>();
+                payload->configure_layout([](layout::LayoutElement& item) {
+                    item.set_width(layout::Length::percent(100.0F)).set_flex_shrink(0.0F);
+                });
+                add_showcase_section(section, *payload, *feedback_host_ptr, host_window);
+                return payload;
             });
     }
     return root;
@@ -2014,7 +2089,7 @@ build_showcase_content(elements::UIElement& feedback_host, float viewport_width)
 [[nodiscard]] float measure_showcase_content_height(float viewport_width) {
     auto engine = layout::LayoutEngine{};
     auto feedback_host = controls::Panel{};
-    auto content = build_showcase_content(feedback_host, viewport_width);
+    auto content = build_showcase_content(feedback_host, viewport_width, nullptr);
     content->bind_layout_tree(engine);
     content->calculate_layout(layout::LayoutConstraints{.width = std::max(viewport_width, 1.0F)});
     return std::max(content->frame().height, 0.0F);
@@ -2042,13 +2117,14 @@ build_showcase_content(elements::UIElement& feedback_host, float viewport_width)
     add_choice_scroll_section(*root);
     add_structure_text_path_section(*root);
     add_image_section(*root);
-    add_feedback_section(*root, *root);
+    add_feedback_section(*root, *root, nullptr);
     add_animation_section(*root);
     return root;
 }
 
 [[nodiscard]] ShowcaseWindowTree
-build_showcase_window_tree(float viewport_width_hint = showcase_window_viewport_width()) {
+build_showcase_window_tree(float viewport_width_hint = showcase_window_viewport_width(),
+                           platform::Window* host_window = nullptr) {
     ShowcaseWindowTree tree;
 
     auto root = std::make_unique<controls::Panel>();
@@ -2077,7 +2153,7 @@ build_showcase_window_tree(float viewport_width_hint = showcase_window_viewport_
             .set_flex_shrink(1.0F)
             .set_min_width(layout::Length::points(0.0F));
     });
-    auto virtual_content = build_showcase_content(*root, viewport_width_hint);
+    auto virtual_content = build_showcase_content(*root, viewport_width_hint, host_window);
     auto* virtual_content_ptr = virtual_content.get();
     viewport.append_child(std::move(virtual_content));
 
@@ -2406,7 +2482,7 @@ int run_window_showcase() {
     platform::Window window(platform::WindowOptions{
         .title = L"WinElement Controls Showcase", .width = 1320, .height = 920});
     upload_showcase_resources(window);
-    auto tree = build_showcase_window_tree();
+    auto tree = build_showcase_window_tree(showcase_window_viewport_width(), &window);
     window.set_content(std::move(tree.root));
     if (auto* content = window.content()) {
         calculate_showcase_window_layout(*content, tree, showcase_window_width,

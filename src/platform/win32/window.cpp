@@ -38,6 +38,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -476,6 +477,54 @@ class WindowRenderCache final {
     return wide_text_to_utf8(std::wstring_view{buffer.data(), buffer.size()});
 }
 
+struct ModalOwnerState {
+    std::size_t depth = 0U;
+    bool restore_enabled = false;
+};
+
+std::mutex modal_owner_mutex;
+std::unordered_map<HWND, ModalOwnerState> modal_owner_states;
+
+void acquire_modal_owner(HWND owner_hwnd) noexcept {
+    if (owner_hwnd == nullptr || IsWindow(owner_hwnd) == FALSE) {
+        return;
+    }
+
+    const std::lock_guard lock(modal_owner_mutex);
+    auto& state = modal_owner_states[owner_hwnd];
+    if (state.depth == 0U) {
+        state.restore_enabled = IsWindowEnabled(owner_hwnd) != FALSE;
+        if (state.restore_enabled) {
+            EnableWindow(owner_hwnd, FALSE);
+        }
+    }
+    ++state.depth;
+}
+
+void release_modal_owner(HWND owner_hwnd) noexcept {
+    if (owner_hwnd == nullptr) {
+        return;
+    }
+
+    const std::lock_guard lock(modal_owner_mutex);
+    const auto it = modal_owner_states.find(owner_hwnd);
+    if (it == modal_owner_states.end()) {
+        return;
+    }
+
+    if (it->second.depth > 0U) {
+        --it->second.depth;
+    }
+    if (it->second.depth == 0U) {
+        const auto restore_enabled = it->second.restore_enabled;
+        modal_owner_states.erase(it);
+        if (restore_enabled && IsWindow(owner_hwnd) != FALSE) {
+            EnableWindow(owner_hwnd, TRUE);
+            SetActiveWindow(owner_hwnd);
+        }
+    }
+}
+
 } // namespace
 
 class Window::Impl final {
@@ -549,12 +598,37 @@ class Window::Impl final {
         return content_.get();
     }
 
+    void set_title(std::wstring_view title) {
+        options_.title.assign(title);
+        if (hwnd_ != nullptr) {
+            SetWindowTextW(hwnd_, options_.title.c_str());
+        }
+    }
+
     void show() {
         if (hwnd_ != nullptr) {
             ensure_render_worker();
+            if (options_.modal && !modal_owner_acquired_) {
+                acquire_modal_owner(owner_hwnd_);
+                modal_owner_acquired_ = owner_hwnd_ != nullptr;
+            }
             ShowWindow(hwnd_, SW_SHOWNORMAL);
             UpdateWindow(hwnd_);
         }
+    }
+
+    int show_modal() {
+        show();
+        MSG message{};
+        while (hwnd_ != nullptr && IsWindow(hwnd_) != FALSE) {
+            const auto result = GetMessageW(&message, nullptr, 0, 0);
+            if (result <= 0) {
+                return static_cast<int>(message.wParam);
+            }
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+        return 0;
     }
 
     void close() noexcept {
@@ -1115,10 +1189,27 @@ class Window::Impl final {
 
         const auto extended_style =
             options_.use_no_redirection_bitmap ? WS_EX_NOREDIRECTIONBITMAP : DWORD{0};
+        owner_hwnd_ = options_.owner != nullptr && options_.owner->impl_ != nullptr
+                          ? options_.owner->impl_->async_hwnd_.load(std::memory_order_acquire)
+                          : nullptr;
+
+        auto x = CW_USEDEFAULT;
+        auto y = CW_USEDEFAULT;
+        if (owner_hwnd_ != nullptr && options_.center_on_owner) {
+            RECT owner_rect{};
+            if (GetWindowRect(owner_hwnd_, &owner_rect) != FALSE) {
+                const auto width = rect.right - rect.left;
+                const auto height = rect.bottom - rect.top;
+                x = owner_rect.left +
+                    std::max<LONG>((owner_rect.right - owner_rect.left - width) / 2, 0L);
+                y = owner_rect.top +
+                    std::max<LONG>((owner_rect.bottom - owner_rect.top - height) / 2, 0L);
+            }
+        }
 
         hwnd_ = CreateWindowExW(extended_style, class_name, options_.title.c_str(),
-                                WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-                                rect.right - rect.left, rect.bottom - rect.top, nullptr, nullptr,
+                                WS_OVERLAPPEDWINDOW, x, y, rect.right - rect.left,
+                                rect.bottom - rect.top, owner_hwnd_, nullptr,
                                 GetModuleHandleW(nullptr), this);
         if (hwnd_ == nullptr) {
             throw make_win32_error("failed to create WinElement window");
@@ -1150,12 +1241,19 @@ class Window::Impl final {
 
     void on_native_destroyed(HWND hwnd) noexcept {
         on_destroy();
+        if (modal_owner_acquired_) {
+            release_modal_owner(owner_hwnd_);
+            modal_owner_acquired_ = false;
+        }
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
         hwnd_ = nullptr;
         async_hwnd_.store(nullptr, std::memory_order_release);
         if (counted_as_live_window_) {
             counted_as_live_window_ = false;
             dispatcher_->unregister_window(hwnd);
+        }
+        if (options_.on_closed) {
+            options_.on_closed();
         }
     }
 
@@ -1666,6 +1764,7 @@ class Window::Impl final {
     WindowOptions options_;
     HWND hwnd_ = nullptr;
     std::atomic<HWND> async_hwnd_ = nullptr;
+    HWND owner_hwnd_ = nullptr;
     float dpi_ = default_dpi;
     layout::Point last_pointer_position_{};
     elements::PointerCursor native_cursor_ = elements::PointerCursor::Arrow;
@@ -1695,6 +1794,7 @@ class Window::Impl final {
     TimePeriodProc time_end_period_ = nullptr;
     bool animation_timer_resolution_active_ = false;
     bool interactive_resize_ = false;
+    bool modal_owner_acquired_ = false;
     WindowImeState ime_state_{};
     wchar_t pending_high_surrogate_ = 0;
     bool native_menu_target_invalidated_ = false;
@@ -1729,8 +1829,16 @@ const elements::UIElement* Window::content() const noexcept {
     return impl_->content();
 }
 
+void Window::set_title(std::wstring_view title) {
+    impl_->set_title(title);
+}
+
 void Window::show() {
     impl_->show();
+}
+
+int Window::show_modal() {
+    return impl_->show_modal();
 }
 
 void Window::close() noexcept {

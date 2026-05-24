@@ -30,6 +30,7 @@ target_link_libraries(winelement_controls
     PUBLIC
         WinElement::animation
         WinElement::elements
+        WinElement::platform
         WinElement::rendering
         WinElement::style
 )

@@ -15,6 +15,16 @@
 #include <utility>
 #include <vector>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 namespace {
 
 using namespace winelement;
@@ -102,6 +112,36 @@ TEST(WindowTests, BindsDetachedContentTreeWithoutExplicitEngine) {
     EXPECT_EQ(&window.content()->child_at(0), child_ptr);
 
     window.close();
+}
+
+TEST(WindowTests, ModalWindowDisablesOwnerUntilClose) {
+#ifdef _WIN32
+    const auto owner_title = std::wstring{L"WinElement Modal Owner"};
+    const auto dialog_title = std::wstring{L"WinElement Modal Child"};
+    platform::Window owner(
+        platform::WindowOptions{.title = owner_title, .width = 360, .height = 240});
+    platform::Window dialog(platform::WindowOptions{.title = dialog_title,
+                                                    .width = 320,
+                                                    .height = 180,
+                                                    .owner = &owner,
+                                                    .modal = true});
+
+    owner.show();
+    dialog.show();
+
+    auto* owner_hwnd = FindWindowW(L"WinElementWindow", owner_title.c_str());
+    auto* dialog_hwnd = FindWindowW(L"WinElementWindow", dialog_title.c_str());
+    ASSERT_NE(owner_hwnd, nullptr);
+    ASSERT_NE(dialog_hwnd, nullptr);
+    EXPECT_FALSE(IsWindowEnabled(owner_hwnd));
+
+    dialog.close();
+    EXPECT_TRUE(IsWindowEnabled(owner_hwnd));
+
+    owner.close();
+#else
+    GTEST_SKIP() << "Modal owner test is only available on Win32.";
+#endif
 }
 
 TEST(WindowTests, MessageLoopReturnsWhenNoWindowsAreLive) {
