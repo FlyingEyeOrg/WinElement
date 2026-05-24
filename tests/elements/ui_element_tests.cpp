@@ -825,6 +825,48 @@ TEST(UIElementTests, BaseElementMirrorsLayoutStyleFieldsIntoYogaNode) {
     EXPECT_FLOAT_EQ(child_ref.frame().height, 24.0F);
 }
 
+TEST(UIElementTests, ConvenienceApiConfiguresLayoutStyleScrollAndVirtualization) {
+    auto engine = create_unrounded_engine();
+    UIElement root;
+    root.bind_layout_tree(engine);
+    root.set_layout_size(120.0F, 40.0F)
+        .set_padding(4.0F, 2.0F, 6.0F, 8.0F)
+        .set_margin(1.0F)
+        .set_border(Color::rgba(64, 158, 255))
+        .set_corner_radius(6.0F)
+        .set_overflow(Overflow::Hidden)
+        .set_virtualization_overscan(0.0F);
+
+    EXPECT_EQ(root.padding(), (EdgeInsets{4.0F, 2.0F, 6.0F, 8.0F}));
+    EXPECT_EQ(root.margin(), (EdgeInsets{1.0F, 1.0F, 1.0F, 1.0F}));
+    EXPECT_FLOAT_EQ(root.border_width(), 1.0F);
+    EXPECT_EQ(root.corner_radius(), CornerRadius::uniform(6.0F));
+    EXPECT_FLOAT_EQ(root.subtree_virtualization_overscan(), 0.0F);
+
+    auto& child = root.append_new_child<UIElement>();
+    child.set_width(100.0F)
+        .set_height(120.0F)
+        .set_flex_shrink(0.0F)
+        .set_layout_margin(Edge::Top, 3.0F)
+        .set_layout_padding(Edge::Horizontal, 5.0F);
+
+    root.calculate_layout(LayoutConstraints{.width = 120.0F, .height = 40.0F});
+    EXPECT_FLOAT_EQ(root.frame().width, 120.0F);
+    EXPECT_FLOAT_EQ(root.frame().height, 40.0F);
+    EXPECT_FLOAT_EQ(child.frame().width, 100.0F);
+    EXPECT_GT(root.max_scroll_offset().y, 0.0F);
+
+    root.scroll_to_bottom();
+    EXPECT_FLOAT_EQ(root.scroll_offset().y, root.max_scroll_offset().y);
+    root.scroll_to_top().scroll_by(0.0F, 10.0F);
+    EXPECT_FLOAT_EQ(root.scroll_offset().y, 10.0F);
+
+    root.disable_subtree_virtualization();
+    EXPECT_FALSE(root.subtree_virtualization_enabled());
+    root.enable_subtree_virtualization();
+    EXPECT_TRUE(root.subtree_virtualization_enabled());
+}
+
 TEST(UIElementTests, BaseElementViewportOffsetsChildrenAndClipsHitTesting) {
     auto engine = create_unrounded_engine();
     UIElement container;
@@ -1126,20 +1168,21 @@ TEST(UIElementTests, VirtualChildrenRealizeOnlyVisibleWindowAndKeepExtent) {
     content.configure_layout([](LayoutElement& layout) {
         layout.set_flex_direction(FlexDirection::Column);
     });
-    content.set_virtual_children(UIElement::VirtualChildrenOptions{
-        .count = 100U,
-        .item_extent = 10.0F,
-        .orientation = UIElement::VirtualChildrenOrientation::Vertical,
-        .overscan_extent = 0.0F,
-        .materializer =
-            [](std::size_t index) {
-                auto child = std::make_unique<UIElement>();
-                child->set_text("Item #" + std::to_string(index));
-                return child;
-            }});
+    content.set_vertical_virtual_children(
+        100U, 10.0F,
+        [](std::size_t index) {
+            auto child = std::make_unique<UIElement>();
+            child->set_text("Item #" + std::to_string(index));
+            return child;
+        },
+        0.0F);
 
     root.calculate_layout(LayoutConstraints{.width = 100.0F, .height = 40.0F});
 
+    const auto metrics = content.virtualization_metrics();
+    EXPECT_TRUE(metrics.subtree_virtualization_enabled);
+    EXPECT_EQ(metrics.virtual_child_count, 100U);
+    EXPECT_EQ(metrics.realized_virtual_child_count, 5U);
     EXPECT_LT(content.child_count(), 100U);
     EXPECT_EQ(content.realized_virtual_child_count(), 5U);
     EXPECT_FLOAT_EQ(root.max_scroll_offset().y, 960.0F);

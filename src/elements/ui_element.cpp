@@ -1377,6 +1377,14 @@ bool UIElement::subtree_virtualization_enabled() const noexcept {
     return subtree_virtualization_enabled_;
 }
 
+UIElement& UIElement::enable_subtree_virtualization() {
+    return set_subtree_virtualization_enabled(true);
+}
+
+UIElement& UIElement::disable_subtree_virtualization() {
+    return set_subtree_virtualization_enabled(false);
+}
+
 UIElement& UIElement::set_subtree_virtualization_overscan(float overscan) {
     verify_thread_access();
     subtree_virtualization_overscan_ =
@@ -1384,6 +1392,10 @@ UIElement& UIElement::set_subtree_virtualization_overscan(float overscan) {
     refresh_virtualization_from_host();
     invalidate_paint();
     return *this;
+}
+
+UIElement& UIElement::set_virtualization_overscan(float overscan) {
+    return set_subtree_virtualization_overscan(overscan);
 }
 
 float UIElement::subtree_virtualization_overscan() const noexcept {
@@ -1464,6 +1476,34 @@ UIElement& UIElement::set_virtual_children(VirtualChildrenOptions options) {
     return *this;
 }
 
+UIElement& UIElement::set_virtual_children(std::size_t count,
+                                           float item_extent,
+                                           VirtualChildMaterializer materializer,
+                                           VirtualChildrenOrientation orientation,
+                                           float overscan_extent) {
+    return set_virtual_children(VirtualChildrenOptions{.count = count,
+                                                       .item_extent = item_extent,
+                                                       .orientation = orientation,
+                                                       .overscan_extent = overscan_extent,
+                                                       .materializer = std::move(materializer)});
+}
+
+UIElement& UIElement::set_vertical_virtual_children(std::size_t count,
+                                                    float item_extent,
+                                                    VirtualChildMaterializer materializer,
+                                                    float overscan_extent) {
+    return set_virtual_children(count, item_extent, std::move(materializer),
+                                VirtualChildrenOrientation::Vertical, overscan_extent);
+}
+
+UIElement& UIElement::set_horizontal_virtual_children(std::size_t count,
+                                                      float item_extent,
+                                                      VirtualChildMaterializer materializer,
+                                                      float overscan_extent) {
+    return set_virtual_children(count, item_extent, std::move(materializer),
+                                VirtualChildrenOrientation::Horizontal, overscan_extent);
+}
+
 UIElement& UIElement::clear_virtual_children() {
     verify_thread_access();
     if (virtual_children_ == nullptr) {
@@ -1500,6 +1540,18 @@ std::size_t UIElement::virtualized_child_count() const noexcept {
 
 std::size_t UIElement::realized_child_count() const noexcept {
     return child_count() - virtualized_child_count();
+}
+
+UIElement::VirtualizationMetrics UIElement::virtualization_metrics() const noexcept {
+    return VirtualizationMetrics{.subtree_virtualization_enabled =
+                                     subtree_virtualization_enabled_,
+                                 .subtree_virtualized = subtree_virtualized_,
+                                 .child_count = child_count(),
+                                 .realized_child_count = realized_child_count(),
+                                 .virtualized_child_count = virtualized_child_count(),
+                                 .virtual_child_count = virtual_child_count(),
+                                 .realized_virtual_child_count =
+                                     realized_virtual_child_count()};
 }
 
 RenderObjectSnapshot UIElement::render_object_snapshot() const {
@@ -2090,6 +2142,66 @@ UIElement& UIElement::mark_measure_dirty() {
     return *this;
 }
 
+UIElement& UIElement::set_width(layout::Length width) {
+    return configure_layout(
+        [width](layout::LayoutElement& item) { item.set_width(width); });
+}
+
+UIElement& UIElement::set_width(float points) {
+    return set_width(layout::Length::points(points));
+}
+
+UIElement& UIElement::set_height(layout::Length height) {
+    return configure_layout(
+        [height](layout::LayoutElement& item) { item.set_height(height); });
+}
+
+UIElement& UIElement::set_height(float points) {
+    return set_height(layout::Length::points(points));
+}
+
+UIElement& UIElement::set_layout_size(layout::Length width, layout::Length height) {
+    return configure_layout([width, height](layout::LayoutElement& item) {
+        item.set_size(width, height);
+    });
+}
+
+UIElement& UIElement::set_layout_size(float width, float height) {
+    return set_layout_size(layout::Length::points(width), layout::Length::points(height));
+}
+
+UIElement& UIElement::set_layout_margin(layout::Edge edge, layout::Length margin) {
+    return configure_layout(
+        [edge, margin](layout::LayoutElement& item) { item.set_margin(edge, margin); });
+}
+
+UIElement& UIElement::set_layout_margin(layout::Edge edge, float points) {
+    return set_layout_margin(edge, layout::Length::points(points));
+}
+
+UIElement& UIElement::set_layout_padding(layout::Edge edge, layout::Length padding) {
+    return configure_layout(
+        [edge, padding](layout::LayoutElement& item) { item.set_padding(edge, padding); });
+}
+
+UIElement& UIElement::set_layout_padding(layout::Edge edge, float points) {
+    return set_layout_padding(edge, layout::Length::points(points));
+}
+
+UIElement& UIElement::set_flex(float flex) {
+    return configure_layout([flex](layout::LayoutElement& item) { item.set_flex(flex); });
+}
+
+UIElement& UIElement::set_flex_grow(float flex_grow) {
+    return configure_layout(
+        [flex_grow](layout::LayoutElement& item) { item.set_flex_grow(flex_grow); });
+}
+
+UIElement& UIElement::set_flex_shrink(float flex_shrink) {
+    return configure_layout(
+        [flex_shrink](layout::LayoutElement& item) { item.set_flex_shrink(flex_shrink); });
+}
+
 UIElement& UIElement::set_visible(bool visible) {
     return set_property(core::property_keys::visible(), visible);
 }
@@ -2417,6 +2529,10 @@ UIElement& UIElement::set_border(rendering::Color color, float width) {
     return *this;
 }
 
+UIElement& UIElement::set_border(rendering::Color color) {
+    return set_border(color, 1.0F);
+}
+
 rendering::Color UIElement::border_color() const noexcept {
     return style_value().border_color;
 }
@@ -2436,6 +2552,10 @@ UIElement& UIElement::set_corner_radius(rendering::CornerRadius radius) {
     mutable_style_value().corner_radius = radius;
     invalidate_paint();
     return *this;
+}
+
+UIElement& UIElement::set_corner_radius(float radius) {
+    return set_corner_radius(rendering::CornerRadius::uniform(radius));
 }
 
 rendering::CornerRadius UIElement::corner_radius() const noexcept {
@@ -2505,6 +2625,14 @@ UIElement& UIElement::set_padding(layout::EdgeInsets padding) {
     return *this;
 }
 
+UIElement& UIElement::set_padding(float all) {
+    return set_padding(layout::EdgeInsets{all, all, all, all});
+}
+
+UIElement& UIElement::set_padding(float left, float top, float right, float bottom) {
+    return set_padding(layout::EdgeInsets{left, top, right, bottom});
+}
+
 layout::EdgeInsets UIElement::padding() const noexcept {
     return style_value().padding;
 }
@@ -2528,6 +2656,14 @@ UIElement& UIElement::set_margin(layout::EdgeInsets margin) {
     apply_layout_margin(*layout_, margin);
     invalidate_layout();
     return *this;
+}
+
+UIElement& UIElement::set_margin(float all) {
+    return set_margin(layout::EdgeInsets{all, all, all, all});
+}
+
+UIElement& UIElement::set_margin(float left, float top, float right, float bottom) {
+    return set_margin(layout::EdgeInsets{left, top, right, bottom});
 }
 
 layout::EdgeInsets UIElement::margin() const noexcept {
@@ -2620,6 +2756,28 @@ UIElement& UIElement::set_scroll_offset(layout::Point scroll_offset) {
     return *this;
 }
 
+UIElement& UIElement::set_scroll_offset(float x, float y) {
+    return set_scroll_offset(layout::Point{x, y});
+}
+
+UIElement& UIElement::set_scroll_x(float x) {
+    const auto current_scroll = scroll_offset_value();
+    return set_scroll_offset(layout::Point{x, current_scroll.y});
+}
+
+UIElement& UIElement::set_scroll_y(float y) {
+    const auto current_scroll = scroll_offset_value();
+    return set_scroll_offset(layout::Point{current_scroll.x, y});
+}
+
+UIElement& UIElement::scroll_to_top() {
+    return set_scroll_y(min_scroll_offset().y);
+}
+
+UIElement& UIElement::scroll_to_bottom() {
+    return set_scroll_y(max_scroll_offset().y);
+}
+
 UIElement& UIElement::scroll_by(layout::Point delta) {
     verify_thread_access();
 
@@ -2629,6 +2787,10 @@ UIElement& UIElement::scroll_by(layout::Point delta) {
 
     const auto current_scroll = scroll_offset_value();
     return set_scroll_offset(layout::Point{current_scroll.x + delta.x, current_scroll.y + delta.y});
+}
+
+UIElement& UIElement::scroll_by(float dx, float dy) {
+    return scroll_by(layout::Point{dx, dy});
 }
 
 layout::Point UIElement::scroll_offset() const noexcept {

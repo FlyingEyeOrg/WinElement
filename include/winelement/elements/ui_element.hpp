@@ -104,6 +104,15 @@ class UIElement {
         float overscan_extent = -1.0F;
         VirtualChildMaterializer materializer;
     };
+    struct VirtualizationMetrics {
+        bool subtree_virtualization_enabled = false;
+        bool subtree_virtualized = false;
+        std::size_t child_count = 0U;
+        std::size_t realized_child_count = 0U;
+        std::size_t virtualized_child_count = 0U;
+        std::size_t virtual_child_count = 0U;
+        std::size_t realized_virtual_child_count = 0U;
+    };
 
     UIElement();
     virtual ~UIElement() noexcept;
@@ -165,12 +174,29 @@ class UIElement {
     [[nodiscard]] virtual ElementSnapshot compress_subtree() const;
     virtual void decompress_subtree(const ElementSnapshot& snapshot);
     UIElement& set_subtree_virtualization_enabled(bool enabled);
+    UIElement& enable_subtree_virtualization();
+    UIElement& disable_subtree_virtualization();
     [[nodiscard]] bool subtree_virtualization_enabled() const noexcept;
     UIElement& set_subtree_virtualization_overscan(float overscan);
+    UIElement& set_virtualization_overscan(float overscan);
     [[nodiscard]] float subtree_virtualization_overscan() const noexcept;
     UIElement& set_virtualization_materializer(VirtualizationMaterializer materializer);
     [[nodiscard]] bool has_virtualization_materializer() const noexcept;
     UIElement& set_virtual_children(VirtualChildrenOptions options);
+    UIElement& set_virtual_children(std::size_t count,
+                                    float item_extent,
+                                    VirtualChildMaterializer materializer,
+                                    VirtualChildrenOrientation orientation =
+                                        VirtualChildrenOrientation::Vertical,
+                                    float overscan_extent = -1.0F);
+    UIElement& set_vertical_virtual_children(std::size_t count,
+                                             float item_extent,
+                                             VirtualChildMaterializer materializer,
+                                             float overscan_extent = -1.0F);
+    UIElement& set_horizontal_virtual_children(std::size_t count,
+                                               float item_extent,
+                                               VirtualChildMaterializer materializer,
+                                               float overscan_extent = -1.0F);
     UIElement& clear_virtual_children();
     [[nodiscard]] bool has_virtual_children() const noexcept;
     [[nodiscard]] std::size_t virtual_child_count() const noexcept;
@@ -178,6 +204,7 @@ class UIElement {
     [[nodiscard]] bool subtree_virtualized() const noexcept;
     [[nodiscard]] std::size_t virtualized_child_count() const noexcept;
     [[nodiscard]] std::size_t realized_child_count() const noexcept;
+    [[nodiscard]] VirtualizationMetrics virtualization_metrics() const noexcept;
     [[nodiscard]] bool check_thread_access() const noexcept;
     void verify_thread_access() const;
     void bind_layout_tree(layout::LayoutEngine& layout_engine);
@@ -274,6 +301,19 @@ class UIElement {
         invalidate_layout();
         return *this;
     }
+    UIElement& set_width(layout::Length width);
+    UIElement& set_width(float points);
+    UIElement& set_height(layout::Length height);
+    UIElement& set_height(float points);
+    UIElement& set_layout_size(layout::Length width, layout::Length height);
+    UIElement& set_layout_size(float width, float height);
+    UIElement& set_layout_margin(layout::Edge edge, layout::Length margin);
+    UIElement& set_layout_margin(layout::Edge edge, float points);
+    UIElement& set_layout_padding(layout::Edge edge, layout::Length padding);
+    UIElement& set_layout_padding(layout::Edge edge, float points);
+    UIElement& set_flex(float flex);
+    UIElement& set_flex_grow(float flex_grow);
+    UIElement& set_flex_shrink(float flex_shrink);
 
     UIElement& set_measure_callback(layout::MeasureCallback callback);
     UIElement& clear_measure_callback();
@@ -323,17 +363,23 @@ class UIElement {
     UIElement& set_background(rendering::Color color);
     [[nodiscard]] rendering::Color background() const noexcept;
     UIElement& set_border(rendering::Color color, float width);
+    UIElement& set_border(rendering::Color color);
     [[nodiscard]] rendering::Color border_color() const noexcept;
     [[nodiscard]] float border_width() const noexcept;
     UIElement& set_corner_radius(rendering::CornerRadius radius);
+    UIElement& set_corner_radius(float radius);
     [[nodiscard]] rendering::CornerRadius corner_radius() const noexcept;
     UIElement& set_shadow(rendering::ShadowStyle shadow);
     UIElement& clear_shadow();
     [[nodiscard]] bool shadow_visible() const noexcept;
     [[nodiscard]] rendering::ShadowStyle shadow() const noexcept;
     UIElement& set_padding(layout::EdgeInsets padding);
+    UIElement& set_padding(float all);
+    UIElement& set_padding(float left, float top, float right, float bottom);
     [[nodiscard]] layout::EdgeInsets padding() const noexcept;
     UIElement& set_margin(layout::EdgeInsets margin);
+    UIElement& set_margin(float all);
+    UIElement& set_margin(float left, float top, float right, float bottom);
     [[nodiscard]] layout::EdgeInsets margin() const noexcept;
     UIElement& set_viewport(layout::Rect viewport);
     UIElement& clear_viewport();
@@ -342,7 +388,13 @@ class UIElement {
     [[nodiscard]] layout::Rect absolute_viewport_rect() const noexcept;
     [[nodiscard]] layout::Rect scrollable_content_rect() const noexcept;
     UIElement& set_scroll_offset(layout::Point scroll_offset);
+    UIElement& set_scroll_offset(float x, float y);
+    UIElement& set_scroll_x(float x);
+    UIElement& set_scroll_y(float y);
+    UIElement& scroll_to_top();
+    UIElement& scroll_to_bottom();
     UIElement& scroll_by(layout::Point delta);
+    UIElement& scroll_by(float dx, float dy);
     [[nodiscard]] layout::Point scroll_offset() const noexcept;
     [[nodiscard]] layout::Point min_scroll_offset() const noexcept;
     [[nodiscard]] layout::Point max_scroll_offset() const noexcept;

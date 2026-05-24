@@ -1801,13 +1801,9 @@ void add_virtualization_section(controls::StackPanel& root) {
     content.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::percent(100.0F)).set_flex_shrink(0.0F);
     });
-    content.set_virtual_children(elements::UIElement::VirtualChildrenOptions{
-        .count = item_count,
-        .item_extent = item_height,
-        .orientation = elements::UIElement::VirtualChildrenOrientation::Vertical,
-        .overscan_extent = viewport_height,
-        .materializer =
-            [](std::size_t index) -> std::unique_ptr<elements::UIElement> {
+    content.set_vertical_virtual_children(
+        item_count, item_height,
+        [](std::size_t index) -> std::unique_ptr<elements::UIElement> {
             auto slot = std::make_unique<controls::Panel>();
             slot->set_background(index % 2 == 0 ? rendering::Color::rgba(255, 100, 100)
                                                 : rendering::Color::rgba(100, 100, 255));
@@ -1821,7 +1817,8 @@ void add_virtualization_section(controls::StackPanel& root) {
                 .set_type(controls::TextType::Info)
                 .set_font_size(13.0F);
             return slot;
-        }});
+        },
+        viewport_height);
     viewport.set_on_scroll_changed([](layout::Point) {});
 
     const auto scrollbar_max =
