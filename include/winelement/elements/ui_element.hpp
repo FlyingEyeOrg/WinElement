@@ -556,6 +556,7 @@ class UIElement {
     effective_subtree_virtualization_overscan(layout::Rect viewport) const noexcept;
     [[nodiscard]] bool can_virtualize_subtree() const noexcept;
     [[nodiscard]] layout::Rect virtualization_bounds_for_child(const UIElement& child) const noexcept;
+    void mark_virtualization_layout_dirty() noexcept;
     void set_subtree_virtualized(bool virtualized) noexcept;
     [[nodiscard]] bool update_virtual_children(layout::Rect clip_rect) noexcept;
     void update_child_virtualization(layout::Rect clip_rect) noexcept;

@@ -20,4 +20,3 @@
 #include <winelement/controls/stack_panel.hpp>
 #include <winelement/controls/switch.hpp>
 #include <winelement/controls/text.hpp>
-#include <winelement/controls/virtualization.hpp>

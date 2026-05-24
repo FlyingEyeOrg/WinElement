@@ -136,6 +136,16 @@ void expect_rect_near(Rect actual, Rect expected, float tolerance = 0.001F) {
     return iterator == commands.end() ? nullptr : &*iterator;
 }
 
+[[nodiscard]] const RenderOpcodeRecord* find_command(const RenderCommandList& command_list,
+                                                     RenderCommandType type,
+                                                     std::string_view text = {}) {
+    const auto& commands = command_list.commands();
+    const auto iterator = std::find_if(commands.begin(), commands.end(), [&](const auto& command) {
+        return command.type() == type && (text.empty() || command_text(command) == text);
+    });
+    return iterator == commands.end() ? nullptr : &*iterator;
+}
+
 [[nodiscard]] std::size_t find_command_index(const RenderCommandRecorder& context,
                                              RenderCommandType type,
                                              std::string_view text = {}) noexcept {
@@ -844,37 +854,6 @@ TEST(BasicControlsTests, StackPanelConfiguresLayoutDirection) {
     EXPECT_GT(second_ref.frame().x, first_ref.frame().x);
 }
 
-TEST(BasicControlsTests, VirtualizationPlannerComputesOverscannedWindow) {
-    VirtualizationPlanner planner;
-    planner.set_total_count(100U);
-    planner.set_item_extent(20.0F);
-    planner.set_overscan(2U);
-
-    const auto window = planner.window_for(100.0F, 60.0F);
-    EXPECT_EQ(window.start_index, 3U);
-    EXPECT_EQ(window.count, 8U);
-    EXPECT_FLOAT_EQ(window.leading_spacer, 60.0F);
-    EXPECT_GT(window.trailing_spacer, 0.0F);
-}
-
-TEST(BasicControlsTests, RecyclePoolDropsItemsBeyondCapacity) {
-    RecyclePool<int> pool;
-    pool.set_capacity(2U);
-
-    pool.release(std::make_unique<int>(1));
-    pool.release(std::make_unique<int>(2));
-    pool.release(std::make_unique<int>(3));
-
-    EXPECT_EQ(pool.capacity(), 2U);
-    EXPECT_EQ(pool.size(), 2U);
-
-    pool.set_capacity(1U);
-    EXPECT_EQ(pool.size(), 1U);
-
-    EXPECT_NE(pool.acquire(), nullptr);
-    EXPECT_EQ(pool.acquire(), nullptr);
-}
-
 TEST(BasicControlsTests, ItemsControlRealizesItemsForTreeLevelVirtualization) {
     auto engine = create_unrounded_engine();
     ItemsControl items;
@@ -884,6 +863,53 @@ TEST(BasicControlsTests, ItemsControlRealizesItemsForTreeLevelVirtualization) {
     EXPECT_EQ(items.realized_start_index(), 0U);
     EXPECT_EQ(items.realized_count(), 10U);
     EXPECT_EQ(items.child_count(), 10U);
+}
+
+TEST(BasicControlsTests, ScrollbarCallbackKeepsVirtualChildrenRenderableAfterThumbJump) {
+    auto engine = create_unrounded_engine();
+    UIElement root;
+    root.bind_layout_tree(engine);
+    root.set_overflow(Overflow::Hidden);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(100.0F), Length::points(40.0F));
+    });
+
+    auto& content = root.append_new_child<UIElement>();
+    content.configure_layout([](LayoutElement& layout) {
+        layout.set_flex_direction(FlexDirection::Column);
+    });
+    content.set_virtual_children(UIElement::VirtualChildrenOptions{
+        .count = 100U,
+        .item_extent = 10.0F,
+        .orientation = UIElement::VirtualChildrenOrientation::Vertical,
+        .overscan_extent = 0.0F,
+        .materializer =
+            [](std::size_t index) {
+                auto child = std::make_unique<UIElement>();
+                child->set_text("Item #" + std::to_string(index));
+                return child;
+            }});
+
+    const auto constraints = LayoutConstraints{.width = 100.0F, .height = 40.0F};
+    root.calculate_layout(constraints);
+
+    Scrollbar scrollbar;
+    scrollbar.set_orientation(ScrollbarOrientation::Vertical)
+        .set_range(0.0F, root.max_scroll_offset().y, 40.0F)
+        .set_on_scroll([&root](float value) {
+            root.set_scroll_offset(Point{0.0F, value});
+        });
+
+    scrollbar.set_value(root.max_scroll_offset().y);
+    EXPECT_TRUE(root.needs_layout());
+
+    root.calculate_layout(constraints);
+    RenderCommandList commands;
+    root.commit_render_commands(commands, nullptr);
+
+    EXPECT_NE(find_command(commands, RenderCommandType::DrawTextLayout, "Item #99"), nullptr);
+    EXPECT_EQ(find_command(commands, RenderCommandType::DrawTextLayout, "Item #0"), nullptr);
+    EXPECT_LT(content.child_count(), 100U);
 }
 
 TEST(BasicControlsTests, ItemsControlBoundsReusableContainerPool) {

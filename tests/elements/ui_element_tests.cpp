@@ -44,6 +44,29 @@ template <typename CommandPayload>
     return command.payload<CommandPayload>();
 }
 
+[[nodiscard]] std::string_view command_text(const RenderOpcodeRecord& command) {
+    if (command.type() == RenderCommandType::DrawText) {
+        return command.payload<DrawTextCommand>().text;
+    }
+    if (command.type() == RenderCommandType::DrawTextLayout) {
+        const auto* layout = command.payload<DrawTextLayoutCommand>().layout_value();
+        return layout != nullptr ? std::string_view{layout->text} : std::string_view{};
+    }
+    return {};
+}
+
+[[nodiscard]] const RenderOpcodeRecord*
+find_text_command(const RenderCommandList& commands, std::string_view text) {
+    for (const auto& command : commands.commands()) {
+        if ((command.type() == RenderCommandType::DrawText ||
+             command.type() == RenderCommandType::DrawTextLayout) &&
+            command_text(command) == text) {
+            return &command;
+        }
+    }
+    return nullptr;
+}
+
 [[nodiscard]] const RenderNode* first_layer_node(const RenderNode& node) noexcept {
     if (node.kind == RenderNodeKind::Layer) {
         return &node;
@@ -1159,6 +1182,47 @@ TEST(UIElementTests, VirtualChildrenRestoreBottomItemAfterScroll) {
     ASSERT_GE(content.child_count(), 3U);
     EXPECT_EQ(content.child_at(content.child_count() - 2U).text(), "Item #99");
     EXPECT_FLOAT_EQ(root.max_scroll_offset().y, 960.0F);
+}
+
+TEST(UIElementTests, VirtualChildrenScrollOffsetMarksRootLayoutDirtyAndRendersBottomItem) {
+    auto engine = create_unrounded_engine();
+    UIElement root;
+    root.bind_layout_tree(engine);
+    root.set_overflow(Overflow::Hidden);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(100.0F), Length::points(40.0F));
+    });
+
+    auto& content = root.append_new_child<UIElement>();
+    content.configure_layout([](LayoutElement& layout) {
+        layout.set_flex_direction(FlexDirection::Column);
+    });
+    content.set_virtual_children(UIElement::VirtualChildrenOptions{
+        .count = 100U,
+        .item_extent = 10.0F,
+        .orientation = UIElement::VirtualChildrenOrientation::Vertical,
+        .overscan_extent = 0.0F,
+        .materializer =
+            [](std::size_t index) {
+                auto child = std::make_unique<UIElement>();
+                child->set_text("Item #" + std::to_string(index));
+                return child;
+            }});
+
+    const auto constraints = LayoutConstraints{.width = 100.0F, .height = 40.0F};
+    root.calculate_layout(constraints);
+    root.clear_paint_dirty_subtree();
+
+    root.set_scroll_offset(Point{0.0F, root.max_scroll_offset().y});
+    EXPECT_TRUE(root.needs_layout());
+
+    root.calculate_layout(constraints);
+    RenderCommandList commands;
+    root.commit_render_commands(commands, nullptr);
+
+    EXPECT_NE(find_text_command(commands, "Item #99"), nullptr);
+    EXPECT_EQ(find_text_command(commands, "Item #0"), nullptr);
+    EXPECT_LT(content.child_count(), 100U);
 }
 
 TEST(UIElementTests, BaseElementChildClipKeepsContentInsideVisibleBorder) {

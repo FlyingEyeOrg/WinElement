@@ -334,6 +334,7 @@ struct ShowcaseScrollSample {
     double layout_ms = 0.0;
     double commit_ms = 0.0;
     std::size_t element_count = 0U;
+    bool virtualization_last_item_visible = false;
     ShowcaseRenderMetrics render{};
 };
 
@@ -1769,13 +1770,6 @@ void add_animation_section(controls::StackPanel& root) {
 void add_virtualization_section(controls::StackPanel& root) {
     auto& section = add_section(root, "Virtualization (10 000 items)");
 
-    auto& debug = section.append_new_child<controls::Panel>();
-    debug.set_background(rendering::Color::rgba(255, 0, 0));
-    debug.configure_layout([](layout::LayoutElement& item) {
-        item.set_width(layout::Length::percent(100.0F))
-            .set_height(layout::Length::points(20.0F));
-    });
-
     constexpr float viewport_height = 400.0F;
     constexpr float item_height = 32.0F;
     constexpr std::size_t item_count = 10000;
@@ -2201,6 +2195,45 @@ render_metrics_for_scene(const rendering::RenderScene& scene) noexcept {
                               : rendering::PreparedRenderCacheStats{}};
 }
 
+[[nodiscard]] bool subtree_contains_text(const elements::UIElement& element,
+                                         std::string_view text) {
+    if (element.text() == text) {
+        return true;
+    }
+    for (std::size_t index = 0; index < element.child_count(); ++index) {
+        if (subtree_contains_text(element.child_at(index), text)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] elements::UIElement*
+find_virtual_children_host(elements::UIElement& element, std::size_t count) noexcept {
+    if (element.virtual_child_count() == count) {
+        return &element;
+    }
+    for (std::size_t index = 0; index < element.child_count(); ++index) {
+        if (auto* match = find_virtual_children_host(element.child_at(index), count)) {
+            return match;
+        }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] bool scroll_virtualization_list_to_bottom(ShowcaseWindowTree& tree) {
+    if (tree.root == nullptr) {
+        return false;
+    }
+    auto* host = find_virtual_children_host(*tree.root, 10000U);
+    if (host == nullptr || host->parent() == nullptr) {
+        return false;
+    }
+    auto* viewport = host->parent();
+    viewport->set_scroll_offset(layout::Point{0.0F, viewport->max_scroll_offset().y});
+    return true;
+}
+
 [[nodiscard]] double elapsed_ms(std::chrono::steady_clock::time_point start,
                                 std::chrono::steady_clock::time_point finish) noexcept {
     return std::chrono::duration<double, std::milli>(finish - start).count();
@@ -2209,13 +2242,18 @@ render_metrics_for_scene(const rendering::RenderScene& scene) noexcept {
 [[nodiscard]] ShowcaseScrollSample sample_showcase_scroll(ShowcaseWindowTree& tree,
                                                           rendering::RenderScene& scene,
                                                           float width, float height,
-                                                          float offset) {
+                                                          float offset,
+                                                          bool scroll_virtualization_to_bottom =
+                                                              false) {
     if (tree.viewport != nullptr) {
         tree.viewport->set_scroll_offset(layout::Point{0.0F, offset});
     }
 
     const auto layout_start = std::chrono::steady_clock::now();
     calculate_showcase_window_layout(*tree.root, tree, width, height);
+    if (scroll_virtualization_to_bottom && scroll_virtualization_list_to_bottom(tree)) {
+        calculate_showcase_window_layout(*tree.root, tree, width, height);
+    }
     const auto layout_finish = std::chrono::steady_clock::now();
 
     auto dirty = rendering::DirtyRegion{};
@@ -2227,6 +2265,8 @@ render_metrics_for_scene(const rendering::RenderScene& scene) noexcept {
                                 .layout_ms = elapsed_ms(layout_start, layout_finish),
                                 .commit_ms = elapsed_ms(commit_start, commit_finish),
                                 .element_count = count_elements(*tree.root),
+                                .virtualization_last_item_visible =
+                                    subtree_contains_text(*tree.root, "Item #9999"),
                                 .render = render_metrics_for_scene(scene)};
 }
 
@@ -2242,7 +2282,7 @@ render_metrics_for_scene(const rendering::RenderScene& scene) noexcept {
     profile.top = sample_showcase_scroll(tree, scene, width, height, 0.0F);
     profile.middle =
         sample_showcase_scroll(tree, scene, width, height, profile.scroll_max * 0.5F);
-    profile.bottom = sample_showcase_scroll(tree, scene, width, height, profile.scroll_max);
+    profile.bottom = sample_showcase_scroll(tree, scene, width, height, profile.scroll_max, true);
     return profile;
 }
 
@@ -2339,6 +2379,10 @@ int run_headless_showcase() {
               << maximized_scroll_profile.bottom.render.node_count << '\n';
     std::cout << "  maximized bottom render commands: "
               << maximized_scroll_profile.bottom.render.command_count << '\n';
+    std::cout << "  maximized bottom Item #9999 visible: "
+              << (maximized_scroll_profile.bottom.virtualization_last_item_visible ? "yes"
+                                                                                   : "no")
+              << '\n';
     std::cout << "  maximized bottom prepared glyphs: "
               << maximized_scroll_profile.bottom.render.prepared_cache.text_glyph_entries << " ("
               << maximized_scroll_profile.bottom.render.prepared_cache.text_glyph_bytes
@@ -2354,7 +2398,8 @@ int run_headless_showcase() {
                    showcase_metrics.scrollbar_max > 0.0F &&
                    wide_showcase_metrics.scroll_max > 0.0F && content_height_matches_width &&
                    maximized_scroll_profile.scroll_max > 0.0F &&
-                   maximized_scroll_profile.bottom.render.command_count > 0U
+                   maximized_scroll_profile.bottom.render.command_count > 0U &&
+                   maximized_scroll_profile.bottom.virtualization_last_item_visible
                ? 0
                : 1;
 }

@@ -2610,6 +2610,10 @@ UIElement& UIElement::set_scroll_offset(layout::Point scroll_offset) {
     mutable_scroll_offset() = clamped_scroll;
     if (layout_generation_ != 0U) {
         refresh_snapshot_from_current_layout();
+        auto& host = top_layer_host();
+        if (host.virtualization_layout_dirty_) {
+            host.mark_descendant_layout_dirty();
+        }
     }
     invalidate_render_commands();
     invalidate_paint();
@@ -4515,6 +4519,16 @@ layout::Rect UIElement::virtualization_bounds_for_child(const UIElement& child) 
     return child.committed_absolute_frame_;
 }
 
+void UIElement::mark_virtualization_layout_dirty() noexcept {
+    virtualization_layout_dirty_ = true;
+    virtualization_cache_valid_ = false;
+
+    auto& host = top_layer_host();
+    host.virtualization_layout_dirty_ = true;
+    host.note_layout_dirty_root(*this);
+    host.mark_descendant_layout_dirty();
+}
+
 void UIElement::set_subtree_virtualized(bool virtualized) noexcept {
     if (subtree_virtualized_ == virtualized) {
         return;
@@ -4525,8 +4539,7 @@ void UIElement::set_subtree_virtualized(bool virtualized) noexcept {
             try {
                 virtualized_snapshot_ = compress_subtree();
                 clear_children();
-                virtualization_layout_dirty_ = true;
-                top_layer_host().virtualization_layout_dirty_ = true;
+                mark_virtualization_layout_dirty();
             } catch (...) {
                 virtualized_snapshot_.reset();
                 assert(false && "UIElement subtree compression must not throw");
@@ -4539,8 +4552,7 @@ void UIElement::set_subtree_virtualized(bool virtualized) noexcept {
             if (restored_child != nullptr) {
                 append_child(std::move(restored_child));
             }
-            virtualization_layout_dirty_ = true;
-            top_layer_host().virtualization_layout_dirty_ = true;
+            mark_virtualization_layout_dirty();
             decompress_subtree(*virtualized_snapshot_);
             virtualized_snapshot_.reset();
         } catch (...) {
@@ -4681,9 +4693,7 @@ bool UIElement::update_virtual_children(layout::Rect clip_rect) noexcept {
     state->realized_start = desired_start;
     state->realized_count = desired_count;
     state->updating = false;
-    virtualization_layout_dirty_ = true;
-    top_layer_host().virtualization_layout_dirty_ = true;
-    virtualization_cache_valid_ = false;
+    mark_virtualization_layout_dirty();
     invalidate_layout();
     return true;
 }
