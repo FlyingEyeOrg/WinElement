@@ -358,15 +358,6 @@ ItemsControl& ItemsControl::set_on_reorder(ReorderHandler handler) {
     return *this;
 }
 
-ItemsControl& ItemsControl::set_virtualized(bool virtualized) {
-    if (virtualized_ == virtualized) {
-        return *this;
-    }
-    virtualized_ = virtualized;
-    rebuild_children();
-    return *this;
-}
-
 ItemsControl& ItemsControl::set_reusable_container_limit(std::size_t limit) {
     reusable_container_limit_ = limit;
     if (reusable_containers_.size() > reusable_container_limit_) {
@@ -378,29 +369,9 @@ ItemsControl& ItemsControl::set_reusable_container_limit(std::size_t limit) {
 ItemsControl& ItemsControl::set_realized_range(std::size_t start_index, std::size_t count) {
     realized_start_index_ = std::min(start_index, items_.size());
     realized_count_ = count;
+    realized_range_overridden_ = true;
     update_realized_children();
     return *this;
-}
-
-ItemsControl& ItemsControl::set_virtualization_window(float scroll_offset, float viewport_extent,
-                                                      float item_extent, std::size_t overscan) {
-    virtualization_planner_.set_total_count(items_.size());
-    virtualization_planner_.set_item_extent(item_extent);
-    virtualization_planner_.set_overscan(overscan);
-    const auto window = virtualization_planner_.window_for(scroll_offset, viewport_extent);
-    virtualized_ = true;
-    return set_realized_range(window.start_index, window.count);
-}
-
-ItemsControl& ItemsControl::set_virtualization_window(float scroll_offset, float viewport_extent,
-                                                      std::vector<float> item_extents,
-                                                      std::size_t overscan) {
-    virtualization_planner_.set_total_count(items_.size());
-    virtualization_planner_.set_item_extents(std::move(item_extents));
-    virtualization_planner_.set_overscan(overscan);
-    const auto window = virtualization_planner_.window_for(scroll_offset, viewport_extent);
-    virtualized_ = true;
-    return set_realized_range(window.start_index, window.count);
 }
 
 ItemsControl& ItemsControl::set_groups(std::vector<ItemGroup> groups) {
@@ -461,10 +432,6 @@ const std::vector<ItemsControl::ItemGroup>& ItemsControl::groups() const noexcep
     return groups_;
 }
 
-bool ItemsControl::virtualized() const noexcept {
-    return virtualized_;
-}
-
 std::size_t ItemsControl::realized_start_index() const noexcept {
     return realized_start_index_;
 }
@@ -475,7 +442,8 @@ std::size_t ItemsControl::realized_end_index() const noexcept {
 
 std::size_t ItemsControl::realized_count() const noexcept {
     const auto start = std::min(realized_start_index_, items_.size());
-    return virtualized_ ? std::min(realized_count_, items_.size() - start) : items_.size();
+    return realized_range_overridden_ ? std::min(realized_count_, items_.size() - start)
+                                      : items_.size();
 }
 
 std::size_t ItemsControl::reusable_container_count() const noexcept {
@@ -517,9 +485,11 @@ void ItemsControl::update_container(elements::UIElement& element, std::size_t it
 }
 
 void ItemsControl::update_realized_children() {
-    const auto start = virtualized_ ? std::min(realized_start_index_, items_.size()) : 0U;
-    const auto count =
-        virtualized_ ? std::min(realized_count_, items_.size() - start) : items_.size();
+    const auto start =
+        realized_range_overridden_ ? std::min(realized_start_index_, items_.size()) : 0U;
+    const auto count = realized_range_overridden_
+                           ? std::min(realized_count_, items_.size() - start)
+                           : items_.size();
 
     std::vector<RealizedSurvivor> survivors;
     survivors.reserve(std::min(count, child_count()));

@@ -1,6 +1,5 @@
 #include <winelement/controls.hpp>
 #include <winelement/layout.hpp>
-#include <winelement/rendering/render_scene.hpp>
 
 #include <gtest/gtest.h>
 
@@ -45,24 +44,6 @@ struct ScopedThemeReset {
         return layout != nullptr ? std::string_view{layout->text} : std::string_view{};
     }
     return {};
-}
-
-[[nodiscard]] bool command_list_contains_text(const RenderCommandList& commands,
-                                              std::string_view text) {
-    return std::any_of(commands.commands().begin(), commands.commands().end(),
-                       [text](const RenderOpcodeRecord& command) {
-                           return command_text(command) == text;
-                       });
-}
-
-[[nodiscard]] bool render_node_contains_text(const RenderNode& node, std::string_view text) {
-    if (command_list_contains_text(node.commands, text)) {
-        return true;
-    }
-    return std::any_of(node.children.begin(), node.children.end(),
-                       [text](const RenderNode& child) {
-                           return render_node_contains_text(child, text);
-                       });
 }
 
 [[nodiscard]] const TextStyle& command_text_style(const RenderOpcodeRecord& command) {
@@ -876,52 +857,6 @@ TEST(BasicControlsTests, VirtualizationPlannerComputesOverscannedWindow) {
     EXPECT_GT(window.trailing_spacer, 0.0F);
 }
 
-TEST(BasicControlsTests, VirtualizingPanelKeepsTransformedItemTextInClippedScene) {
-    auto engine = create_unrounded_engine();
-    Panel viewport;
-    viewport.bind_layout_tree(engine);
-    viewport.set_overflow(Overflow::Hidden);
-    viewport.configure_layout([](LayoutElement& layout) {
-        layout.set_size(Length::points(200.0F), Length::points(40.0F));
-    });
-
-    auto virtual_panel = std::make_unique<VirtualizingPanel>();
-    virtual_panel->set_item_count(20U)
-        .set_item_extent(20.0F)
-        .set_overscan(1U)
-        .set_viewport_extent(40.0F)
-        .set_slot_factory([] {
-            auto slot = std::make_unique<Panel>();
-            slot->set_background(Color::rgba(245, 247, 250));
-            slot->configure_layout([](LayoutElement& layout) {
-                layout.set_width(Length::percent(100.0F))
-                    .set_height(Length::percent(100.0F))
-                    .set_padding(Edge::Horizontal, Length::points(4.0F))
-                    .set_align_items(Align::Center);
-            });
-            slot->append_new_child<Text>().set_font_size(12.0F);
-            return slot;
-        })
-        .set_item_binder([](UIElement& slot, std::size_t index) {
-            auto& label = static_cast<Text&>(slot.child_at(0));
-            label.set_text("Item #" + std::to_string(index));
-        });
-    auto& virtual_ref =
-        static_cast<VirtualizingPanel&>(viewport.append_child(std::move(virtual_panel)));
-
-    virtual_ref.refresh_virtualization();
-    viewport.calculate_layout(LayoutConstraints{.width = 200.0F, .height = 40.0F});
-    viewport.set_scroll_offset(Point{0.0F, 160.0F});
-    virtual_ref.set_scroll_offset(160.0F).refresh_virtualization();
-    viewport.calculate_layout(LayoutConstraints{.width = 200.0F, .height = 40.0F});
-
-    RenderScene scene;
-    viewport.commit_render_scene(scene, nullptr);
-
-    ASSERT_NE(scene.root(), nullptr);
-    EXPECT_TRUE(render_node_contains_text(*scene.root(), "Item #8"));
-}
-
 TEST(BasicControlsTests, RecyclePoolDropsItemsBeyondCapacity) {
     RecyclePool<int> pool;
     pool.set_capacity(2U);
@@ -940,18 +875,15 @@ TEST(BasicControlsTests, RecyclePoolDropsItemsBeyondCapacity) {
     EXPECT_EQ(pool.acquire(), nullptr);
 }
 
-TEST(BasicControlsTests, ItemsControlCanRealizeViewportWindow) {
+TEST(BasicControlsTests, ItemsControlRealizesItemsForTreeLevelVirtualization) {
     auto engine = create_unrounded_engine();
     ItemsControl items;
     items.bind_layout_tree(engine);
     items.set_items({"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"});
 
-    items.set_virtualization_window(40.0F, 60.0F, 20.0F, 1U);
-
-    EXPECT_TRUE(items.virtualized());
-    EXPECT_EQ(items.realized_start_index(), 1U);
-    EXPECT_EQ(items.realized_count(), 6U);
-    EXPECT_EQ(items.child_count(), 6U);
+    EXPECT_EQ(items.realized_start_index(), 0U);
+    EXPECT_EQ(items.realized_count(), 10U);
+    EXPECT_EQ(items.child_count(), 10U);
 }
 
 TEST(BasicControlsTests, ItemsControlBoundsReusableContainerPool) {
@@ -960,7 +892,6 @@ TEST(BasicControlsTests, ItemsControlBoundsReusableContainerPool) {
     items.bind_layout_tree(engine);
     items.set_reusable_container_limit(2U)
         .set_items({"0", "1", "2", "3", "4", "5"})
-        .set_virtualized(true)
         .set_realized_range(0U, 5U);
 
     EXPECT_EQ(items.item_count(), 6U);
@@ -1024,28 +955,27 @@ TEST(BasicControlsTests, ItemsControlSelectionRefreshesFactoryContent) {
     EXPECT_EQ(factory_calls, 3);
 }
 
-TEST(BasicControlsTests, ItemsControlVirtualizedScrollReusesOverlappingContent) {
+TEST(BasicControlsTests, ItemsControlRealizedRangeReusesOverlappingContent) {
     auto engine = create_unrounded_engine();
     ItemsControl items;
     items.bind_layout_tree(engine);
 
     auto factory_calls = 0;
-    items.set_virtualized(true).set_item_factory(
-        [&factory_calls](ItemsControl::ItemContext context) {
-            ++factory_calls;
-            auto element = std::make_unique<Text>();
-            element->set_text(std::to_string(context.index) + ":" + std::string(context.item));
-            return element;
-        });
+    items.set_item_factory([&factory_calls](ItemsControl::ItemContext context) {
+        ++factory_calls;
+        auto element = std::make_unique<Text>();
+        element->set_text(std::to_string(context.index) + ":" + std::string(context.item));
+        return element;
+    });
     items.set_items({"0", "1", "2", "3", "4", "5", "6"});
     items.set_realized_range(0U, 5U);
 
     EXPECT_EQ(items.child_count(), 5U);
-    EXPECT_EQ(factory_calls, 5);
+    EXPECT_EQ(factory_calls, 7);
 
     items.set_realized_range(1U, 5U);
     EXPECT_EQ(items.child_count(), 5U);
-    EXPECT_EQ(factory_calls, 6);
+    EXPECT_EQ(factory_calls, 8);
     EXPECT_EQ(items.child_at(0U).child_at(0U).text(), "1:1");
     EXPECT_EQ(items.child_at(4U).child_at(0U).text(), "5:5");
 }
@@ -1056,7 +986,7 @@ TEST(BasicControlsTests, ItemsControlRefreshesFromObservableStringList) {
         std::vector<std::string>{"Alpha", "Beta", "Gamma"});
     ItemsControl items;
     items.bind_layout_tree(engine);
-    items.set_virtualized(true).set_realized_range(0U, 2U);
+    items.set_realized_range(0U, 2U);
     items.bind_items(source);
 
     EXPECT_EQ(items.item_count(), 3U);
@@ -3926,13 +3856,11 @@ TEST(BasicControlsTests, BorderRadioSwitchScrollbarSelectAndItemsControlExposeCo
     EXPECT_EQ(items.selected_index(), 1U);
     items.set_selection_mode(ItemsControl::SelectionMode::Multiple).set_selected_indices({0U, 1U});
     EXPECT_EQ(items.selected_indices(), (std::vector<std::size_t>{0U, 1U}));
-    items.set_virtualized(true).set_realized_range(1U, 1U);
+    items.set_realized_range(1U, 1U);
     EXPECT_EQ(items.child_count(), 1U);
     ASSERT_EQ(items.child_at(0U).child_count(), 1U);
     EXPECT_EQ(items.child_at(0U).child_at(0U).text(), "1:Two");
-    items.set_items({"Short", "Medium", "Tall"})
-        .set_virtualization_window(0.0F, 25.0F, std::vector<float>{10.0F, 20.0F, 30.0F}, 0U);
-    EXPECT_TRUE(items.virtualized());
+    items.set_items({"Short", "Medium", "Tall"}).set_realized_range(0U, 3U);
     EXPECT_EQ(items.realized_start_index(), 0U);
     EXPECT_EQ(items.realized_count(), 3U);
 

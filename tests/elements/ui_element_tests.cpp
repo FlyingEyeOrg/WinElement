@@ -952,6 +952,144 @@ TEST(UIElementTests, BaseElementScrollableExtentClipsChildrenAtZeroScrollOffset)
     EXPECT_FLOAT_EQ(clip.height, 30.0F);
 }
 
+TEST(UIElementTests, SubtreeVirtualizationSkipsOffscreenChildrenAndRestoresOnScroll) {
+    auto engine = create_unrounded_engine();
+    UIElement root;
+    root.bind_layout_tree(engine);
+    root.set_overflow(Overflow::Hidden).set_subtree_virtualization_overscan(0.0F);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(120.0F), Length::points(40.0F));
+    });
+
+    auto paint_count = 0;
+    auto child = std::make_unique<CountingPaintElement>(paint_count);
+    child->configure_layout([](LayoutElement& layout) {
+        layout.set_position_type(PositionType::Absolute)
+            .set_position(Edge::Top, Length::points(120.0F))
+            .set_size(Length::points(80.0F), Length::points(20.0F));
+    });
+    auto& child_ref = root.append_child(std::move(child));
+
+    root.calculate_layout(LayoutConstraints{.width = 120.0F, .height = 40.0F});
+
+    EXPECT_EQ(root.virtualized_child_count(), 1U);
+    EXPECT_TRUE(child_ref.subtree_virtualized());
+
+    RenderCommandList initial_commands;
+    root.commit_render_commands(initial_commands, nullptr);
+    EXPECT_EQ(paint_count, 0);
+    EXPECT_EQ(root.hit_test(Point{10.0F, 10.0F}), &root);
+
+    root.set_scroll_offset(Point{0.0F, 100.0F});
+
+    EXPECT_EQ(root.virtualized_child_count(), 0U);
+    EXPECT_FALSE(child_ref.subtree_virtualized());
+
+    RenderCommandList scrolled_commands;
+    root.commit_render_commands(scrolled_commands, nullptr);
+    EXPECT_GT(paint_count, 0);
+    EXPECT_EQ(root.hit_test(Point{10.0F, 25.0F}), &child_ref);
+}
+
+TEST(UIElementTests, SubtreeVirtualizationKeepsFocusedSubtreeRealized) {
+    auto engine = create_unrounded_engine();
+    UIElement root;
+    root.bind_layout_tree(engine);
+    root.set_subtree_virtualization_overscan(0.0F);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(120.0F), Length::points(40.0F));
+    });
+
+    auto child = std::make_unique<RecordingElement>();
+    child->set_focusable(true);
+    child->configure_layout([](LayoutElement& layout) {
+        layout.set_position_type(PositionType::Absolute)
+            .set_position(Edge::Top, Length::points(120.0F))
+            .set_size(Length::points(80.0F), Length::points(20.0F));
+    });
+    auto& child_ref = root.append_child(std::move(child));
+
+    FocusManager focus(root);
+    EXPECT_TRUE(focus.set_focus(&child_ref));
+
+    root.calculate_layout(LayoutConstraints{.width = 120.0F, .height = 40.0F});
+
+    EXPECT_FALSE(child_ref.subtree_virtualized());
+    EXPECT_EQ(root.virtualized_child_count(), 0U);
+}
+
+TEST(UIElementTests, SubtreeVirtualizationMaterializerRebuildsCompressedChildren) {
+    auto engine = create_unrounded_engine();
+    UIElement root;
+    root.bind_layout_tree(engine);
+    root.set_overflow(Overflow::Hidden).set_subtree_virtualization_overscan(0.0F);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(120.0F), Length::points(40.0F));
+    });
+
+    auto host = std::make_unique<UIElement>();
+    auto materialize_count = 0;
+    host->set_virtualization_materializer([&materialize_count](const ElementSnapshot&) {
+        ++materialize_count;
+        auto child = std::make_unique<UIElement>();
+        child->set_text("restored");
+        return child;
+    });
+    host->configure_layout([](LayoutElement& layout) {
+        layout.set_position_type(PositionType::Absolute)
+            .set_position(Edge::Top, Length::points(120.0F))
+            .set_size(Length::points(80.0F), Length::points(20.0F));
+    });
+    host->append_new_child<UIElement>().set_text("initial");
+    auto& host_ref = root.append_child(std::move(host));
+
+    root.calculate_layout(LayoutConstraints{.width = 120.0F, .height = 40.0F});
+
+    EXPECT_TRUE(host_ref.subtree_virtualized());
+    EXPECT_EQ(host_ref.child_count(), 0U);
+
+    root.set_scroll_offset(Point{0.0F, 100.0F});
+
+    EXPECT_FALSE(host_ref.subtree_virtualized());
+    ASSERT_EQ(host_ref.child_count(), 1U);
+    EXPECT_EQ(host_ref.child_at(0U).text(), "restored");
+    EXPECT_EQ(materialize_count, 1);
+}
+
+TEST(UIElementTests, SubtreeVirtualizationMaterializerCanStartCompressed) {
+    auto engine = create_unrounded_engine();
+    UIElement root;
+    root.bind_layout_tree(engine);
+    root.set_overflow(Overflow::Hidden).set_subtree_virtualization_overscan(0.0F);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(120.0F), Length::points(40.0F));
+    });
+
+    auto& host = root.append_new_child<UIElement>();
+    host.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(80.0F), Length::points(20.0F));
+    });
+
+    auto materialize_count = 0;
+    host.set_virtualization_materializer([&materialize_count](const ElementSnapshot&) {
+        ++materialize_count;
+        auto child = std::make_unique<UIElement>();
+        child->set_text("lazy");
+        return child;
+    });
+
+    EXPECT_TRUE(host.subtree_virtualized());
+    EXPECT_EQ(host.child_count(), 0U);
+
+    root.calculate_layout(LayoutConstraints{.width = 120.0F, .height = 40.0F});
+    root.calculate_layout(LayoutConstraints{.width = 120.0F, .height = 40.0F});
+
+    EXPECT_FALSE(host.subtree_virtualized());
+    ASSERT_EQ(host.child_count(), 1U);
+    EXPECT_EQ(host.child_at(0U).text(), "lazy");
+    EXPECT_EQ(materialize_count, 1);
+}
+
 TEST(UIElementTests, BaseElementChildClipKeepsContentInsideVisibleBorder) {
     auto engine = create_unrounded_engine();
     UIElement container;

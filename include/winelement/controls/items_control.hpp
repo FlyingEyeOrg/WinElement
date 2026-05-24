@@ -1,7 +1,6 @@
 #pragma once
 
 #include <winelement/controls/control.hpp>
-#include <winelement/controls/virtualization.hpp>
 #include <winelement/core/observable.hpp>
 #include <winelement/style/ui_element_style.hpp>
 
@@ -53,14 +52,8 @@ class ItemsControl final : public Control {
     ItemsControl& set_on_selection_changed(SelectionChangedHandler handler);
     ItemsControl& set_on_multi_selection_changed(MultiSelectionChangedHandler handler);
     ItemsControl& set_on_reorder(ReorderHandler handler);
-    ItemsControl& set_virtualized(bool virtualized);
     ItemsControl& set_reusable_container_limit(std::size_t limit);
     ItemsControl& set_realized_range(std::size_t start_index, std::size_t count);
-    ItemsControl& set_virtualization_window(float scroll_offset, float viewport_extent,
-                                            float item_extent, std::size_t overscan = 2U);
-    ItemsControl& set_virtualization_window(float scroll_offset, float viewport_extent,
-                                            std::vector<float> item_extents,
-                                            std::size_t overscan = 2U);
     ItemsControl& set_groups(std::vector<ItemGroup> groups);
     ItemsControl& clear_groups();
     ItemsControl& refresh_items();
@@ -71,7 +64,6 @@ class ItemsControl final : public Control {
     [[nodiscard]] std::optional<std::size_t> selected_index() const noexcept;
     [[nodiscard]] std::vector<std::size_t> selected_indices() const;
     [[nodiscard]] const std::vector<ItemGroup>& groups() const noexcept;
-    [[nodiscard]] bool virtualized() const noexcept;
     [[nodiscard]] std::size_t realized_start_index() const noexcept;
     [[nodiscard]] std::size_t realized_end_index() const noexcept;
     [[nodiscard]] std::size_t realized_count() const noexcept;
@@ -111,8 +103,7 @@ class ItemsControl final : public Control {
     std::vector<std::unique_ptr<ItemsControlItemContainer>> reusable_containers_;
     std::size_t realized_start_index_ = 0;
     std::size_t realized_count_ = 0;
-    bool virtualized_ = false;
-    VirtualizationPlanner virtualization_planner_;
+    bool realized_range_overridden_ = false;
     std::size_t reusable_container_limit_ = 64U;
     std::uint64_t items_revision_ = 0;
 };

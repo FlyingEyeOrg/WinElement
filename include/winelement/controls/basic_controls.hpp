@@ -21,4 +21,3 @@
 #include <winelement/controls/switch.hpp>
 #include <winelement/controls/text.hpp>
 #include <winelement/controls/virtualization.hpp>
-#include <winelement/controls/virtualizing_panel.hpp>

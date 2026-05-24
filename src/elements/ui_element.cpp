@@ -31,6 +31,8 @@ namespace {
 
 constexpr auto default_scroll_wheel_step = 48.0F;
 constexpr auto ui_text_layout_cache_entries = 24U;
+constexpr auto default_virtualization_min_overscan = 480.0F;
+constexpr auto default_virtualization_viewport_overscan_ratio = 0.75F;
 
 std::uint64_t next_local_theme_generation() noexcept {
     static std::atomic_uint64_t generation{std::uint64_t{1} << 63U};
@@ -509,6 +511,9 @@ void UIElement::ensure_sorted_children() const {
     sorted_children.reserve(children_.size());
     auto has_custom_z_index = false;
     for (auto& child : children_) {
+        if (child->subtree_virtualized_) {
+            continue;
+        }
         sorted_children.push_back(child.get());
         has_custom_z_index = has_custom_z_index || child->z_index() != 0;
     }
@@ -1296,6 +1301,82 @@ void UIElement::decompress_subtree(const ElementSnapshot& snapshot) {
     if (snapshot.scroll_offset.x != 0.0F || snapshot.scroll_offset.y != 0.0F) {
         set_scroll_offset(snapshot.scroll_offset);
     }
+}
+
+UIElement& UIElement::set_subtree_virtualization_enabled(bool enabled) {
+    verify_thread_access();
+    if (subtree_virtualization_enabled_ == enabled) {
+        return *this;
+    }
+    subtree_virtualization_enabled_ = enabled;
+    if (!enabled) {
+        for (auto& child : children_) {
+            child->set_subtree_virtualized(false);
+        }
+    } else {
+        refresh_virtualization_from_host();
+    }
+    invalidate_paint();
+    return *this;
+}
+
+bool UIElement::subtree_virtualization_enabled() const noexcept {
+    return subtree_virtualization_enabled_;
+}
+
+UIElement& UIElement::set_subtree_virtualization_overscan(float overscan) {
+    verify_thread_access();
+    subtree_virtualization_overscan_ =
+        std::isfinite(overscan) && overscan >= 0.0F ? overscan : -1.0F;
+    refresh_virtualization_from_host();
+    invalidate_paint();
+    return *this;
+}
+
+float UIElement::subtree_virtualization_overscan() const noexcept {
+    return subtree_virtualization_overscan_;
+}
+
+UIElement& UIElement::set_virtualization_materializer(
+    VirtualizationMaterializer materializer) {
+    verify_thread_access();
+    if (!materializer) {
+        if (subtree_virtualized_ && virtualized_snapshot_.has_value() &&
+            virtualization_materializer_) {
+            set_subtree_virtualized(false);
+        }
+        virtualization_materializer_ = nullptr;
+        virtualized_snapshot_.reset();
+        return *this;
+    }
+    virtualization_materializer_ = std::move(materializer);
+    if (parent_ != nullptr && children_.empty() && !virtualized_snapshot_.has_value()) {
+        virtualized_snapshot_ = compress_subtree();
+        subtree_virtualized_ = true;
+        discard_cached_render_commands_subtree();
+        mark_z_order_dirty();
+        invalidate_render_commands();
+        invalidate_paint();
+    }
+    return *this;
+}
+
+bool UIElement::has_virtualization_materializer() const noexcept {
+    return static_cast<bool>(virtualization_materializer_);
+}
+
+bool UIElement::subtree_virtualized() const noexcept {
+    return subtree_virtualized_;
+}
+
+std::size_t UIElement::virtualized_child_count() const noexcept {
+    return static_cast<std::size_t>(std::count_if(
+        children_.begin(), children_.end(),
+        [](const auto& child) noexcept { return child != nullptr && child->subtree_virtualized_; }));
+}
+
+std::size_t UIElement::realized_child_count() const noexcept {
+    return child_count() - virtualized_child_count();
 }
 
 RenderObjectSnapshot UIElement::render_object_snapshot() const {
@@ -2804,7 +2885,7 @@ SemanticsNode UIElement::build_semantics_node_subtree() const {
                        .state = SemanticsState{
                            .disabled = disabled_, .focusable = focusable_, .focused = focused_}};
     for (const auto& child : children_) {
-        if (child->visible_) {
+        if (child->visible_ && !child->subtree_virtualized_) {
             node.children.push_back(child->build_semantics_node_subtree());
         }
     }
@@ -3407,14 +3488,17 @@ void UIElement::refresh_snapshot_from_current_layout() noexcept {
             const auto bounds = effective_top_layer_bounds(
                 entry.options.bounds, parent_->committed_absolute_frame_, root_constraints);
             sync_top_layer_snapshot_subtree(bounds, generation);
+            refresh_virtualization_from_host();
             return;
         }
 
         sync_layout_snapshot_subtree(parent_->child_content_absolute_origin(), generation);
+        refresh_virtualization_from_host();
         return;
     }
 
     sync_layout_snapshot_subtree({}, generation);
+    refresh_virtualization_from_host();
 }
 
 void UIElement::sync_layout_snapshot_subtree(layout::Point parent_content_origin,
@@ -3455,8 +3539,13 @@ void UIElement::update_viewport_state_subtree(layout::Rect viewport_rect) noexce
     const auto clip_rect = clips_children_to_viewport()
                                ? effective_absolute_child_clip_rect()
                                : viewport_rect;
+    update_child_virtualization(clip_rect);
 
     for (auto& child : children_) {
+        if (child->subtree_virtualized_) {
+            child->in_viewport_ = false;
+            continue;
+        }
         const auto was_in = child->in_viewport_;
         const auto child_bounds = child->visible_subtree_bounds();
         const auto is_in = layout::rects_intersect(child_bounds, clip_rect);
@@ -3943,6 +4032,9 @@ bool UIElement::tick_animations_subtree(animation::AnimationTimePoint now,
 
     if (subtree_visible && clip_rect_has_area(child_clip_rect)) {
         for (auto& child : children_) {
+            if (child->subtree_virtualized_) {
+                continue;
+            }
             active = child->tick_animations_subtree(now, child_clip_rect) || active;
         }
     }
@@ -4237,6 +4329,131 @@ bool UIElement::clips_children_to_viewport() const noexcept {
     const auto current_scroll = scroll_offset_value();
     return style_value().overflow != layout::Overflow::Visible || viewport_override().has_value() ||
            current_scroll.x != 0.0F || current_scroll.y != 0.0F || has_scrollable_extent_;
+}
+
+bool UIElement::effective_subtree_virtualization_enabled() const noexcept {
+    return subtree_virtualization_enabled_;
+}
+
+float UIElement::effective_subtree_virtualization_overscan(layout::Rect viewport) const noexcept {
+    if (std::isfinite(subtree_virtualization_overscan_) &&
+        subtree_virtualization_overscan_ >= 0.0F) {
+        return subtree_virtualization_overscan_;
+    }
+    return std::max(viewport.height * default_virtualization_viewport_overscan_ratio,
+                    default_virtualization_min_overscan);
+}
+
+bool UIElement::can_virtualize_subtree() const noexcept {
+    if (focusable_ || focused_ || has_running_animations() || text_input_context_menu_open() ||
+        top_layer_count() > 0U) {
+        return false;
+    }
+    if (event_router_ != nullptr) {
+        if (auto* capture = event_router_->pointer_capture();
+            capture != nullptr && contains(*capture)) {
+            return false;
+        }
+        if (auto* selection_owner = event_router_->text_selection_owner();
+            selection_owner != nullptr && contains(*selection_owner)) {
+            return false;
+        }
+    }
+    if (focus_manager_ != nullptr) {
+        if (auto* focused = focus_manager_->focused_element();
+            focused != nullptr && contains(*focused)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void UIElement::set_subtree_virtualized(bool virtualized) noexcept {
+    if (subtree_virtualized_ == virtualized) {
+        return;
+    }
+    subtree_virtualized_ = virtualized;
+    if (virtualized) {
+        if (virtualization_materializer_ && !virtualized_snapshot_.has_value()) {
+            try {
+                virtualized_snapshot_ = compress_subtree();
+                clear_children();
+            } catch (...) {
+                virtualized_snapshot_.reset();
+                assert(false && "UIElement subtree compression must not throw");
+            }
+        }
+    } else if (virtualized_snapshot_.has_value() && virtualization_materializer_) {
+        try {
+            auto restored_child = virtualization_materializer_(*virtualized_snapshot_);
+            clear_children();
+            if (restored_child != nullptr) {
+                append_child(std::move(restored_child));
+            }
+            decompress_subtree(*virtualized_snapshot_);
+            virtualized_snapshot_.reset();
+        } catch (...) {
+            assert(false && "UIElement subtree decompression must not throw");
+        }
+    }
+    discard_cached_render_commands_subtree();
+    if (virtualized) {
+        for (auto& child : children_) {
+            child->set_subtree_virtualized(true);
+        }
+    } else {
+        for (auto& child : children_) {
+            child->set_subtree_virtualized(false);
+        }
+    }
+    mark_z_order_dirty();
+    invalidate_render_commands();
+    invalidate_paint();
+}
+
+void UIElement::update_child_virtualization(layout::Rect clip_rect) noexcept {
+    if (children_.empty()) {
+        return;
+    }
+
+    const auto enabled = effective_subtree_virtualization_enabled();
+    const auto overscan = enabled ? effective_subtree_virtualization_overscan(clip_rect) : 0.0F;
+    const auto virtualization_rect =
+        enabled ? layout::inflate_rect(clip_rect, overscan) : layout::Rect{};
+
+    auto changed = false;
+    for (auto& child : children_) {
+        if (child == nullptr) {
+            continue;
+        }
+        const auto should_virtualize =
+            enabled && !layout::rects_intersect(child->visible_subtree_bounds(),
+                                                virtualization_rect) &&
+            child->can_virtualize_subtree();
+        if (child->subtree_virtualized_ != should_virtualize) {
+            child->set_subtree_virtualized(should_virtualize);
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        mark_z_order_dirty();
+        invalidate_render_commands();
+        invalidate_paint();
+    }
+}
+
+void UIElement::refresh_virtualization_from_host() noexcept {
+    if (layout_generation_ == 0U) {
+        return;
+    }
+
+    try {
+        auto& host = top_layer_host();
+        host.update_viewport_state_subtree(host.committed_absolute_frame_);
+    } catch (...) {
+        assert(false && "UIElement virtualization refresh must not throw");
+    }
 }
 
 layout::Rect UIElement::visible_subtree_bounds() const noexcept {

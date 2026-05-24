@@ -93,6 +93,8 @@ class UIElement {
     using VisitCallback = std::function<void(UIElement& element, layout::Rect absolute_frame)>;
     using ConstVisitCallback =
         std::function<void(const UIElement& element, layout::Rect absolute_frame)>;
+    using VirtualizationMaterializer =
+        std::function<std::unique_ptr<UIElement>(const ElementSnapshot& snapshot)>;
 
     UIElement();
     virtual ~UIElement() noexcept;
@@ -153,6 +155,15 @@ class UIElement {
     [[nodiscard]] RenderObjectSnapshot render_object_snapshot() const;
     [[nodiscard]] virtual ElementSnapshot compress_subtree() const;
     virtual void decompress_subtree(const ElementSnapshot& snapshot);
+    UIElement& set_subtree_virtualization_enabled(bool enabled);
+    [[nodiscard]] bool subtree_virtualization_enabled() const noexcept;
+    UIElement& set_subtree_virtualization_overscan(float overscan);
+    [[nodiscard]] float subtree_virtualization_overscan() const noexcept;
+    UIElement& set_virtualization_materializer(VirtualizationMaterializer materializer);
+    [[nodiscard]] bool has_virtualization_materializer() const noexcept;
+    [[nodiscard]] bool subtree_virtualized() const noexcept;
+    [[nodiscard]] std::size_t virtualized_child_count() const noexcept;
+    [[nodiscard]] std::size_t realized_child_count() const noexcept;
     [[nodiscard]] bool check_thread_access() const noexcept;
     void verify_thread_access() const;
     void bind_layout_tree(layout::LayoutEngine& layout_engine);
@@ -526,6 +537,13 @@ class UIElement {
     clamped_scroll_offset_for(layout::Point requested_scroll_offset,
                               layout::Rect element_frame) const noexcept;
     [[nodiscard]] bool clips_children_to_viewport() const noexcept;
+    [[nodiscard]] bool effective_subtree_virtualization_enabled() const noexcept;
+    [[nodiscard]] float
+    effective_subtree_virtualization_overscan(layout::Rect viewport) const noexcept;
+    [[nodiscard]] bool can_virtualize_subtree() const noexcept;
+    void set_subtree_virtualized(bool virtualized) noexcept;
+    void update_child_virtualization(layout::Rect clip_rect) noexcept;
+    void refresh_virtualization_from_host() noexcept;
     [[nodiscard]] layout::Rect visible_subtree_bounds() const noexcept;
     [[nodiscard]] layout::Point child_content_absolute_origin() const noexcept;
     [[nodiscard]] layout::Size measure_text_content(const layout::MeasureInput& input) const;
@@ -635,8 +653,13 @@ class UIElement {
     bool has_scrollable_extent_ : 1 = false;
     bool theme_dirty_ : 1 = true;
     bool theme_subtree_dirty_ : 1 = true;
+    bool subtree_virtualization_enabled_ : 1 = true;
+    bool subtree_virtualized_ : 1 = false;
     std::uint32_t animation_tick_depth_ = 0;
     std::uint64_t z_index_gen_ = 0;
+    float subtree_virtualization_overscan_ = -1.0F;
+    std::optional<ElementSnapshot> virtualized_snapshot_;
+    VirtualizationMaterializer virtualization_materializer_;
     std::unique_ptr<StyleState> style_state_;
     std::unique_ptr<TextState> text_state_;
     std::unique_ptr<PropertyState> property_state_;

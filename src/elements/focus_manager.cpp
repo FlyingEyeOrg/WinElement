@@ -168,7 +168,7 @@ bool FocusManager::is_in_tree(const UIElement& element) const noexcept {
 
 bool FocusManager::is_effectively_visible(const UIElement& element) const noexcept {
     for (const auto* current = &element; current != nullptr; current = current->logical_parent()) {
-        if (!current->visible_) {
+        if (!current->visible_ || current->subtree_virtualized_) {
             return false;
         }
     }

@@ -306,13 +306,11 @@ class SyncedViewportPanel final : public controls::Panel {
     ScrollChangedHandler scroll_changed_handler_;
 };
 
-class ShowcaseVirtualizedContentPanel;
-
 struct ShowcaseWindowTree {
     std::unique_ptr<elements::UIElement> root;
     SyncedViewportPanel* viewport = nullptr;
     controls::Scrollbar* scrollbar = nullptr;
-    ShowcaseVirtualizedContentPanel* virtual_content = nullptr;
+    elements::UIElement* virtual_content = nullptr;
 };
 
 struct ShowcaseWindowMetrics {
@@ -1086,9 +1084,7 @@ void add_choice_scroll_section(controls::StackPanel& root) {
             return item;
         })
         .set_selection_mode(controls::ItemsControl::SelectionMode::Multiple)
-        .set_selected_indices({1U, 3U})
-        .set_virtualized(true)
-        .set_virtualization_window(24.0F, 120.0F, 28.0F, 1U);
+        .set_selected_indices({1U, 3U});
     items.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::points(420.0F))
             .set_min_height(layout::Length::points(150.0F))
@@ -1139,9 +1135,7 @@ void add_choice_scroll_section(controls::StackPanel& root) {
                 .set_type(controls::TextType::Info)
                 .set_size(controls::TextSize::Small);
             return row;
-        })
-        .set_virtualized(true)
-        .set_virtualization_window(84.0F, 112.0F, 28.0F, 1U);
+        });
     mvvm_items.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::points(420.0F))
             .set_min_height(layout::Length::points(136.0F))
@@ -1799,42 +1793,34 @@ void add_virtualization_section(controls::StackPanel& root) {
             .set_flex_shrink(1.0F);
     });
 
-    auto virtual_panel = std::make_unique<controls::VirtualizingPanel>();
-    auto* virtual_panel_ptr = virtual_panel.get();
-    virtual_panel->set_scroll_wheel_enabled(false);
-    virtual_panel->set_item_count(item_count)
-        .set_item_extent(item_height)
-        .set_overscan(6)
-        .set_slot_factory([]() {
-            auto slot = std::make_unique<controls::Panel>();
-            slot->set_background(rendering::Color::rgba(255, 100, 100));
-            slot->set_border(rendering::Color::rgba(235, 238, 245), 1.0F);
-            slot->configure_layout([](layout::LayoutElement& layout) {
-                layout.set_width(layout::Length::percent(100.0F))
-                    .set_height(layout::Length::percent(100.0F))
-                    .set_padding(layout::Edge::Horizontal, layout::Length::points(12.0F))
-                    .set_align_items(layout::Align::Center);
-            });
-            slot->append_new_child<controls::Text>()
-                .set_type(controls::TextType::Info)
-                .set_font_size(13.0F);
-            return slot;
-        })
-        .set_item_binder([](elements::UIElement& slot, std::size_t index) {
-            auto& panel = static_cast<controls::Panel&>(slot);
-            panel.set_background(
-                index % 2 == 0 ? rendering::Color::rgba(255, 100, 100)
-                               : rendering::Color::rgba(100, 100, 255));
-            auto& label = static_cast<controls::Text&>(panel.child_at(0));
-            label.set_text("Item #" + std::to_string(index));
-        });
-    virtual_panel_ptr->set_viewport_extent(viewport_height);
-    viewport.set_on_scroll_changed([virtual_panel_ptr](layout::Point scroll_offset) {
-        virtual_panel_ptr->set_scroll_offset(scroll_offset.y);
-        virtual_panel_ptr->refresh_virtualization();
+    auto& content = viewport.append_new_child<controls::StackPanel>();
+    content.set_orientation(controls::Orientation::Vertical);
+    content.set_subtree_virtualization_overscan(viewport_height);
+    content.configure_layout([](layout::LayoutElement& item) {
+        item.set_width(layout::Length::percent(100.0F)).set_flex_shrink(0.0F);
     });
-    viewport.append_child(std::move(virtual_panel));
-    virtual_panel_ptr->refresh_virtualization();
+    for (std::size_t index = 0U; index < item_count; ++index) {
+        auto& slot = content.append_new_child<controls::Panel>();
+        slot.set_background(index % 2 == 0 ? rendering::Color::rgba(255, 100, 100)
+                                           : rendering::Color::rgba(100, 100, 255));
+        slot.set_border(rendering::Color::rgba(235, 238, 245), 1.0F);
+        slot.configure_layout([](layout::LayoutElement& item) {
+            item.set_width(layout::Length::percent(100.0F))
+                .set_height(layout::Length::points(item_height))
+                .set_padding(layout::Edge::Horizontal, layout::Length::points(12.0F))
+                .set_align_items(layout::Align::Center)
+                .set_flex_shrink(0.0F);
+        });
+        slot.set_virtualization_materializer(
+            [index](const elements::ElementSnapshot&) -> std::unique_ptr<elements::UIElement> {
+                auto text = std::make_unique<controls::Text>();
+                text->set_text("Item #" + std::to_string(index))
+                    .set_type(controls::TextType::Info)
+                    .set_font_size(13.0F);
+                return text;
+            });
+    }
+    viewport.set_on_scroll_changed([](layout::Point) {});
 
     const auto scrollbar_max =
         static_cast<float>(item_count) * item_height - viewport_height;
@@ -1844,10 +1830,8 @@ void add_virtualization_section(controls::StackPanel& root) {
         .set_min_thumb_extent(24.0F)
         .set_thickness(8.0F)
         .set_range(0.0F, scrollbar_max, viewport_height)
-        .set_on_scroll([&viewport, virtual_panel_ptr](float value) {
+        .set_on_scroll([&viewport](float value) {
             viewport.set_scroll_offset(layout::Point{0.0F, value});
-            virtual_panel_ptr->set_scroll_offset(value);
-            virtual_panel_ptr->refresh_virtualization();
         });
     scrollbar.configure_layout([](layout::LayoutElement& item) {
         item.set_width(layout::Length::points(12.0F))
@@ -1856,9 +1840,8 @@ void add_virtualization_section(controls::StackPanel& root) {
     });
 
     auto& info = section.append_new_child<controls::Text>();
-    info.set_text("Scroll to test virtualization - only ~" +
-                  std::to_string(static_cast<int>(viewport_height / item_height + 6) * 2) +
-                  " items realized at any time")
+    info.set_text("Scroll to test UIElement tree virtualization - offscreen children are skipped "
+                  "by the core tree")
         .set_type(controls::TextType::Info)
         .set_font_size(12.0F);
 }
@@ -1995,117 +1978,36 @@ void compact_showcase_measurement_heap() noexcept {
     return heights;
 }
 
-class ShowcaseVirtualizedContentPanel final : public controls::Panel {
-  private:
-    struct SectionSlot {
-        ShowcaseSectionId section = ShowcaseSectionId::Buttons;
-        float height = 0.0F;
-        controls::StackPanel* slot = nullptr;
-        bool realized = false;
-    };
-
-  public:
-    void initialize(elements::UIElement& feedback_host, float viewport_width) {
-        feedback_host_ = &feedback_host;
-        viewport_width_ = std::max(viewport_width, 1.0F);
-        sections_.clear();
-        clear_children();
-
-        configure_showcase_content_box(*this);
-        configure_layout([](layout::LayoutElement& item) {
-            item.set_flex_direction(layout::FlexDirection::Column)
-                .set_align_items(layout::Align::Stretch)
-                .set_gap(layout::Gutter::Row, layout::Length::points(showcase_content_gap))
-                .set_gap(layout::Gutter::Column, layout::Length::points(showcase_content_gap));
-        });
-
-        append_showcase_title(*this);
-        sections_.reserve(showcase_section_ids.size());
-        const auto section_heights = measure_showcase_section_heights(viewport_width_);
-        for (std::size_t index = 0U; index < showcase_section_ids.size(); ++index) {
-            const auto section = showcase_section_ids[index];
-            const auto height = section_heights[index];
-            auto& slot = append_new_child<controls::StackPanel>();
-            slot.configure_layout([height](layout::LayoutElement& item) {
-                item.set_width(layout::Length::percent(100.0F))
-                    .set_height(layout::Length::points(height))
-                    .set_flex_shrink(0.0F);
-            });
-            sections_.push_back(SectionSlot{.section = section, .height = height, .slot = &slot});
-        }
-    }
-
-    [[nodiscard]] bool update_virtualization(layout::Point scroll_offset,
-                                             layout::Rect viewport_rect) {
-        if (feedback_host_ == nullptr || viewport_rect.height <= 0.0F) {
-            return false;
-        }
-
-        const auto overscan =
-            std::max(viewport_rect.height * 0.75F, showcase_virtualization_min_overscan);
-        const auto visible_top = std::max(scroll_offset.y - overscan, 0.0F);
-        const auto visible_bottom = scroll_offset.y + viewport_rect.height + overscan;
-        auto changed = false;
-
-        for (auto& section : sections_) {
-            const auto frame = section.slot != nullptr ? section.slot->frame() : layout::Rect{};
-            const auto slot_top = frame.y;
-            const auto slot_bottom = slot_top + std::max(frame.height, section.height);
-            const auto should_realize = slot_bottom >= visible_top && slot_top <= visible_bottom;
-            if (should_realize && !section.realized) {
-                realize(section);
-                changed = true;
-            } else if (!should_realize && section.realized) {
-                unrealize(section);
-                changed = true;
-            }
-        }
-
-        return changed;
-    }
-
-    [[nodiscard]] std::size_t realized_section_count() const noexcept {
-        return static_cast<std::size_t>(
-            std::count_if(sections_.begin(), sections_.end(),
-                          [](const SectionSlot& section) noexcept { return section.realized; }));
-    }
-
-  private:
-    void realize(SectionSlot& section) {
-        if (section.slot == nullptr || feedback_host_ == nullptr) {
-            return;
-        }
-        section.slot->clear_children();
-        add_showcase_section(section.section, *section.slot, *feedback_host_);
-        section.realized = true;
-    }
-
-    static void unrealize(SectionSlot& section) {
-        if (section.slot != nullptr) {
-            section.slot->clear_children();
-        }
-        section.realized = false;
-    }
-
-    elements::UIElement* feedback_host_ = nullptr;
-    float viewport_width_ = 1.0F;
-    std::vector<SectionSlot> sections_;
-};
-
-[[nodiscard]] std::unique_ptr<ShowcaseVirtualizedContentPanel>
-build_showcase_virtualized_content(elements::UIElement& feedback_host, float viewport_width) {
-    auto root = std::make_unique<ShowcaseVirtualizedContentPanel>();
-    root->initialize(feedback_host, viewport_width);
-    return root;
+[[nodiscard]] std::unique_ptr<controls::StackPanel>
+build_showcase_section_payload(ShowcaseSectionId section, elements::UIElement& feedback_host) {
+    auto payload = std::make_unique<controls::StackPanel>();
+    payload->configure_layout([](layout::LayoutElement& item) {
+        item.set_width(layout::Length::percent(100.0F)).set_flex_shrink(0.0F);
+    });
+    add_showcase_section(section, *payload, feedback_host);
+    return payload;
 }
 
 [[nodiscard]] std::unique_ptr<controls::StackPanel>
-build_showcase_content(elements::UIElement& feedback_host) {
+build_showcase_content(elements::UIElement& feedback_host, float viewport_width) {
     auto root = std::make_unique<controls::StackPanel>();
     configure_showcase_content_stack(*root);
     append_showcase_title(*root);
-    for (const auto section : showcase_section_ids) {
-        add_showcase_section(section, *root, feedback_host);
+    const auto section_heights =
+        measure_showcase_section_heights(std::max(viewport_width, 1.0F));
+    for (std::size_t index = 0U; index < showcase_section_ids.size(); ++index) {
+        const auto section = showcase_section_ids[index];
+        const auto height = section_heights[index];
+        auto& slot = root->append_new_child<controls::StackPanel>();
+        slot.configure_layout([height](layout::LayoutElement& item) {
+            item.set_width(layout::Length::percent(100.0F))
+                .set_height(layout::Length::points(height))
+                .set_flex_shrink(0.0F);
+        });
+        slot.set_virtualization_materializer(
+            [section, feedback_host_ptr = &feedback_host](const elements::ElementSnapshot&) {
+                return build_showcase_section_payload(section, *feedback_host_ptr);
+            });
     }
     return root;
 }
@@ -2113,7 +2015,7 @@ build_showcase_content(elements::UIElement& feedback_host) {
 [[nodiscard]] float measure_showcase_content_height(float viewport_width) {
     auto engine = layout::LayoutEngine{};
     auto feedback_host = controls::Panel{};
-    auto content = build_showcase_virtualized_content(feedback_host, viewport_width);
+    auto content = build_showcase_content(feedback_host, viewport_width);
     content->bind_layout_tree(engine);
     content->calculate_layout(layout::LayoutConstraints{.width = std::max(viewport_width, 1.0F)});
     return std::max(content->frame().height, 0.0F);
@@ -2176,16 +2078,9 @@ build_showcase_window_tree(float viewport_width_hint = showcase_window_viewport_
             .set_flex_shrink(1.0F)
             .set_min_width(layout::Length::points(0.0F));
     });
-    auto virtual_content = build_showcase_virtualized_content(*root, viewport_width_hint);
+    auto virtual_content = build_showcase_content(*root, viewport_width_hint);
     auto* virtual_content_ptr = virtual_content.get();
     viewport.append_child(std::move(virtual_content));
-
-    auto* root_ptr = root.get();
-
-    auto relayout_root = [root_ptr]() {
-        root_ptr->calculate_layout(layout::LayoutConstraints{
-            .width = root_ptr->frame().width, .height = root_ptr->frame().height});
-    };
 
     auto& scrollbar = row.append_new_child<controls::Scrollbar>();
     scrollbar.set_orientation(controls::ScrollbarOrientation::Vertical)
@@ -2197,20 +2092,11 @@ build_showcase_window_tree(float viewport_width_hint = showcase_window_viewport_
                                             .page_size = viewport.viewport_rect().height,
                                             .value = viewport.scroll_offset().y};
         })
-        .set_on_scroll([&viewport, virtual_content_ptr, relayout_root](float value) {
+        .set_on_scroll([&viewport](float value) {
             viewport.set_scroll_offset(layout::Point{0.0F, value});
-            if (virtual_content_ptr != nullptr &&
-                virtual_content_ptr->update_virtualization(viewport.scroll_offset(),
-                                                           viewport.viewport_rect())) {
-                relayout_root();
-            }
         });
     viewport.set_on_scroll_changed(
-        [&viewport, &scrollbar, virtual_content_ptr, relayout_root](layout::Point offset) {
-            if (virtual_content_ptr != nullptr &&
-                virtual_content_ptr->update_virtualization(offset, viewport.viewport_rect())) {
-                relayout_root();
-            }
+        [&scrollbar](layout::Point offset) {
             scrollbar.set_value(offset.y);
         });
     scrollbar.configure_layout([](layout::LayoutElement& item) {
@@ -2226,14 +2112,6 @@ build_showcase_window_tree(float viewport_width_hint = showcase_window_viewport_
     return tree;
 }
 
-[[nodiscard]] bool update_showcase_window_virtualization(ShowcaseWindowTree& tree) {
-    if (tree.virtual_content == nullptr || tree.viewport == nullptr) {
-        return false;
-    }
-    return tree.virtual_content->update_virtualization(tree.viewport->scroll_offset(),
-                                                       tree.viewport->viewport_rect());
-}
-
 void sync_showcase_window_scrollbar(ShowcaseWindowTree& tree) {
     if (tree.scrollbar != nullptr) {
         tree.scrollbar->update();
@@ -2243,10 +2121,8 @@ void sync_showcase_window_scrollbar(ShowcaseWindowTree& tree) {
 void calculate_showcase_window_layout(elements::UIElement& root, ShowcaseWindowTree& tree,
                                       float width, float height) {
     const auto constraints = layout::LayoutConstraints{.width = width, .height = height};
-    root.calculate_layout(constraints);
-    if (update_showcase_window_virtualization(tree)) {
+    for (auto pass = 0; pass < 4; ++pass) {
         root.calculate_layout(constraints);
-        static_cast<void>(update_showcase_window_virtualization(tree));
     }
     sync_showcase_window_scrollbar(tree);
 }
@@ -2255,6 +2131,17 @@ void calculate_showcase_window_layout(elements::UIElement& root, ShowcaseWindowT
     auto total = std::size_t{1U};
     for (auto index = std::size_t{0U}; index < element.child_count(); ++index) {
         total += count_elements(element.child_at(index));
+    }
+    return total;
+}
+
+[[nodiscard]] std::size_t count_realized_showcase_sections(
+    const elements::UIElement& content) noexcept {
+    auto total = std::size_t{0U};
+    for (auto index = std::size_t{1U}; index < content.child_count(); ++index) {
+        if (!content.child_at(index).subtree_virtualized()) {
+            ++total;
+        }
     }
     return total;
 }
@@ -2276,7 +2163,8 @@ void calculate_showcase_window_layout(elements::UIElement& root, ShowcaseWindowT
         measure_showcase_content_height(std::max(metrics.viewport_rect.width, 1.0F));
     metrics.element_count = tree.root != nullptr ? count_elements(*tree.root) : 0U;
     metrics.realized_section_count =
-        tree.virtual_content != nullptr ? tree.virtual_content->realized_section_count() : 0U;
+        tree.virtual_content != nullptr ? count_realized_showcase_sections(*tree.virtual_content)
+                                        : 0U;
     return metrics;
 }
 
