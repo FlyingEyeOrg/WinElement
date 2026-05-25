@@ -504,9 +504,8 @@ void ItemsControl::update_container(elements::UIElement& element, std::size_t it
 void ItemsControl::update_realized_children() {
     const auto start =
         realized_range_overridden_ ? std::min(realized_start_index_, items_.size()) : 0U;
-    const auto count = realized_range_overridden_
-                           ? std::min(realized_count_, items_.size() - start)
-                           : items_.size();
+    const auto count = realized_range_overridden_ ? std::min(realized_count_, items_.size() - start)
+                                                  : items_.size();
 
     std::vector<RealizedSurvivor> survivors;
     survivors.reserve(std::min(count, child_count()));
@@ -678,10 +677,10 @@ void ItemsControl::recycle_container(std::unique_ptr<elements::UIElement> contai
     if (reusable_containers_.size() >= reusable_container_limit_) {
         return;
     }
-    container.release();
-    raw_container->reset_for_reuse();
-    reusable_containers_.push_back(std::unique_ptr<ItemsControlItemContainer>(raw_container));
+    static_cast<void>(container.release());
+    auto reusable = std::unique_ptr<ItemsControlItemContainer>(raw_container);
+    reusable->reset_for_reuse();
+    reusable_containers_.push_back(std::move(reusable));
 }
 
 } // namespace winelement::controls
-

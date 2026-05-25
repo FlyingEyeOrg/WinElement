@@ -662,7 +662,8 @@ Select& Select::set_filter_text(std::string_view filter_text) {
         return *this;
     }
     filter_text_ = filter_text;
-    if (remote_search_ && event_state_ != nullptr && !event_state_->remote_search_requested.empty()) {
+    if (remote_search_ && event_state_ != nullptr &&
+        !event_state_->remote_search_requested.empty()) {
         event_state_->remote_search_requested.emit(filter_text_);
     }
     refresh_filter();
@@ -1317,10 +1318,10 @@ std::string Select::option_label(std::size_t index) const {
     if (index >= options_.size()) {
         return {};
     }
-    if (option_render_cache_.size() == options_.size()) {
-        return option_render_cache_[index].label;
+    if (option_render_cache_.size() != options_.size()) {
+        rebuild_option_cache();
     }
-    return label_formatter_ ? label_formatter_(options_[index], index) : options_[index].label;
+    return option_render_cache_[index].label;
 }
 
 std::optional<std::size_t> Select::tag_close_index_at(layout::Point local_position) const {
@@ -1369,7 +1370,7 @@ std::optional<std::size_t> Select::tag_close_index_at(layout::Point local_positi
     return std::nullopt;
 }
 
-void Select::rebuild_option_cache() {
+void Select::rebuild_option_cache() const {
     option_render_cache_.clear();
     option_render_cache_.reserve(options_.size());
     for (std::size_t index = 0; index < options_.size(); ++index) {
@@ -1478,4 +1479,3 @@ void Select::animate_popup_indicator(float target) {
 }
 
 } // namespace winelement::controls
-

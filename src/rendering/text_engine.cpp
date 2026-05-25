@@ -1,5 +1,7 @@
 #include <winelement/rendering/text_engine.hpp>
 
+#include "../platform/win32/hresult_error.hpp"
+
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -17,7 +19,6 @@
 #include <limits>
 #include <mutex>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -28,24 +29,12 @@
 namespace winelement::rendering {
 namespace {
 
-[[nodiscard]] std::runtime_error make_hresult_error(std::string_view message, HRESULT result) {
-    auto text = std::string(message);
-    text += " HRESULT=0x";
-
-    constexpr auto digits = "0123456789ABCDEF";
-    for (auto shift = 28; shift >= 0; shift -= 4) {
-        text += digits[(static_cast<unsigned long>(result) >> shift) & 0x0F];
-    }
-
-    return std::runtime_error(text);
-}
-
 [[nodiscard]] Microsoft::WRL::ComPtr<IDWriteFactory> create_dwrite_factory() {
     Microsoft::WRL::ComPtr<IDWriteFactory> factory;
     const auto result = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
                                             reinterpret_cast<IUnknown**>(factory.GetAddressOf()));
     if (FAILED(result)) {
-        throw make_hresult_error("failed to create DirectWrite factory", result);
+        throw win32_detail::make_hresult_error("failed to create DirectWrite factory", result);
     }
 
     return factory;
@@ -340,15 +329,16 @@ to_dwrite_line_spacing_method(LineSpacingMethod method) noexcept {
     const auto wide_count = checked_win32_text_length(wide_text.size(), "normalized text");
     auto required_length = NormalizeString(norm_form, wide_text.data(), wide_count, nullptr, 0);
     if (required_length <= 0) {
-        throw make_hresult_error("failed to query normalized text length",
-                                 HRESULT_FROM_WIN32(GetLastError()));
+        throw win32_detail::make_hresult_error("failed to query normalized text length",
+                                               HRESULT_FROM_WIN32(GetLastError()));
     }
 
     std::wstring normalized(static_cast<std::size_t>(required_length), L'\0');
     const auto normalized_length = NormalizeString(norm_form, wide_text.data(), wide_count,
                                                    normalized.data(), required_length);
     if (normalized_length <= 0) {
-        throw make_hresult_error("failed to normalize text", HRESULT_FROM_WIN32(GetLastError()));
+        throw win32_detail::make_hresult_error("failed to normalize text",
+                                               HRESULT_FROM_WIN32(GetLastError()));
     }
     normalized.resize(static_cast<std::size_t>(normalized_length));
     return wide_to_utf8_lossless(normalized);
@@ -403,8 +393,7 @@ struct ResolvedFontFace {
             }
         };
         struct FontFaceFamilyCacheKeyHash {
-            [[nodiscard]] std::size_t
-            operator()(const FontFaceFamilyCacheKey& key) const noexcept {
+            [[nodiscard]] std::size_t operator()(const FontFaceFamilyCacheKey& key) const noexcept {
                 auto seed = std::hash<IDWriteFontFace*>{}(key.face);
                 seed ^= std::hash<std::string>{}(key.locale) + 0x9E3779B9U + (seed << 6U) +
                         (seed >> 2U);
@@ -483,7 +472,8 @@ struct ResolvedFontFace {
     Microsoft::WRL::ComPtr<IDWriteFontCollection> font_collection;
     auto result = factory.GetSystemFontCollection(&font_collection);
     if (FAILED(result)) {
-        throw make_hresult_error("failed to get DirectWrite system font collection", result);
+        throw win32_detail::make_hresult_error("failed to get DirectWrite system font collection",
+                                               result);
     }
 
     for (const auto& family_name : font_family_candidates(style)) {
@@ -523,7 +513,8 @@ struct ResolvedFontFace {
     Microsoft::WRL::ComPtr<IDWriteFontCollection> font_collection;
     const auto result = factory.GetSystemFontCollection(&font_collection);
     if (FAILED(result)) {
-        throw make_hresult_error("failed to get DirectWrite system font collection", result);
+        throw win32_detail::make_hresult_error("failed to get DirectWrite system font collection",
+                                               result);
     }
 
     std::vector<TextFontFamilyInfo> families;
@@ -581,7 +572,8 @@ struct ResolvedFontFace {
         }
     }
     if (format == nullptr) {
-        throw make_hresult_error("failed to create DirectWrite text format", last_result);
+        throw win32_detail::make_hresult_error("failed to create DirectWrite text format",
+                                               last_result);
     }
 
     format->SetTextAlignment(to_dwrite_alignment(style.alignment));
@@ -599,19 +591,22 @@ struct ResolvedFontFace {
 [[nodiscard]] TextFontMetrics query_font_metrics(IDWriteFactory& factory, const TextStyle& style) {
     const auto resolved = resolve_matching_font(factory, style);
     if (!resolved) {
-        throw make_hresult_error("failed to resolve DirectWrite font metrics", DWRITE_E_NOFONT);
+        throw win32_detail::make_hresult_error("failed to resolve DirectWrite font metrics",
+                                               DWRITE_E_NOFONT);
     }
 
     Microsoft::WRL::ComPtr<IDWriteFontFace> font_face;
     const auto face_result = resolved->font->CreateFontFace(&font_face);
     if (FAILED(face_result) || font_face == nullptr) {
-        throw make_hresult_error("failed to create DirectWrite font face", face_result);
+        throw win32_detail::make_hresult_error("failed to create DirectWrite font face",
+                                               face_result);
     }
 
     DWRITE_FONT_METRICS metrics{};
     font_face->GetMetrics(&metrics);
     if (metrics.designUnitsPerEm == 0U) {
-        throw make_hresult_error("failed to resolve DirectWrite font metrics", E_FAIL);
+        throw win32_detail::make_hresult_error("failed to resolve DirectWrite font metrics",
+                                               E_FAIL);
     }
 
     const auto scale = style.font_size / static_cast<float>(metrics.designUnitsPerEm);
@@ -643,13 +638,14 @@ void apply_text_decorations(IDWriteTextLayout& layout, const TextStyle& style, U
     if (has_text_decoration(style.decoration_line, TextDecorationLine::Underline)) {
         const auto result = layout.SetUnderline(TRUE, range);
         if (FAILED(result)) {
-            throw make_hresult_error("failed to apply DirectWrite underline", result);
+            throw win32_detail::make_hresult_error("failed to apply DirectWrite underline", result);
         }
     }
     if (has_text_decoration(style.decoration_line, TextDecorationLine::Strikethrough)) {
         const auto result = layout.SetStrikethrough(TRUE, range);
         if (FAILED(result)) {
-            throw make_hresult_error("failed to apply DirectWrite strikethrough", result);
+            throw win32_detail::make_hresult_error("failed to apply DirectWrite strikethrough",
+                                                   result);
         }
     }
 }
@@ -681,7 +677,8 @@ void apply_typography(IDWriteFactory& factory, IDWriteTextLayout& layout, const 
     Microsoft::WRL::ComPtr<IDWriteTypography> typography;
     const auto typography_result = factory.CreateTypography(&typography);
     if (FAILED(typography_result)) {
-        throw make_hresult_error("failed to create DirectWrite typography", typography_result);
+        throw win32_detail::make_hresult_error("failed to create DirectWrite typography",
+                                               typography_result);
     }
 
     for (const auto& feature : style.features) {
@@ -689,14 +686,16 @@ void apply_typography(IDWriteFactory& factory, IDWriteTextLayout& layout, const 
                                                  feature.parameter};
         const auto feature_result = typography->AddFontFeature(dwrite_feature);
         if (FAILED(feature_result)) {
-            throw make_hresult_error("failed to add OpenType feature", feature_result);
+            throw win32_detail::make_hresult_error("failed to add OpenType feature",
+                                                   feature_result);
         }
     }
 
     const auto typography_result_apply =
         layout.SetTypography(typography.Get(), DWRITE_TEXT_RANGE{0, text_length});
     if (FAILED(typography_result_apply)) {
-        throw make_hresult_error("failed to apply OpenType features", typography_result_apply);
+        throw win32_detail::make_hresult_error("failed to apply OpenType features",
+                                               typography_result_apply);
     }
 }
 
@@ -708,7 +707,8 @@ void apply_trimming(IDWriteFactory& factory, IDWriteTextLayout& layout, TextTrim
     Microsoft::WRL::ComPtr<IDWriteInlineObject> ellipsis;
     const auto ellipsis_result = factory.CreateEllipsisTrimmingSign(&layout, &ellipsis);
     if (FAILED(ellipsis_result)) {
-        throw make_hresult_error("failed to create DirectWrite trimming sign", ellipsis_result);
+        throw win32_detail::make_hresult_error("failed to create DirectWrite trimming sign",
+                                               ellipsis_result);
     }
 
     const DWRITE_TRIMMING trimming_options{trimming == TextTrimming::WordEllipsis
@@ -717,7 +717,8 @@ void apply_trimming(IDWriteFactory& factory, IDWriteTextLayout& layout, TextTrim
                                            0, 0};
     const auto trimming_result = layout.SetTrimming(&trimming_options, ellipsis.Get());
     if (FAILED(trimming_result)) {
-        throw make_hresult_error("failed to apply DirectWrite trimming", trimming_result);
+        throw win32_detail::make_hresult_error("failed to apply DirectWrite trimming",
+                                               trimming_result);
     }
 }
 
@@ -783,8 +784,8 @@ class CapturingTextRenderer final : public IDWriteTextRenderer {
             build_glyph_source_ranges(*description, glyph_run->glyphCount);
         auto x = baseline_origin_x;
         for (UINT32 glyph_index = 0; glyph_index < glyph_run->glyphCount; ++glyph_index) {
-            const auto cluster = source_range_for_glyph(*description, glyph_index,
-                                                        glyph_source_ranges);
+            const auto cluster =
+                source_range_for_glyph(*description, glyph_index, glyph_source_ranges);
             const auto offset = glyph_run->glyphOffsets == nullptr
                                     ? DWRITE_GLYPH_OFFSET{}
                                     : glyph_run->glyphOffsets[glyph_index];
@@ -804,10 +805,9 @@ class CapturingTextRenderer final : public IDWriteTextRenderer {
                                         baseline_origin_y + offset.ascenderOffset},
                 .advance = advance,
                 .advance_offset = layout::Point{offset.advanceOffset, offset.ascenderOffset},
-                .is_cluster_start =
-                    glyph_index < glyph_source_ranges.size()
-                        ? glyph_source_ranges[glyph_index].is_cluster_start
-                        : glyph_index == 0U,
+                .is_cluster_start = glyph_index < glyph_source_ranges.size()
+                                        ? glyph_source_ranges[glyph_index].is_cluster_start
+                                        : glyph_index == 0U,
                 .is_right_to_left = glyph_run->bidiLevel % 2U != 0U});
             x += advance;
         }
@@ -868,8 +868,7 @@ class CapturingTextRenderer final : public IDWriteTextRenderer {
                                            .byte_end = cluster.byte_offset + cluster.byte_length,
                                            .index = static_cast<std::uint32_t>(index)});
         }
-        if (!std::is_sorted(lookup.begin(), lookup.end(), [](const auto& left,
-                                                             const auto& right) {
+        if (!std::is_sorted(lookup.begin(), lookup.end(), [](const auto& left, const auto& right) {
                 if (left.byte_offset != right.byte_offset) {
                     return left.byte_offset < right.byte_offset;
                 }
@@ -886,8 +885,7 @@ class CapturingTextRenderer final : public IDWriteTextRenderer {
     }
 
     [[nodiscard]] static std::vector<GlyphSourceRange>
-    build_glyph_source_ranges(const DWRITE_GLYPH_RUN_DESCRIPTION& description,
-                              UINT32 glyph_count) {
+    build_glyph_source_ranges(const DWRITE_GLYPH_RUN_DESCRIPTION& description, UINT32 glyph_count) {
         std::vector<GlyphSourceRange> ranges(glyph_count);
         if (description.clusterMap == nullptr) {
             return ranges;
@@ -913,8 +911,7 @@ class CapturingTextRenderer final : public IDWriteTextRenderer {
     }
 
     [[nodiscard]] std::pair<std::size_t, std::size_t>
-    source_range_for_glyph(const DWRITE_GLYPH_RUN_DESCRIPTION& description,
-                           UINT32 glyph_index,
+    source_range_for_glyph(const DWRITE_GLYPH_RUN_DESCRIPTION& description, UINT32 glyph_index,
                            const std::vector<GlyphSourceRange>& ranges) const noexcept {
         auto first_utf16 = description.stringLength;
         auto last_utf16 = UINT32{0};
@@ -993,7 +990,7 @@ query_line_metrics(IDWriteTextLayout& dwrite_layout) {
     UINT32 line_count = 0;
     auto result = dwrite_layout.GetLineMetrics(nullptr, 0, &line_count);
     if (result != E_NOT_SUFFICIENT_BUFFER && FAILED(result)) {
-        throw make_hresult_error("failed to query DirectWrite line metrics", result);
+        throw win32_detail::make_hresult_error("failed to query DirectWrite line metrics", result);
     }
     if (line_count == 0U) {
         return {};
@@ -1002,7 +999,7 @@ query_line_metrics(IDWriteTextLayout& dwrite_layout) {
     std::vector<DWRITE_LINE_METRICS> line_metrics(line_count);
     result = dwrite_layout.GetLineMetrics(line_metrics.data(), line_count, &line_count);
     if (FAILED(result)) {
-        throw make_hresult_error("failed to get DirectWrite line metrics", result);
+        throw win32_detail::make_hresult_error("failed to get DirectWrite line metrics", result);
     }
     return line_metrics;
 }
@@ -1055,8 +1052,8 @@ void populate_lines(const std::vector<DWRITE_LINE_METRICS>& line_metrics, TextLa
         std::upper_bound(layout.lines.begin(), layout.lines.end(), y,
                          [](float value, const TextLine& line) { return value < line.rect.y; });
     if (iterator != layout.lines.begin()) {
-        const auto index = static_cast<std::size_t>(std::distance(layout.lines.begin(),
-                                                                  std::prev(iterator)));
+        const auto index =
+            static_cast<std::size_t>(std::distance(layout.lines.begin(), std::prev(iterator)));
         return static_cast<std::uint32_t>(index);
     }
     return static_cast<std::uint32_t>(layout.lines.size() - 1U);
@@ -1141,8 +1138,7 @@ void append_caret_stop_from_metrics(TextLayout& layout, std::size_t byte_offset,
     } else {
         const auto is_same_stop = [&](const TextCaretStop& stop) noexcept {
             return stop.byte_offset == byte_offset && stop.line_index == line_index &&
-                   std::abs(stop.origin.x - x) < 0.01F &&
-                   std::abs(stop.origin.y - y) < 0.01F;
+                   std::abs(stop.origin.x - x) < 0.01F && std::abs(stop.origin.y - y) < 0.01F;
         };
         if (std::find_if(layout.caret_stops.begin(), layout.caret_stops.end(), is_same_stop) !=
             layout.caret_stops.end()) {
@@ -1166,7 +1162,7 @@ void append_caret_stop(IDWriteTextLayout& dwrite_layout, TextLayout& layout,
         static_cast<UINT32>(std::min(utf16_position, utf16_to_utf8.size() - 1U)), FALSE, &x, &y,
         &hit_metrics);
     if (FAILED(result)) {
-        throw make_hresult_error("failed to hit test DirectWrite caret stop", result);
+        throw win32_detail::make_hresult_error("failed to hit test DirectWrite caret stop", result);
     }
 
     const auto line_index = visible_line_index_for_y(layout, hit_metrics.top);
@@ -1184,7 +1180,8 @@ void populate_clusters(IDWriteTextLayout& dwrite_layout, TextLayout& layout,
     UINT32 cluster_count = 0;
     auto result = dwrite_layout.GetClusterMetrics(nullptr, 0, &cluster_count);
     if (result != E_NOT_SUFFICIENT_BUFFER && FAILED(result)) {
-        throw make_hresult_error("failed to query DirectWrite cluster metrics", result);
+        throw win32_detail::make_hresult_error("failed to query DirectWrite cluster metrics",
+                                               result);
     }
 
     if (cluster_count == 0U) {
@@ -1194,7 +1191,7 @@ void populate_clusters(IDWriteTextLayout& dwrite_layout, TextLayout& layout,
     std::vector<DWRITE_CLUSTER_METRICS> metrics(cluster_count);
     result = dwrite_layout.GetClusterMetrics(metrics.data(), cluster_count, &cluster_count);
     if (FAILED(result)) {
-        throw make_hresult_error("failed to get DirectWrite cluster metrics", result);
+        throw win32_detail::make_hresult_error("failed to get DirectWrite cluster metrics", result);
     }
 
     layout.clusters.reserve(layout.clusters.size() + cluster_count);
@@ -1221,7 +1218,8 @@ void populate_clusters(IDWriteTextLayout& dwrite_layout, TextLayout& layout,
         const auto hit_result = dwrite_layout.HitTestTextPosition(
             static_cast<UINT32>(utf16_position), FALSE, &x, &y, &hit_metrics);
         if (FAILED(hit_result)) {
-            throw make_hresult_error("failed to hit test DirectWrite cluster", hit_result);
+            throw win32_detail::make_hresult_error("failed to hit test DirectWrite cluster",
+                                                   hit_result);
         }
 
         const auto line_index = visible_line_index_for_y(layout, hit_metrics.top);
@@ -1467,7 +1465,8 @@ TextLayout TextEngine::layout_text_uncached(std::string_view text, const TextSty
         const auto layout_result = factory.CreateTextLayout(
             wide_text.data(), text_length, format.Get(), width, height, &created_layout);
         if (FAILED(layout_result)) {
-            throw make_hresult_error("failed to create DirectWrite text layout", layout_result);
+            throw win32_detail::make_hresult_error("failed to create DirectWrite text layout",
+                                                   layout_result);
         }
         apply_typography(factory, *created_layout.Get(), style, text_length);
         apply_text_decorations(*created_layout.Get(), style, text_length);
@@ -1477,13 +1476,13 @@ TextLayout TextEngine::layout_text_uncached(std::string_view text, const TextSty
     const auto set_layout_extent = [&](float width, float height) {
         const auto width_result = dwrite_layout->SetMaxWidth(width);
         if (FAILED(width_result)) {
-            throw make_hresult_error("failed to set DirectWrite text layout width",
-                                     width_result);
+            throw win32_detail::make_hresult_error("failed to set DirectWrite text layout width",
+                                                   width_result);
         }
         const auto height_result = dwrite_layout->SetMaxHeight(height);
         if (FAILED(height_result)) {
-            throw make_hresult_error("failed to set DirectWrite text layout height",
-                                     height_result);
+            throw win32_detail::make_hresult_error("failed to set DirectWrite text layout height",
+                                                   height_result);
         }
     };
 
@@ -1492,8 +1491,8 @@ TextLayout TextEngine::layout_text_uncached(std::string_view text, const TextSty
         DWRITE_TEXT_METRICS unbounded_metrics{};
         const auto unbounded_metrics_result = dwrite_layout->GetMetrics(&unbounded_metrics);
         if (FAILED(unbounded_metrics_result)) {
-            throw make_hresult_error("failed to get DirectWrite text metrics",
-                                     unbounded_metrics_result);
+            throw win32_detail::make_hresult_error("failed to get DirectWrite text metrics",
+                                                   unbounded_metrics_result);
         }
         const auto tight_width =
             std::max(1.0F, std::ceil(std::max(unbounded_metrics.widthIncludingTrailingWhitespace,
@@ -1504,8 +1503,7 @@ TextLayout TextEngine::layout_text_uncached(std::string_view text, const TextSty
         }
     }
     auto line_metrics = query_line_metrics(*dwrite_layout.Get());
-    const auto line_limited_height =
-        max_height_for_line_limit(line_metrics, options.max_lines);
+    const auto line_limited_height = max_height_for_line_limit(line_metrics, options.max_lines);
     if (line_limited_height > 0.0F && line_limited_height < max_height) {
         max_height = line_limited_height;
         set_layout_extent(layout_width, max_height);
@@ -1516,7 +1514,8 @@ TextLayout TextEngine::layout_text_uncached(std::string_view text, const TextSty
     DWRITE_TEXT_METRICS text_metrics{};
     const auto metrics_result = dwrite_layout->GetMetrics(&text_metrics);
     if (FAILED(metrics_result)) {
-        throw make_hresult_error("failed to get DirectWrite text metrics", metrics_result);
+        throw win32_detail::make_hresult_error("failed to get DirectWrite text metrics",
+                                               metrics_result);
     }
 
     layout.size = layout::Size{text_metrics.widthIncludingTrailingWhitespace, text_metrics.height};
@@ -1564,7 +1563,8 @@ TextLayout TextEngine::layout_text_uncached(std::string_view text, const TextSty
     const auto draw_result = dwrite_layout->Draw(nullptr, renderer, 0.0F, 0.0F);
     renderer->Release();
     if (FAILED(draw_result)) {
-        throw make_hresult_error("failed to capture DirectWrite glyph runs", draw_result);
+        throw win32_detail::make_hresult_error("failed to capture DirectWrite glyph runs",
+                                               draw_result);
     }
     synthesize_missing_clusters_from_glyphs(layout);
 

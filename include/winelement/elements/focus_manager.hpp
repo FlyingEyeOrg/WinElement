@@ -34,6 +34,7 @@ class FocusManager final {
                                             const UIElement& element) const noexcept;
     void append_focusable_elements_within(UIElement& scope,
                                           std::vector<UIElement*>& focusable_elements) const;
+    [[nodiscard]] std::vector<UIElement*>& focusable_elements_within(UIElement& scope) const;
     void invalidate_focusable_cache() const noexcept;
     void on_focusable_registered(UIElement& element) noexcept;
     void on_focusable_unregistered(UIElement& element) noexcept;
@@ -46,6 +47,7 @@ class FocusManager final {
     UIElement* focused_ = nullptr;
     bool focus_visible_ = false;
     mutable std::vector<UIElement*> focusable_cache_;
+    mutable std::vector<UIElement*> scoped_focusable_cache_;
 };
 
 } // namespace winelement::elements

@@ -9,10 +9,10 @@
 #endif
 #include <shobjidl.h>
 #include <windows.h>
+#include <wrl/client.h>
 #endif
 
 #include <algorithm>
-#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -42,18 +42,6 @@ class ScopedComApartment final {
     HRESULT result_ = E_FAIL;
 };
 
-template <typename T>
-using ComPtr = std::unique_ptr<T, void (*)(T*)>;
-
-template <typename T>
-[[nodiscard]] ComPtr<T> make_com_ptr(T* value) noexcept {
-    return ComPtr<T>(value, [](T* pointer) {
-        if (pointer != nullptr) {
-            pointer->Release();
-        }
-    });
-}
-
 [[nodiscard]] std::wstring utf16_from_item(IShellItem& item) {
     PWSTR raw_path = nullptr;
     if (FAILED(item.GetDisplayName(SIGDN_FILESYSPATH, &raw_path)) || raw_path == nullptr) {
@@ -65,18 +53,19 @@ template <typename T>
     return std::wstring(buffer);
 }
 
-[[nodiscard]] ComPtr<IShellItem> shell_item_from_path(const std::wstring& path) noexcept {
+[[nodiscard]] Microsoft::WRL::ComPtr<IShellItem>
+shell_item_from_path(const std::wstring& path) noexcept {
+    auto item = Microsoft::WRL::ComPtr<IShellItem>{};
     if (path.empty()) {
-        return make_com_ptr<IShellItem>(nullptr);
+        return item;
     }
 
-    IShellItem* item = nullptr;
     const auto result =
-        SHCreateItemFromParsingName(path.c_str(), nullptr, IID_PPV_ARGS(&item));
+        SHCreateItemFromParsingName(path.c_str(), nullptr, IID_PPV_ARGS(item.GetAddressOf()));
     if (FAILED(result)) {
-        return make_com_ptr<IShellItem>(nullptr);
+        item.Reset();
     }
-    return make_com_ptr(item);
+    return item;
 }
 
 void apply_dialog_options(IFileDialog& dialog, FileDialogMode mode,
@@ -119,8 +108,8 @@ void apply_dialog_options(IFileDialog& dialog, FileDialogMode mode,
     if (!options.initial_directory.empty()) {
         auto folder = shell_item_from_path(options.initial_directory);
         if (folder) {
-            static_cast<void>(dialog.SetDefaultFolder(folder.get()));
-            static_cast<void>(dialog.SetFolder(folder.get()));
+            static_cast<void>(dialog.SetDefaultFolder(folder.Get()));
+            static_cast<void>(dialog.SetFolder(folder.Get()));
         }
     }
 
@@ -130,12 +119,11 @@ void apply_dialog_options(IFileDialog& dialog, FileDialogMode mode,
         if (filter.name.empty() || filter.pattern.empty()) {
             continue;
         }
-        filter_specs.push_back(
-            COMDLG_FILTERSPEC{filter.name.c_str(), filter.pattern.c_str()});
+        filter_specs.push_back(COMDLG_FILTERSPEC{filter.name.c_str(), filter.pattern.c_str()});
     }
     if (!filter_specs.empty()) {
-        static_cast<void>(dialog.SetFileTypes(static_cast<UINT>(filter_specs.size()),
-                                              filter_specs.data()));
+        static_cast<void>(
+            dialog.SetFileTypes(static_cast<UINT>(filter_specs.size()), filter_specs.data()));
         const auto file_type_index =
             static_cast<UINT>(std::min(options.selected_filter_index + 1U, filter_specs.size()));
         static_cast<void>(dialog.SetFileTypeIndex(std::max(file_type_index, 1U)));
@@ -146,19 +134,17 @@ void apply_dialog_options(IFileDialog& dialog, FileDialogMode mode,
                                                                         bool multi_select) {
     auto paths = std::vector<std::wstring>{};
     if (multi_select) {
-        IShellItemArray* items = nullptr;
-        if (FAILED(dialog.GetResults(&items)) || items == nullptr) {
+        auto items = Microsoft::WRL::ComPtr<IShellItemArray>{};
+        if (FAILED(dialog.GetResults(items.GetAddressOf())) || items == nullptr) {
             return paths;
         }
-        const auto items_owner = make_com_ptr(items);
         DWORD count = 0U;
-        static_cast<void>(items_owner->GetCount(&count));
+        static_cast<void>(items->GetCount(&count));
         paths.reserve(static_cast<std::size_t>(count));
         for (DWORD index = 0U; index < count; ++index) {
-            IShellItem* item = nullptr;
-            if (SUCCEEDED(items_owner->GetItemAt(index, &item)) && item != nullptr) {
-                const auto item_owner = make_com_ptr(item);
-                auto path = utf16_from_item(*item_owner);
+            auto item = Microsoft::WRL::ComPtr<IShellItem>{};
+            if (SUCCEEDED(items->GetItemAt(index, item.GetAddressOf())) && item != nullptr) {
+                auto path = utf16_from_item(*item.Get());
                 if (!path.empty()) {
                     paths.push_back(std::move(path));
                 }
@@ -167,12 +153,11 @@ void apply_dialog_options(IFileDialog& dialog, FileDialogMode mode,
         return paths;
     }
 
-    IShellItem* item = nullptr;
-    if (FAILED(dialog.GetResult(&item)) || item == nullptr) {
+    auto item = Microsoft::WRL::ComPtr<IShellItem>{};
+    if (FAILED(dialog.GetResult(item.GetAddressOf())) || item == nullptr) {
         return paths;
     }
-    const auto item_owner = make_com_ptr(item);
-    auto path = utf16_from_item(*item_owner);
+    auto path = utf16_from_item(*item.Get());
     if (!path.empty()) {
         paths.push_back(std::move(path));
     }
@@ -181,12 +166,11 @@ void apply_dialog_options(IFileDialog& dialog, FileDialogMode mode,
 
 [[nodiscard]] std::vector<std::wstring> selected_paths_from_save_dialog(IFileSaveDialog& dialog) {
     auto paths = std::vector<std::wstring>{};
-    IShellItem* item = nullptr;
-    if (FAILED(dialog.GetResult(&item)) || item == nullptr) {
+    auto item = Microsoft::WRL::ComPtr<IShellItem>{};
+    if (FAILED(dialog.GetResult(item.GetAddressOf())) || item == nullptr) {
         return paths;
     }
-    const auto item_owner = make_com_ptr(item);
-    auto path = utf16_from_item(*item_owner);
+    auto path = utf16_from_item(*item.Get());
     if (!path.empty()) {
         paths.push_back(std::move(path));
     }
@@ -212,43 +196,40 @@ FileDialogResult FileDialog::show(FileDialogMode mode, FileDialogOptions options
     const auto owner = owner_window_handle(options);
     UINT file_type_index = 0U;
     if (mode == FileDialogMode::SaveFile) {
-        IFileSaveDialog* save_dialog = nullptr;
+        auto save_dialog = Microsoft::WRL::ComPtr<IFileSaveDialog>{};
         if (FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER,
-                                    IID_PPV_ARGS(&save_dialog))) ||
+                                    IID_PPV_ARGS(save_dialog.GetAddressOf()))) ||
             save_dialog == nullptr) {
             return result;
         }
-        const auto dialog_owner = make_com_ptr(save_dialog);
-        apply_dialog_options(*dialog_owner, mode, options);
-        const auto show_result = dialog_owner->Show(owner);
+        apply_dialog_options(*save_dialog.Get(), mode, options);
+        const auto show_result = save_dialog->Show(owner);
         if (show_result == HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
             return result;
         }
         if (FAILED(show_result)) {
             return result;
         }
-        result.paths = selected_paths_from_save_dialog(*dialog_owner);
-        static_cast<void>(dialog_owner->GetFileTypeIndex(&file_type_index));
+        result.paths = selected_paths_from_save_dialog(*save_dialog.Get());
+        static_cast<void>(save_dialog->GetFileTypeIndex(&file_type_index));
     } else {
-        IFileOpenDialog* open_dialog = nullptr;
+        auto open_dialog = Microsoft::WRL::ComPtr<IFileOpenDialog>{};
         if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
-                                    IID_PPV_ARGS(&open_dialog))) ||
+                                    IID_PPV_ARGS(open_dialog.GetAddressOf()))) ||
             open_dialog == nullptr) {
             return result;
         }
-        const auto dialog_owner = make_com_ptr(open_dialog);
-        apply_dialog_options(*dialog_owner, mode, options);
-        const auto show_result = dialog_owner->Show(owner);
+        apply_dialog_options(*open_dialog.Get(), mode, options);
+        const auto show_result = open_dialog->Show(owner);
         if (show_result == HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
             return result;
         }
         if (FAILED(show_result)) {
             return result;
         }
-        result.paths = selected_paths_from_open_dialog(*dialog_owner,
-                                                       options.multi_select &&
-                                                           mode == FileDialogMode::OpenFile);
-        static_cast<void>(dialog_owner->GetFileTypeIndex(&file_type_index));
+        result.paths = selected_paths_from_open_dialog(
+            *open_dialog.Get(), options.multi_select && mode == FileDialogMode::OpenFile);
+        static_cast<void>(open_dialog->GetFileTypeIndex(&file_type_index));
     }
 
     result.accepted = !result.paths.empty();

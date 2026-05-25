@@ -274,6 +274,7 @@ void WindowRenderWorker::request_repaint() const noexcept {
 }
 
 void WindowRenderWorker::stop() noexcept {
+    hwnd_.store(nullptr, std::memory_order_release);
     {
         const std::scoped_lock lock(mutex_);
         if (stopping_) {
@@ -294,7 +295,6 @@ void WindowRenderWorker::stop() noexcept {
     if (worker_.joinable()) {
         worker_.join();
     }
-    hwnd_.store(nullptr, std::memory_order_release);
 }
 
 void WindowRenderWorker::run() noexcept {

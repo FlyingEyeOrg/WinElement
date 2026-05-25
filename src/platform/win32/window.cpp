@@ -184,7 +184,9 @@ void enable_process_dpi_awareness() noexcept {
 
 [[nodiscard]] layout::Size client_dip_size(HWND hwnd, float dpi) noexcept {
     RECT rect{};
-    GetClientRect(hwnd, &rect);
+    if (hwnd == nullptr || GetClientRect(hwnd, &rect) == FALSE) {
+        return layout::Size{1.0F, 1.0F};
+    }
     const auto scale = default_dpi / std::max(dpi, 1.0F);
     const auto width = static_cast<float>(std::max<LONG>(rect.right - rect.left, 0)) * scale;
     const auto height = static_cast<float>(std::max<LONG>(rect.bottom - rect.top, 0)) * scale;
@@ -193,7 +195,9 @@ void enable_process_dpi_awareness() noexcept {
 
 [[nodiscard]] ClientPixelSize client_pixel_size(HWND hwnd) noexcept {
     RECT rect{};
-    GetClientRect(hwnd, &rect);
+    if (hwnd == nullptr || GetClientRect(hwnd, &rect) == FALSE) {
+        return ClientPixelSize{.width = 1U, .height = 1U};
+    }
     return ClientPixelSize{
         .width = static_cast<std::uint32_t>(std::max<LONG>(rect.right - rect.left, 1)),
         .height = static_cast<std::uint32_t>(std::max<LONG>(rect.bottom - rect.top, 1))};
@@ -493,6 +497,9 @@ struct ModalOwnerState {
 
 std::mutex modal_owner_mutex;
 std::unordered_map<HWND, ModalOwnerState> modal_owner_states;
+std::mutex window_class_mutex;
+std::uint32_t window_class_ref_count = 0U;
+bool window_class_owned_by_module = false;
 
 void acquire_modal_owner(HWND owner_hwnd) noexcept {
     if (owner_hwnd == nullptr || IsWindow(owner_hwnd) == FALSE) {
@@ -534,6 +541,44 @@ void release_modal_owner(HWND owner_hwnd) noexcept {
     }
 }
 
+void retain_window_class(WNDPROC window_proc) {
+    const std::scoped_lock lock(window_class_mutex);
+    if (window_class_ref_count++ > 0U) {
+        return;
+    }
+
+    WNDCLASSEXW window_class{};
+    window_class.cbSize = sizeof(window_class);
+    window_class.style = CS_DBLCLKS;
+    window_class.lpfnWndProc = window_proc;
+    window_class.hInstance = GetModuleHandleW(nullptr);
+    window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    window_class.lpszClassName = class_name;
+
+    if (RegisterClassExW(&window_class) == 0) {
+        const auto error = GetLastError();
+        if (error != ERROR_CLASS_ALREADY_EXISTS) {
+            --window_class_ref_count;
+            throw make_win32_error("failed to register WinElement window class");
+        }
+        window_class_owned_by_module = false;
+        return;
+    }
+
+    window_class_owned_by_module = true;
+}
+
+void release_window_class() noexcept {
+    const std::scoped_lock lock(window_class_mutex);
+    if (window_class_ref_count == 0U || --window_class_ref_count != 0U) {
+        return;
+    }
+    if (window_class_owned_by_module) {
+        UnregisterClassW(class_name, GetModuleHandleW(nullptr));
+    }
+    window_class_owned_by_module = false;
+}
+
 } // namespace
 
 class Window::Impl final {
@@ -555,6 +600,10 @@ class Window::Impl final {
             }
         } catch (...) {
             destroy_native_window();
+            if (registered_window_class_) {
+                release_window_class();
+                registered_window_class_ = false;
+            }
             throw;
         }
     }
@@ -566,6 +615,10 @@ class Window::Impl final {
             winmm_module_ = nullptr;
             time_begin_period_ = nullptr;
             time_end_period_ = nullptr;
+        }
+        if (registered_window_class_) {
+            release_window_class();
+            registered_window_class_ = false;
         }
     }
 
@@ -675,9 +728,16 @@ class Window::Impl final {
         show();
         MSG message{};
         while (hwnd_ != nullptr && IsWindow(hwnd_) != FALSE) {
+            if (dispatcher_->quit_requested()) {
+                close();
+                return dispatcher_->exit_code();
+            }
             const auto result = GetMessageW(&message, nullptr, 0, 0);
             if (result <= 0) {
                 return static_cast<int>(message.wParam);
+            }
+            if (dispatcher_->process_thread_message(message.hwnd, message.message)) {
+                continue;
             }
             TranslateMessage(&message);
             DispatchMessageW(&message);
@@ -783,196 +843,200 @@ class Window::Impl final {
         }
 
         const auto result = [&]() -> LRESULT {
-        switch (message) {
-        case WM_ENTERSIZEMOVE:
-            interactive_resize_ = true;
-            begin_interactive_resize();
-            return 0;
-        case WM_EXITSIZEMOVE:
-            interactive_resize_ = false;
-            last_interactive_resize_flush_at_ = {};
-            apply_resize_now();
-            resume_animation_after_interactive_resize();
-            return 0;
-        case WM_SIZE:
-            on_resize();
-            return 0;
-        case WM_DPICHANGED:
-            on_dpi_changed(wparam, lparam);
-            return 0;
-        case WM_PAINT:
-            on_paint();
-            return 0;
-        case WM_TIMER:
-            if (wparam == caret_blink_timer_id) {
-                invalidate_focused_text_input_caret();
-                request_repaint();
+            switch (message) {
+            case WM_ENTERSIZEMOVE:
+                interactive_resize_ = true;
+                begin_interactive_resize();
                 return 0;
-            }
-            if (wparam == animation_frame_timer_id) {
-                on_animation_frame_timer();
+            case WM_EXITSIZEMOVE:
+                interactive_resize_ = false;
+                last_interactive_resize_flush_at_ = {};
+                apply_resize_now();
+                resume_animation_after_interactive_resize();
                 return 0;
-            }
-            return DefWindowProcW(hwnd, message, wparam, lparam);
-        case WM_ERASEBKGND:
-            return 1;
-        case WM_SETCURSOR:
-            if (LOWORD(lparam) == HTCLIENT) {
-                apply_native_cursor(native_cursor_);
-                return TRUE;
-            }
-            return DefWindowProcW(hwnd, message, wparam, lparam);
-        case WM_MOUSEMOVE:
-            on_mouse_move(wparam, lparam);
-            return 0;
-        case WM_MOUSELEAVE:
-            on_mouse_leave();
-            return 0;
-        case WM_LBUTTONDOWN:
-            SetCapture(hwnd_);
-            route_pointer(elements::PointerEventKind::Down, point_from_lparam(lparam, dpi_),
-                          elements::PointerButton::Primary, wparam);
-            return 0;
-        case WM_LBUTTONDBLCLK:
-            SetCapture(hwnd_);
-            route_pointer(elements::PointerEventKind::DoubleClick, point_from_lparam(lparam, dpi_),
-                          elements::PointerButton::Primary, wparam, {}, 2);
-            return 0;
-        case WM_LBUTTONUP:
-            route_pointer(elements::PointerEventKind::Up, point_from_lparam(lparam, dpi_),
-                          elements::PointerButton::Primary, wparam, {}, 1);
-            ReleaseCapture();
-            return 0;
-        case WM_RBUTTONDOWN:
-            SetCapture(hwnd_);
-            route_pointer(elements::PointerEventKind::Down, point_from_lparam(lparam, dpi_),
-                          elements::PointerButton::Secondary, wparam);
-            return 0;
-        case WM_RBUTTONDBLCLK:
-            SetCapture(hwnd_);
-            route_pointer(elements::PointerEventKind::DoubleClick, point_from_lparam(lparam, dpi_),
-                          elements::PointerButton::Secondary, wparam, {}, 2);
-            return 0;
-        case WM_RBUTTONUP: {
-            const auto position = point_from_lparam(lparam, dpi_);
-            route_pointer(elements::PointerEventKind::Up, position,
-                          elements::PointerButton::Secondary, wparam, {}, 1);
-            ReleaseCapture();
-        }
-            return 0;
-        case WM_MBUTTONDOWN:
-            SetCapture(hwnd_);
-            route_pointer(elements::PointerEventKind::Down, point_from_lparam(lparam, dpi_),
-                          elements::PointerButton::Middle, wparam);
-            return 0;
-        case WM_MBUTTONDBLCLK:
-            SetCapture(hwnd_);
-            route_pointer(elements::PointerEventKind::DoubleClick, point_from_lparam(lparam, dpi_),
-                          elements::PointerButton::Middle, wparam, {}, 2);
-            return 0;
-        case WM_MBUTTONUP:
-            route_pointer(elements::PointerEventKind::Up, point_from_lparam(lparam, dpi_),
-                          elements::PointerButton::Middle, wparam, {}, 1);
-            ReleaseCapture();
-            return 0;
-        case WM_XBUTTONDOWN:
-            SetCapture(hwnd_);
-            route_pointer(elements::PointerEventKind::Down, point_from_lparam(lparam, dpi_),
-                          xbutton_from_wparam(wparam), wparam);
-            return TRUE;
-        case WM_XBUTTONDBLCLK:
-            SetCapture(hwnd_);
-            route_pointer(elements::PointerEventKind::DoubleClick, point_from_lparam(lparam, dpi_),
-                          xbutton_from_wparam(wparam), wparam, {}, 2);
-            return TRUE;
-        case WM_XBUTTONUP:
-            route_pointer(elements::PointerEventKind::Up, point_from_lparam(lparam, dpi_),
-                          xbutton_from_wparam(wparam), wparam, {}, 1);
-            ReleaseCapture();
-            return TRUE;
-        case WM_MOUSEWHEEL:
-            route_wheel(wparam, lparam, false);
-            return 0;
-        case WM_MOUSEHWHEEL:
-            route_wheel(wparam, lparam, true);
-            return 0;
-        case WM_CONTEXTMENU:
-            if (show_text_input_context_menu_from_message(lparam)) {
+            case WM_SIZE:
+                on_resize();
                 return 0;
-            }
-            return DefWindowProcW(hwnd, message, wparam, lparam);
-        case WM_KEYDOWN:
-            route_key(elements::KeyEventKind::Down, key_from_virtual_key(wparam), {});
-            return 0;
-        case WM_KEYUP:
-            route_key(elements::KeyEventKind::Up, key_from_virtual_key(wparam), {});
-            return 0;
-        case WM_CHAR:
-            if (wparam >= 0x20 && wparam != 0x7F) {
-                const auto text = text_from_wm_char(wparam);
-                if (!text.empty()) {
-                    route_key(elements::KeyEventKind::TextInput, elements::Key::Unknown, text);
+            case WM_DPICHANGED:
+                on_dpi_changed(wparam, lparam);
+                return 0;
+            case WM_PAINT:
+                on_paint();
+                return 0;
+            case WM_TIMER:
+                if (wparam == caret_blink_timer_id) {
+                    invalidate_focused_text_input_caret();
+                    request_repaint();
+                    return 0;
                 }
-            }
-            return 0;
-        case WM_IME_STARTCOMPOSITION:
-            ime_state_.start_composition();
-            update_ime_window_position();
-            start_ime_text_input();
-            return 0;
-        case WM_IME_COMPOSITION:
-            if ((lparam & GCS_RESULTSTR) != 0) {
-                ime_state_.commit_result();
-                commit_ime_text_input(ime_composition_text(hwnd_, GCS_RESULTSTR));
-                return 0;
-            }
-            if ((lparam & GCS_COMPSTR) != 0) {
-                update_ime_text_input(ime_composition_text(hwnd_, GCS_COMPSTR));
-                return 0;
-            }
-            return DefWindowProcW(hwnd, message, wparam, lparam);
-        case WM_IME_ENDCOMPOSITION:
-            ime_state_.finish_composition();
-            end_ime_text_input_if_idle();
-            update_ime_window_position();
-            return 0;
-        case WM_IME_NOTIFY:
-            switch (wparam) {
-            case IMN_OPENCANDIDATE:
-            case IMN_CHANGECANDIDATE:
-                ime_state_.open_candidate();
-                update_ime_window_position();
-                start_ime_text_input();
-                if (const auto text = ime_composition_text(hwnd_, GCS_COMPSTR); !text.empty()) {
-                    update_ime_text_input(text);
+                if (wparam == animation_frame_timer_id) {
+                    on_animation_frame_timer();
+                    return 0;
                 }
                 return DefWindowProcW(hwnd, message, wparam, lparam);
-            case IMN_CLOSECANDIDATE:
-                ime_state_.close_candidate();
+            case WM_ERASEBKGND:
+                return 1;
+            case WM_SETCURSOR:
+                if (LOWORD(lparam) == HTCLIENT) {
+                    apply_native_cursor(native_cursor_);
+                    return TRUE;
+                }
+                return DefWindowProcW(hwnd, message, wparam, lparam);
+            case WM_MOUSEMOVE:
+                on_mouse_move(wparam, lparam);
+                return 0;
+            case WM_MOUSELEAVE:
+                on_mouse_leave();
+                return 0;
+            case WM_LBUTTONDOWN:
+                SetCapture(hwnd_);
+                route_pointer(elements::PointerEventKind::Down, point_from_lparam(lparam, dpi_),
+                              elements::PointerButton::Primary, wparam);
+                return 0;
+            case WM_LBUTTONDBLCLK:
+                SetCapture(hwnd_);
+                route_pointer(elements::PointerEventKind::DoubleClick,
+                              point_from_lparam(lparam, dpi_), elements::PointerButton::Primary,
+                              wparam, {}, 2);
+                return 0;
+            case WM_LBUTTONUP:
+                route_pointer(elements::PointerEventKind::Up, point_from_lparam(lparam, dpi_),
+                              elements::PointerButton::Primary, wparam, {}, 1);
+                ReleaseCapture();
+                return 0;
+            case WM_RBUTTONDOWN:
+                SetCapture(hwnd_);
+                route_pointer(elements::PointerEventKind::Down, point_from_lparam(lparam, dpi_),
+                              elements::PointerButton::Secondary, wparam);
+                return 0;
+            case WM_RBUTTONDBLCLK:
+                SetCapture(hwnd_);
+                route_pointer(elements::PointerEventKind::DoubleClick,
+                              point_from_lparam(lparam, dpi_), elements::PointerButton::Secondary,
+                              wparam, {}, 2);
+                return 0;
+            case WM_RBUTTONUP: {
+                const auto position = point_from_lparam(lparam, dpi_);
+                route_pointer(elements::PointerEventKind::Up, position,
+                              elements::PointerButton::Secondary, wparam, {}, 1);
+                ReleaseCapture();
+            }
+                return 0;
+            case WM_MBUTTONDOWN:
+                SetCapture(hwnd_);
+                route_pointer(elements::PointerEventKind::Down, point_from_lparam(lparam, dpi_),
+                              elements::PointerButton::Middle, wparam);
+                return 0;
+            case WM_MBUTTONDBLCLK:
+                SetCapture(hwnd_);
+                route_pointer(elements::PointerEventKind::DoubleClick,
+                              point_from_lparam(lparam, dpi_), elements::PointerButton::Middle,
+                              wparam, {}, 2);
+                return 0;
+            case WM_MBUTTONUP:
+                route_pointer(elements::PointerEventKind::Up, point_from_lparam(lparam, dpi_),
+                              elements::PointerButton::Middle, wparam, {}, 1);
+                ReleaseCapture();
+                return 0;
+            case WM_XBUTTONDOWN:
+                SetCapture(hwnd_);
+                route_pointer(elements::PointerEventKind::Down, point_from_lparam(lparam, dpi_),
+                              xbutton_from_wparam(wparam), wparam);
+                return TRUE;
+            case WM_XBUTTONDBLCLK:
+                SetCapture(hwnd_);
+                route_pointer(elements::PointerEventKind::DoubleClick,
+                              point_from_lparam(lparam, dpi_), xbutton_from_wparam(wparam), wparam,
+                              {}, 2);
+                return TRUE;
+            case WM_XBUTTONUP:
+                route_pointer(elements::PointerEventKind::Up, point_from_lparam(lparam, dpi_),
+                              xbutton_from_wparam(wparam), wparam, {}, 1);
+                ReleaseCapture();
+                return TRUE;
+            case WM_MOUSEWHEEL:
+                route_wheel(wparam, lparam, false);
+                return 0;
+            case WM_MOUSEHWHEEL:
+                route_wheel(wparam, lparam, true);
+                return 0;
+            case WM_CONTEXTMENU:
+                if (show_text_input_context_menu_from_message(lparam)) {
+                    return 0;
+                }
+                return DefWindowProcW(hwnd, message, wparam, lparam);
+            case WM_KEYDOWN:
+                route_key(elements::KeyEventKind::Down, key_from_virtual_key(wparam), {});
+                return 0;
+            case WM_KEYUP:
+                route_key(elements::KeyEventKind::Up, key_from_virtual_key(wparam), {});
+                return 0;
+            case WM_CHAR:
+                if (wparam >= 0x20 && wparam != 0x7F) {
+                    const auto text = text_from_wm_char(wparam);
+                    if (!text.empty()) {
+                        route_key(elements::KeyEventKind::TextInput, elements::Key::Unknown, text);
+                    }
+                }
+                return 0;
+            case WM_IME_STARTCOMPOSITION:
+                ime_state_.start_composition();
+                update_ime_window_position();
+                start_ime_text_input();
+                return 0;
+            case WM_IME_COMPOSITION:
+                if ((lparam & GCS_RESULTSTR) != 0) {
+                    ime_state_.commit_result();
+                    commit_ime_text_input(ime_composition_text(hwnd_, GCS_RESULTSTR));
+                    return 0;
+                }
+                if ((lparam & GCS_COMPSTR) != 0) {
+                    update_ime_text_input(ime_composition_text(hwnd_, GCS_COMPSTR));
+                    return 0;
+                }
+                return DefWindowProcW(hwnd, message, wparam, lparam);
+            case WM_IME_ENDCOMPOSITION:
+                ime_state_.finish_composition();
                 end_ime_text_input_if_idle();
                 update_ime_window_position();
+                return 0;
+            case WM_IME_NOTIFY:
+                switch (wparam) {
+                case IMN_OPENCANDIDATE:
+                case IMN_CHANGECANDIDATE:
+                    ime_state_.open_candidate();
+                    update_ime_window_position();
+                    start_ime_text_input();
+                    if (const auto text = ime_composition_text(hwnd_, GCS_COMPSTR); !text.empty()) {
+                        update_ime_text_input(text);
+                    }
+                    return DefWindowProcW(hwnd, message, wparam, lparam);
+                case IMN_CLOSECANDIDATE:
+                    ime_state_.close_candidate();
+                    end_ime_text_input_if_idle();
+                    update_ime_window_position();
+                    return DefWindowProcW(hwnd, message, wparam, lparam);
+                default:
+                    return DefWindowProcW(hwnd, message, wparam, lparam);
+                }
+            case WM_CLOSE:
+                destroy_native_window();
+                return 0;
+            case animation_frame_message:
+                on_animation_frame_message();
+                return 0;
+            case managed_close_message:
+                destroy_native_window_on_owner_thread();
+                return 0;
+            case WM_DESTROY:
+                on_destroy();
+                return 0;
+            case WM_NCDESTROY:
+                on_native_destroyed(hwnd);
                 return DefWindowProcW(hwnd, message, wparam, lparam);
             default:
                 return DefWindowProcW(hwnd, message, wparam, lparam);
             }
-        case WM_CLOSE:
-            destroy_native_window();
-            return 0;
-        case animation_frame_message:
-            on_animation_frame_message();
-            return 0;
-        case managed_close_message:
-            destroy_native_window_on_owner_thread();
-            return 0;
-        case WM_DESTROY:
-            on_destroy();
-            return 0;
-        case WM_NCDESTROY:
-            on_native_destroyed(hwnd);
-            return DefWindowProcW(hwnd, message, wparam, lparam);
-        default:
-            return DefWindowProcW(hwnd, message, wparam, lparam);
-        }
         }();
 
         if (!post_message_filters_.empty()) {
@@ -1298,36 +1362,24 @@ class Window::Impl final {
     }
 
     void register_class() {
-        WNDCLASSEXW window_class{};
-        window_class.cbSize = sizeof(window_class);
-        window_class.style = CS_DBLCLKS;
-        window_class.lpfnWndProc = &Window::Impl::window_proc;
-        window_class.hInstance = GetModuleHandleW(nullptr);
-        window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-        window_class.lpszClassName = class_name;
-
-        if (RegisterClassExW(&window_class) == 0) {
-            const auto error = GetLastError();
-            if (error != ERROR_CLASS_ALREADY_EXISTS) {
-                throw make_win32_error("failed to register WinElement window class");
-            }
-        }
+        retain_window_class(&Window::Impl::window_proc);
+        registered_window_class_ = true;
     }
 
     void create_window() {
         owner_hwnd_ = options_.owner != nullptr && options_.owner->impl_ != nullptr
                           ? options_.owner->impl_->async_hwnd_.load(std::memory_order_acquire)
                           : nullptr;
-        auto create_params = WindowCreateParams{
-            .title = options_.title,
-            .x = use_default_window_coordinate,
-            .y = use_default_window_coordinate,
-            .width = std::max(options_.width, 1),
-            .height = std::max(options_.height, 1),
-            .style = WS_OVERLAPPEDWINDOW,
-            .extended_style =
-                options_.use_no_redirection_bitmap ? WS_EX_NOREDIRECTIONBITMAP : DWORD{0},
-            .owner_handle = owner_hwnd_};
+        auto create_params = WindowCreateParams{.title = options_.title,
+                                                .x = use_default_window_coordinate,
+                                                .y = use_default_window_coordinate,
+                                                .width = std::max(options_.width, 1),
+                                                .height = std::max(options_.height, 1),
+                                                .style = WS_OVERLAPPEDWINDOW,
+                                                .extended_style = options_.use_no_redirection_bitmap
+                                                                      ? WS_EX_NOREDIRECTIONBITMAP
+                                                                      : DWORD{0},
+                                                .owner_handle = owner_hwnd_};
         if (options_.on_before_create) {
             options_.on_before_create(create_params);
         }
@@ -1357,8 +1409,7 @@ class Window::Impl final {
         hwnd_ = CreateWindowExW(static_cast<DWORD>(create_params.extended_style), class_name,
                                 options_.title.c_str(), static_cast<DWORD>(create_params.style), x,
                                 y, rect.right - rect.left, rect.bottom - rect.top, owner_hwnd_,
-                                nullptr,
-                                GetModuleHandleW(nullptr), this);
+                                nullptr, GetModuleHandleW(nullptr), this);
         if (hwnd_ == nullptr) {
             throw make_win32_error("failed to create WinElement window");
         }
@@ -1524,7 +1575,9 @@ class Window::Impl final {
 
     [[nodiscard]] layout::Point screen_point_from_lparam(LPARAM lparam) const noexcept {
         POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
-        ScreenToClient(hwnd_, &point);
+        if (hwnd_ == nullptr || ScreenToClient(hwnd_, &point) == FALSE) {
+            return last_pointer_position_;
+        }
         const auto scale = default_dpi / std::max(dpi_, 1.0F);
         return layout::Point{static_cast<float>(point.x) * scale,
                              static_cast<float>(point.y) * scale};
@@ -1774,29 +1827,37 @@ class Window::Impl final {
     }
 
     [[nodiscard]] bool show_text_input_context_menu(layout::Point position) noexcept {
-        const std::scoped_lock lock(ui_tree_mutex_);
-        auto* target = text_input_context_menu_target(position);
-        if (target == nullptr) {
-            return false;
-        }
+        auto* target = static_cast<elements::UIElement*>(nullptr);
+        auto state = elements::TextInputEditCommandState{};
+        auto target_generation = std::uint64_t{};
+        {
+            const std::scoped_lock lock(ui_tree_mutex_);
+            target = text_input_context_menu_target(position);
+            if (target == nullptr) {
+                return false;
+            }
 
-        const auto state = target->text_input_edit_command_state();
-        if (!has_text_input_menu_commands(state)) {
-            return false;
-        }
+            state = target->text_input_edit_command_state();
+            if (!has_text_input_menu_commands(state)) {
+                return false;
+            }
 
-        if (auto* owner = text_input_context_menu_owner(); owner != nullptr && owner != target) {
-            owner->dismiss_text_input_context_menu();
-        }
+            if (auto* owner = text_input_context_menu_owner();
+                owner != nullptr && owner != target) {
+                owner->dismiss_text_input_context_menu();
+            }
 
-        if (target->show_text_input_context_menu(position)) {
-            update_ime_window_position();
-            request_repaint();
-            return true;
-        }
+            if (target->show_text_input_context_menu(position)) {
+                update_ime_window_position();
+                request_repaint();
+                return true;
+            }
 
-        if (hwnd_ == nullptr) {
-            return false;
+            if (hwnd_ == nullptr) {
+                return false;
+            }
+            native_menu_target_invalidated_ = false;
+            target_generation = text_input_menu_target_generation_;
         }
 
         struct ScopedMenu final {
@@ -1839,14 +1900,16 @@ class Window::Impl final {
         const auto scale = std::max(dpi_, 1.0F) / default_dpi;
         POINT screen_point{static_cast<LONG>(std::lround(position.x * scale)),
                            static_cast<LONG>(std::lround(position.y * scale))};
-        ClientToScreen(hwnd_, &screen_point);
+        const auto menu_hwnd = hwnd_;
+        if (menu_hwnd == nullptr || ClientToScreen(menu_hwnd, &screen_point) == FALSE) {
+            return false;
+        }
 
-        native_menu_target_invalidated_ = false;
-        const auto target_generation = text_input_menu_target_generation_;
         const auto selected_command =
             TrackPopupMenuEx(menu.handle, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY,
-                             screen_point.x, screen_point.y, hwnd_, nullptr);
+                             screen_point.x, screen_point.y, menu_hwnd, nullptr);
 
+        const std::scoped_lock lock(ui_tree_mutex_);
         if (native_menu_target_invalidated_ ||
             target_generation != text_input_menu_target_generation_ || hwnd_ == nullptr) {
             return true;
@@ -1880,27 +1943,32 @@ class Window::Impl final {
     }
 
     [[nodiscard]] bool show_text_input_context_menu_from_message(LPARAM lparam) noexcept {
-        const std::scoped_lock lock(ui_tree_mutex_);
         if (hwnd_ == nullptr) {
             return false;
         }
 
         if (lparam == -1) {
-            auto* focused_element =
-                router_ == nullptr ? nullptr : router_->focus_manager().focused_element();
-            if (focused_element == nullptr) {
-                return false;
+            auto menu_position = layout::Point{};
+            {
+                const std::scoped_lock lock(ui_tree_mutex_);
+                auto* focused_element =
+                    router_ == nullptr ? nullptr : router_->focus_manager().focused_element();
+                if (focused_element == nullptr) {
+                    return false;
+                }
+                auto caret_rect = focused_element->text_input_caret_rect();
+                if (!caret_rect) {
+                    caret_rect = focused_element->absolute_frame();
+                }
+                menu_position = layout::Point{caret_rect->x, caret_rect->y + caret_rect->height};
             }
-            auto caret_rect = focused_element->text_input_caret_rect();
-            if (!caret_rect) {
-                caret_rect = focused_element->absolute_frame();
-            }
-            return show_text_input_context_menu(
-                layout::Point{caret_rect->x, caret_rect->y + caret_rect->height});
+            return show_text_input_context_menu(menu_position);
         }
 
         POINT client_point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
-        ScreenToClient(hwnd_, &client_point);
+        if (ScreenToClient(hwnd_, &client_point) == FALSE) {
+            return false;
+        }
         const auto scale = default_dpi / std::max(dpi_, 1.0F);
         return show_text_input_context_menu(
             layout::Point{static_cast<float>(client_point.x) * scale,
@@ -1966,7 +2034,14 @@ class Window::Impl final {
             return DefWindowProcW(hwnd, message, wparam, lparam);
         }
 
-        return impl->handle_message(hwnd, message, wparam, lparam);
+        try {
+            return impl->handle_message(hwnd, message, wparam, lparam);
+        } catch (...) {
+            if (GetCapture() == hwnd) {
+                ReleaseCapture();
+            }
+            return DefWindowProcW(hwnd, message, wparam, lparam);
+        }
     }
 
     WindowOptions options_;
@@ -2005,6 +2080,7 @@ class Window::Impl final {
     bool animation_timer_resolution_active_ = false;
     bool interactive_resize_ = false;
     bool modal_owner_acquired_ = false;
+    bool registered_window_class_ = false;
     core::EventHandler<WindowMessage&> message_filters_;
     core::EventHandler<WindowMessage&> post_message_filters_;
     core::EventHandler<WindowMessage&> message_observers_;

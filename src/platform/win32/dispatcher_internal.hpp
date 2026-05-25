@@ -27,7 +27,10 @@ class DispatcherState final {
 
     [[nodiscard]] bool is_current_thread() const noexcept;
     [[nodiscard]] bool has_live_windows() const noexcept;
+    [[nodiscard]] bool quit_requested() const noexcept;
+    [[nodiscard]] int exit_code() const noexcept;
     [[nodiscard]] int run();
+    [[nodiscard]] bool process_thread_message(HWND hwnd, unsigned int message);
 
     void register_window(HWND hwnd) noexcept;
     void unregister_window(HWND hwnd) noexcept;

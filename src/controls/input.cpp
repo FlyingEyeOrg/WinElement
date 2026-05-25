@@ -1286,11 +1286,12 @@ void Input::on_pointer_event(elements::PointerEvent& event) {
         event.kind == elements::PointerEventKind::Cancel) {
         hovered_ = false;
         animate_hover(0.0F);
-        if (event.kind == elements::PointerEventKind::Cancel && pointer_selecting_) {
+        if (pointer_selecting_) {
             pointer_selecting_ = false;
+            pointer_selection_anchor_byte_offset_ = caret_byte_offset_;
             release_pointer_capture();
         }
-        if (event.kind == elements::PointerEventKind::Cancel && scrollbar_dragging_) {
+        if (scrollbar_dragging_) {
             scrollbar_dragging_ = false;
             animate_scrollbar(0.0F);
             release_pointer_capture();
@@ -1422,11 +1423,13 @@ void Input::on_key_event(elements::KeyEvent& event) {
                 owner.event_state_->key_down.emit(event);
             }
         }
-    } key_down_callback{*this, event};
+    };
 
     if (disabled_) {
         return;
     }
+
+    KeyDownCallbackOnExit key_down_callback{*this, event};
 
     if (event.kind == elements::KeyEventKind::CompositionStart) {
         composition_active_ = true;
@@ -1692,6 +1695,7 @@ void Input::on_focus_changed(const elements::FocusChangeEvent& event) {
         release_pointer_capture();
         dismiss_text_input_context_menu();
         composition_active_ = false;
+        composition_deleted_selection_ = false;
         composition_text_.clear();
         emit_change_if_needed();
         if (event_state_ != nullptr && !event_state_->blurred.empty()) {
@@ -2860,4 +2864,3 @@ void Input::mark_text_transform_generation_changed() noexcept {
 }
 
 } // namespace winelement::controls
-

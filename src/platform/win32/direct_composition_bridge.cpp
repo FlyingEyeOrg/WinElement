@@ -1,5 +1,7 @@
 #include "direct_composition_bridge.hpp"
 
+#include "hresult_error.hpp"
+
 #include <winelement/rendering/compositor.hpp>
 
 #include <dcomp.h>
@@ -7,27 +9,9 @@
 #include <wrl/client.h>
 
 #include <cstdint>
-#include <stdexcept>
-#include <string>
-#include <string_view>
 #include <unordered_map>
 
 namespace winelement::platform::win32 {
-namespace {
-
-[[nodiscard]] std::runtime_error make_hresult_error(std::string_view message, HRESULT result) {
-    auto text = std::string(message);
-    text += " HRESULT=0x";
-
-    constexpr auto digits = "0123456789ABCDEF";
-    for (auto shift = 28; shift >= 0; shift -= 4) {
-        text += digits[(static_cast<unsigned long>(result) >> shift) & 0x0F];
-    }
-
-    return std::runtime_error(text);
-}
-
-} // namespace
 
 class DirectCompositionBridge::Impl final {
   public:
@@ -39,37 +23,44 @@ class DirectCompositionBridge::Impl final {
 
         auto result = DCompositionCreateDevice(dxgi_device, IID_PPV_ARGS(&device_));
         if (FAILED(result)) {
-            throw make_hresult_error("failed to create DirectComposition device", result);
+            throw win32_detail::make_hresult_error("failed to create DirectComposition device",
+                                                   result);
         }
 
         result = device_->CreateTargetForHwnd(hwnd, TRUE, &target_);
         if (FAILED(result)) {
-            throw make_hresult_error("failed to create DirectComposition target", result);
+            throw win32_detail::make_hresult_error("failed to create DirectComposition target",
+                                                   result);
         }
 
         result = device_->CreateVisual(&root_visual_);
         if (FAILED(result)) {
-            throw make_hresult_error("failed to create DirectComposition root visual", result);
+            throw win32_detail::make_hresult_error("failed to create DirectComposition root visual",
+                                                   result);
         }
 
         result = device_->CreateVisual(&content_visual_);
         if (FAILED(result)) {
-            throw make_hresult_error("failed to create DirectComposition content visual", result);
+            throw win32_detail::make_hresult_error(
+                "failed to create DirectComposition content visual", result);
         }
 
         result = root_visual_->AddVisual(content_visual_.Get(), TRUE, nullptr);
         if (FAILED(result)) {
-            throw make_hresult_error("failed to attach DirectComposition content visual", result);
+            throw win32_detail::make_hresult_error(
+                "failed to attach DirectComposition content visual", result);
         }
 
         result = target_->SetRoot(root_visual_.Get());
         if (FAILED(result)) {
-            throw make_hresult_error("failed to set DirectComposition root visual", result);
+            throw win32_detail::make_hresult_error("failed to set DirectComposition root visual",
+                                                   result);
         }
 
         result = device_->Commit();
         if (FAILED(result)) {
-            throw make_hresult_error("failed to commit DirectComposition target", result);
+            throw win32_detail::make_hresult_error("failed to commit DirectComposition target",
+                                                   result);
         }
     }
 
@@ -80,8 +71,8 @@ class DirectCompositionBridge::Impl final {
 
         const auto result = content_visual_->SetContent(swap_chain);
         if (FAILED(result)) {
-            throw make_hresult_error("failed to bind swap chain to DirectComposition visual",
-                                     result);
+            throw win32_detail::make_hresult_error(
+                "failed to bind swap chain to DirectComposition visual", result);
         }
 
         commit();
@@ -106,7 +97,8 @@ class DirectCompositionBridge::Impl final {
         if (device_ != nullptr) {
             const auto result = device_->Commit();
             if (FAILED(result)) {
-                throw make_hresult_error("failed to commit DirectComposition device", result);
+                throw win32_detail::make_hresult_error("failed to commit DirectComposition device",
+                                                       result);
             }
         }
     }

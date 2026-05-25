@@ -113,7 +113,7 @@ class Select : public Control {
     [[nodiscard]] bool option_selected(std::size_t index) const noexcept;
     [[nodiscard]] std::string option_label(std::size_t index) const;
     [[nodiscard]] std::optional<std::size_t> tag_close_index_at(layout::Point local_position) const;
-    void rebuild_option_cache();
+    void rebuild_option_cache() const;
     void refresh_filter();
     void refresh_popup_items();
     [[nodiscard]] style::UIElementStyle resolved_style() const noexcept;
@@ -128,7 +128,7 @@ class Select : public Control {
 
     std::vector<SelectOption> options_;
     std::vector<SelectOptionGroup> option_groups_;
-    std::vector<OptionRenderCache> option_render_cache_;
+    mutable std::vector<OptionRenderCache> option_render_cache_;
     std::vector<std::size_t> filtered_indices_;
     std::string placeholder_ = "Select";
     std::string filter_text_;
@@ -160,4 +160,3 @@ class Select : public Control {
 };
 
 } // namespace winelement::controls
-

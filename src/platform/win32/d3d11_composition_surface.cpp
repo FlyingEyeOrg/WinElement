@@ -3,6 +3,7 @@
 #include "d3d11_display_list_renderer.hpp"
 #include "d3d11_render_resource_cache.hpp"
 #include "direct_composition_bridge.hpp"
+#include "hresult_error.hpp"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -21,7 +22,6 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -38,25 +38,15 @@ struct PixelSize {
     std::uint32_t height = 1U;
 };
 
-[[nodiscard]] std::runtime_error make_hresult_error(std::string_view message, HRESULT result) {
-    auto text = std::string(message);
-    text += " HRESULT=0x";
-
-    constexpr auto digits = "0123456789ABCDEF";
-    for (auto shift = 28; shift >= 0; shift -= 4) {
-        text += digits[(static_cast<unsigned long>(result) >> shift) & 0x0F];
-    }
-
-    return std::runtime_error(text);
-}
-
 [[nodiscard]] bool is_device_lost(HRESULT result) noexcept {
     return result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET;
 }
 
 [[nodiscard]] PixelSize client_pixel_size(HWND hwnd) noexcept {
     RECT rect{};
-    GetClientRect(hwnd, &rect);
+    if (hwnd == nullptr || GetClientRect(hwnd, &rect) == FALSE) {
+        return PixelSize{};
+    }
     const auto width = std::max<LONG>(rect.right - rect.left, 1);
     const auto height = std::max<LONG>(rect.bottom - rect.top, 1);
     return PixelSize{static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height)};
@@ -309,7 +299,8 @@ class D3D11CompositionSurface::Impl final {
             return RenderResult::DeviceLost;
         }
         if (FAILED(present_result)) {
-            throw make_hresult_error("failed to present DXGI swap chain", present_result);
+            throw win32_detail::make_hresult_error("failed to present DXGI swap chain",
+                                                   present_result);
         }
 
         if (!apply_composition_plan(promotion_plan)) {
@@ -386,7 +377,7 @@ class D3D11CompositionSurface::Impl final {
                 return false;
             }
             if (FAILED(result)) {
-                throw make_hresult_error("failed to resize DXGI swap chain", result);
+                throw win32_detail::make_hresult_error("failed to resize DXGI swap chain", result);
             }
         }
 
@@ -396,7 +387,7 @@ class D3D11CompositionSurface::Impl final {
             return false;
         }
         if (FAILED(result)) {
-            throw make_hresult_error("failed to query D3D11 back buffer", result);
+            throw win32_detail::make_hresult_error("failed to query D3D11 back buffer", result);
         }
 
         result = device_->d3d_device().CreateRenderTargetView(back_buffer.Get(), nullptr,
@@ -405,7 +396,8 @@ class D3D11CompositionSurface::Impl final {
             return false;
         }
         if (FAILED(result)) {
-            throw make_hresult_error("failed to create D3D11 render target view", result);
+            throw win32_detail::make_hresult_error("failed to create D3D11 render target view",
+                                                   result);
         }
 
         if (display_list_renderer_ == nullptr) {
@@ -429,7 +421,7 @@ class D3D11CompositionSurface::Impl final {
             return false;
         }
         if (FAILED(result)) {
-            throw make_hresult_error("failed to query DXGI device", result);
+            throw win32_detail::make_hresult_error("failed to query DXGI device", result);
         }
 
         Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
@@ -438,7 +430,7 @@ class D3D11CompositionSurface::Impl final {
             return false;
         }
         if (FAILED(result)) {
-            throw make_hresult_error("failed to query DXGI adapter", result);
+            throw win32_detail::make_hresult_error("failed to query DXGI adapter", result);
         }
 
         Microsoft::WRL::ComPtr<IDXGIFactory2> dxgi_factory;
@@ -447,7 +439,7 @@ class D3D11CompositionSurface::Impl final {
             return false;
         }
         if (FAILED(result)) {
-            throw make_hresult_error("failed to query DXGI factory", result);
+            throw win32_detail::make_hresult_error("failed to query DXGI factory", result);
         }
 
         DXGI_SWAP_CHAIN_DESC1 swap_chain_description{};
@@ -470,7 +462,7 @@ class D3D11CompositionSurface::Impl final {
             return false;
         }
         if (FAILED(result)) {
-            throw make_hresult_error("failed to create DXGI swap chain", result);
+            throw win32_detail::make_hresult_error("failed to create DXGI swap chain", result);
         }
 
         std::unique_ptr<DirectCompositionBridge> temp_composition_bridge;

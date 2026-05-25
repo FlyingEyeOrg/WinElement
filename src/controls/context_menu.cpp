@@ -351,15 +351,15 @@ void ContextMenu::open_submenu(std::size_t index) {
     auto weak_lifetime = std::weak_ptr<bool>{lifetime_token_};
     auto* owner = this;
     submenu->selected() += [weak_lifetime, owner](const ContextMenu::SelectEvent& event) {
-            const auto alive = weak_lifetime.lock();
-            if (alive == nullptr || !*alive) {
-                return;
-            }
-            if (owner->event_state_ != nullptr && !owner->event_state_->selected.empty()) {
-                owner->event_state_->selected.emit(event);
-            }
-            owner->request_dismiss();
-        };
+        const auto alive = weak_lifetime.lock();
+        if (alive == nullptr || !*alive) {
+            return;
+        }
+        if (owner->event_state_ != nullptr && !owner->event_state_->selected.empty()) {
+            owner->event_state_->selected.emit(event);
+        }
+        owner->request_dismiss();
+    };
     submenu->dismissed() += [weak_lifetime, owner]() {
         const auto alive = weak_lifetime.lock();
         if (alive == nullptr || !*alive) {
@@ -368,13 +368,31 @@ void ContextMenu::open_submenu(std::size_t index) {
         owner->dismiss_submenu();
     };
 
-    auto& submenu_ref = static_cast<ContextMenu&>(push_top_layer(
-        std::move(submenu), elements::TopLayerOptions{.bounds = submenu_bounds_for(index),
-                                                      .light_dismiss = true,
-                                                      .preserve_focus = true,
-                                                      .close_on_escape = false,
-                                                      .logical_owner = this}));
-    submenu_ref.dismissed_event() += [weak_lifetime, owner]() {
+    auto* raw_submenu = submenu.get();
+    auto* submenu_ref = static_cast<ContextMenu*>(nullptr);
+    try {
+        submenu_ref = static_cast<ContextMenu*>(&push_top_layer(
+            std::move(submenu), elements::TopLayerOptions{.bounds = submenu_bounds_for(index),
+                                                          .light_dismiss = true,
+                                                          .preserve_focus = true,
+                                                          .close_on_escape = false,
+                                                          .logical_owner = this}));
+    } catch (...) {
+        if (raw_submenu != nullptr) {
+            try {
+                static_cast<void>(remove_top_layer(*raw_submenu));
+            } catch (...) {
+            }
+        }
+        submenu_menu_ = nullptr;
+        submenu_parent_index_.reset();
+        invalidate_paint();
+        throw;
+    }
+    if (submenu_ref == nullptr) {
+        return;
+    }
+    submenu_ref->dismissed_event() += [weak_lifetime, owner]() {
         const auto alive = weak_lifetime.lock();
         if (alive == nullptr || !*alive) {
             return;
@@ -383,7 +401,7 @@ void ContextMenu::open_submenu(std::size_t index) {
         owner->submenu_parent_index_.reset();
         owner->invalidate_paint();
     };
-    submenu_menu_ = &submenu_ref;
+    submenu_menu_ = submenu_ref;
     submenu_parent_index_ = index;
     invalidate_paint();
 }
@@ -638,4 +656,3 @@ float ContextMenu::animated_open_progress() const {
 }
 
 } // namespace winelement::controls
-

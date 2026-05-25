@@ -92,8 +92,7 @@ bool FocusManager::focus_first_within(UIElement& scope) {
         return false;
     }
 
-    auto scoped_focusable_elements = std::vector<UIElement*>{};
-    append_focusable_elements_within(scope, scoped_focusable_elements);
+    auto& scoped_focusable_elements = focusable_elements_within(scope);
     if (scoped_focusable_elements.empty()) {
         return false;
     }
@@ -107,9 +106,8 @@ bool FocusManager::focus_first_within(UIElement& scope) {
 }
 
 bool FocusManager::focus_next() {
-    auto scoped_focusable_elements = std::vector<UIElement*>{};
     auto* scope = topmost_modal_scope();
-    append_focusable_elements_within(scope == nullptr ? *root_ : *scope, scoped_focusable_elements);
+    auto& scoped_focusable_elements = focusable_elements_within(scope == nullptr ? *root_ : *scope);
     if (scoped_focusable_elements.empty()) {
         return clear_focus();
     }
@@ -127,9 +125,8 @@ bool FocusManager::focus_next() {
 }
 
 bool FocusManager::focus_previous() {
-    auto scoped_focusable_elements = std::vector<UIElement*>{};
     auto* scope = topmost_modal_scope();
-    append_focusable_elements_within(scope == nullptr ? *root_ : *scope, scoped_focusable_elements);
+    auto& scoped_focusable_elements = focusable_elements_within(scope == nullptr ? *root_ : *scope);
     if (scoped_focusable_elements.empty()) {
         return clear_focus();
     }
@@ -207,12 +204,18 @@ bool FocusManager::focus_scope_contains(const UIElement& scope,
 void FocusManager::append_focusable_elements_within(
     UIElement& scope, std::vector<UIElement*>& focusable_elements) const {
     invalidate_focusable_cache();
+    focusable_elements.clear();
     focusable_elements.reserve(focusable_cache_.size());
     for (auto* element : focusable_cache_) {
         if (element != nullptr && focus_scope_contains(scope, *element) && can_focus(*element)) {
             focusable_elements.push_back(element);
         }
     }
+}
+
+std::vector<UIElement*>& FocusManager::focusable_elements_within(UIElement& scope) const {
+    append_focusable_elements_within(scope, scoped_focusable_cache_);
+    return scoped_focusable_cache_;
 }
 
 void FocusManager::on_focusable_registered(UIElement& element) noexcept {

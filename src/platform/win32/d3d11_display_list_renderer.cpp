@@ -6,6 +6,7 @@
 
 #include "d3d11_display_list_ps.hpp"
 #include "d3d11_display_list_vs.hpp"
+#include "hresult_error.hpp"
 
 #include <winelement/core/core_types.hpp>
 #include <winelement/platform/render_thread_pool.hpp>
@@ -268,21 +269,9 @@ prepared_geometry_fill_signature(const rendering::PreparedGeometryFill& prepared
     return has_tile_work || has_pass_work;
 }
 
-[[nodiscard]] std::runtime_error make_hresult_error(std::string_view message, HRESULT result) {
-    auto text = std::string(message);
-    text += " HRESULT=0x";
-
-    constexpr auto digits = "0123456789ABCDEF";
-    for (auto shift = 28; shift >= 0; shift -= 4) {
-        text += digits[(static_cast<unsigned long>(result) >> shift) & 0x0F];
-    }
-
-    return std::runtime_error(text);
-}
-
 void throw_if_failed(HRESULT result, std::string_view message) {
     if (FAILED(result)) {
-        throw make_hresult_error(message, result);
+        throw win32_detail::make_hresult_error(message, result);
     }
 }
 

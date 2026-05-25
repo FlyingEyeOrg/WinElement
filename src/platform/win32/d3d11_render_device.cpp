@@ -1,5 +1,7 @@
 #include "d3d11_render_device.hpp"
 
+#include "hresult_error.hpp"
+
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -12,26 +14,7 @@
 #include <dxgi1_3.h>
 #include <wrl/client.h>
 
-#include <stdexcept>
-#include <string>
-#include <string_view>
-
 namespace winelement::platform::win32 {
-namespace {
-
-[[nodiscard]] std::runtime_error make_hresult_error(std::string_view message, HRESULT result) {
-    auto text = std::string(message);
-    text += " HRESULT=0x";
-
-    constexpr auto digits = "0123456789ABCDEF";
-    for (auto shift = 28; shift >= 0; shift -= 4) {
-        text += digits[(static_cast<unsigned long>(result) >> shift) & 0x0F];
-    }
-
-    return std::runtime_error(text);
-}
-
-} // namespace
 
 class D3D11RenderDevice::Impl final {
   public:
@@ -90,18 +73,22 @@ class D3D11RenderDevice::Impl final {
                                        d3d_context_.GetAddressOf());
         }
         if (FAILED(result)) {
-            throw make_hresult_error("failed to create Direct3D device", result);
+            throw win32_detail::make_hresult_error("failed to create Direct3D device", result);
         }
 
         Microsoft::WRL::ComPtr<IDXGIDevice> dxgi_device;
         result = d3d_device_.As(&dxgi_device);
         if (FAILED(result)) {
-            throw make_hresult_error("failed to query DXGI device", result);
+            throw win32_detail::make_hresult_error("failed to query DXGI device", result);
         }
 
         Microsoft::WRL::ComPtr<IDXGIDevice1> dxgi_device1;
         if (SUCCEEDED(dxgi_device.As(&dxgi_device1))) {
-            dxgi_device1->SetMaximumFrameLatency(1);
+            result = dxgi_device1->SetMaximumFrameLatency(1);
+            if (FAILED(result)) {
+                throw win32_detail::make_hresult_error("failed to set maximum DXGI frame latency",
+                                                       result);
+            }
         }
     }
 

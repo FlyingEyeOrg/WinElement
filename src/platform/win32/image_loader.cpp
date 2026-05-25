@@ -1,5 +1,7 @@
 #include <winelement/platform/image_loader.hpp>
 
+#include "hresult_error.hpp"
+
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -12,23 +14,11 @@
 
 #include <combaseapi.h>
 
-#include <stdexcept>
 #include <string>
-#include <string_view>
 #include <utility>
 
 namespace winelement::platform {
 namespace {
-
-[[nodiscard]] std::runtime_error make_hresult_error(std::string_view message, HRESULT result) {
-    auto text = std::string(message);
-    text += " HRESULT=0x";
-    constexpr auto digits = "0123456789ABCDEF";
-    for (auto shift = 28; shift >= 0; shift -= 4) {
-        text += digits[(static_cast<unsigned long>(result) >> shift) & 0x0F];
-    }
-    return std::runtime_error(text);
-}
 
 class ScopedComApartment final {
   public:
@@ -40,7 +30,8 @@ class ScopedComApartment final {
             result_ = S_OK;
         }
         if (FAILED(result_)) {
-            throw make_hresult_error("failed to initialize COM for WIC image decode", result_);
+            throw win32_detail::make_hresult_error("failed to initialize COM for WIC image decode",
+                                                   result_);
         }
     }
 
@@ -66,40 +57,41 @@ class ScopedComApartment final {
     auto result = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
                                    IID_PPV_ARGS(&factory));
     if (FAILED(result)) {
-        throw make_hresult_error("failed to create WIC imaging factory", result);
+        throw win32_detail::make_hresult_error("failed to create WIC imaging factory", result);
     }
 
     Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
     result = factory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ,
                                                 WICDecodeMetadataCacheOnLoad, &decoder);
     if (FAILED(result)) {
-        throw make_hresult_error("failed to create WIC bitmap decoder", result);
+        throw win32_detail::make_hresult_error("failed to create WIC bitmap decoder", result);
     }
 
     Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
     result = decoder->GetFrame(0U, &frame);
     if (FAILED(result)) {
-        throw make_hresult_error("failed to read WIC bitmap frame", result);
+        throw win32_detail::make_hresult_error("failed to read WIC bitmap frame", result);
     }
 
     Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
     result = factory->CreateFormatConverter(&converter);
     if (FAILED(result)) {
-        throw make_hresult_error("failed to create WIC format converter", result);
+        throw win32_detail::make_hresult_error("failed to create WIC format converter", result);
     }
 
     result =
         converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone,
                               nullptr, 0.0, WICBitmapPaletteTypeCustom);
     if (FAILED(result)) {
-        throw make_hresult_error("failed to convert WIC image to premultiplied BGRA", result);
+        throw win32_detail::make_hresult_error("failed to convert WIC image to premultiplied BGRA",
+                                               result);
     }
 
     UINT width = 0U;
     UINT height = 0U;
     result = converter->GetSize(&width, &height);
     if (FAILED(result) || width == 0U || height == 0U) {
-        throw make_hresult_error("failed to query WIC image size", result);
+        throw win32_detail::make_hresult_error("failed to query WIC image size", result);
     }
 
     const auto stride = width * 4U;
@@ -117,7 +109,7 @@ class ScopedComApartment final {
     result = converter->CopyPixels(nullptr, stride, static_cast<UINT>(upload.payload.size()),
                                    reinterpret_cast<BYTE*>(upload.payload.data()));
     if (FAILED(result)) {
-        throw make_hresult_error("failed to copy WIC image pixels", result);
+        throw win32_detail::make_hresult_error("failed to copy WIC image pixels", result);
     }
 
     return upload;

@@ -30,6 +30,9 @@ thread_local std::weak_ptr<detail::DispatcherState> thread_dispatcher_state;
 
 std::mutex dispatcher_registry_mutex;
 std::vector<std::weak_ptr<detail::DispatcherState>> dispatcher_registry;
+std::mutex dispatcher_class_mutex;
+std::uint32_t dispatcher_class_ref_count = 0U;
+bool dispatcher_class_owned_by_module = false;
 
 [[nodiscard]] std::runtime_error make_win32_error(const char* message) {
     return std::runtime_error(message);
@@ -44,7 +47,12 @@ std::vector<std::weak_ptr<detail::DispatcherState>> dispatcher_registry;
     return DefWindowProcW(hwnd, message, wparam, lparam);
 }
 
-void register_dispatcher_window_class() {
+void retain_dispatcher_window_class() {
+    const std::scoped_lock lock(dispatcher_class_mutex);
+    if (dispatcher_class_ref_count++ > 0U) {
+        return;
+    }
+
     WNDCLASSEXW window_class{};
     window_class.cbSize = sizeof(window_class);
     window_class.lpfnWndProc = &dispatcher_window_proc;
@@ -54,9 +62,25 @@ void register_dispatcher_window_class() {
     if (RegisterClassExW(&window_class) == 0) {
         const auto error = GetLastError();
         if (error != ERROR_CLASS_ALREADY_EXISTS) {
+            --dispatcher_class_ref_count;
             throw make_win32_error("failed to register WinElement dispatcher window class");
         }
+        dispatcher_class_owned_by_module = false;
+        return;
     }
+
+    dispatcher_class_owned_by_module = true;
+}
+
+void release_dispatcher_window_class() noexcept {
+    const std::scoped_lock lock(dispatcher_class_mutex);
+    if (dispatcher_class_ref_count == 0U || --dispatcher_class_ref_count != 0U) {
+        return;
+    }
+    if (dispatcher_class_owned_by_module) {
+        UnregisterClassW(dispatcher_class_name, GetModuleHandleW(nullptr));
+    }
+    dispatcher_class_owned_by_module = false;
 }
 
 void prune_expired_dispatchers_locked() {
@@ -82,11 +106,12 @@ struct DispatcherState::Impl final {
 };
 
 DispatcherState::DispatcherState() : impl_(std::make_unique<Impl>()) {
-    register_dispatcher_window_class();
+    retain_dispatcher_window_class();
     impl_->message_hwnd =
         CreateWindowExW(0, dispatcher_class_name, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr,
                         GetModuleHandleW(nullptr), nullptr);
     if (impl_->message_hwnd == nullptr) {
+        release_dispatcher_window_class();
         throw make_win32_error("failed to create WinElement dispatcher message window");
     }
 }
@@ -102,6 +127,7 @@ DispatcherState::~DispatcherState() {
         PostMessageW(impl_->message_hwnd, WM_CLOSE, 0, 0);
     }
     impl_->message_hwnd = nullptr;
+    release_dispatcher_window_class();
 }
 
 void DispatcherState::post(std::function<void()> callback) {
@@ -131,6 +157,14 @@ bool DispatcherState::is_current_thread() const noexcept {
 
 bool DispatcherState::has_live_windows() const noexcept {
     return impl_->live_window_count.load(std::memory_order_acquire) != 0U;
+}
+
+bool DispatcherState::quit_requested() const noexcept {
+    return impl_->quit_requested.load(std::memory_order_acquire);
+}
+
+int DispatcherState::exit_code() const noexcept {
+    return impl_->exit_code.load(std::memory_order_acquire);
 }
 
 int DispatcherState::run() {
@@ -166,6 +200,15 @@ int DispatcherState::run() {
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }
+}
+
+bool DispatcherState::process_thread_message(HWND hwnd, unsigned int message) {
+    if (hwnd != impl_->message_hwnd || message != dispatcher_wakeup_message) {
+        return false;
+    }
+
+    run_pending_callbacks();
+    return true;
 }
 
 void DispatcherState::register_window(HWND hwnd) noexcept {
