@@ -2,7 +2,7 @@ vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO FlyingEyeOrg/WinElement
     REF "v${VERSION}"
-    SHA512 130aee75a0cb64e5d92c6f192359a285fa86628f4b71b36ba28ea4ee140c782ffecb3ed3cf92db34f091d98eddbb7bb380e8ba0650ac74feaaf6bb6ce909b3a6
+    SHA512 1631e169dda003bca590b36e4db7764809b2d6ae311ca03bb5d228fec453d7dfc7640bee7df35f44c8a2e32e2153a703384f5bc2dbbebc3c11eea3d23d07e9f1
     HEAD_REF main
 )
 
