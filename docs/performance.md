@@ -71,3 +71,10 @@ build\vs2022-x64\samples\controls_showcase\Release\controls_showcase.exe --profi
 - headless 最大化窗口：top 402 个 UI element、471 条 render command；middle 363 个 UI element、42 条 command；bottom 224 个 UI element、133 条 command。
 - `--profile-memory`：maximized top after render 约 248.1 MiB working set / 243.3 MiB private；maximized bottom after render 约 143.8 MiB working set / 148.5 MiB private；关闭后约 18.2 MiB working set / 58.9 MiB private。
 - 500ms 进程采样：12 个样本，平均 CPU 约 1.04%，峰值约 4.77%；采样期间最大 working set 约 146.2 MiB，最大 private 约 146.5 MiB。
+
+2026-05-26 的 x64 Release 采样结果：
+
+- `--headless`：top 402 个 UI element、471 条 render command；middle 363 个 UI element、42 条 command；bottom 231 个 UI element、133 条 command，bottom 能显示 `Item #9999`。
+- headless 最大化窗口：top layout 约 0.265 ms / commit 约 4.925 ms；middle layout 约 0.510 ms / commit 约 2.791 ms；bottom layout 约 4.017 ms / commit 约 2.640 ms。
+- `--profile-memory`：maximized top after render 约 163.9 MiB working set / 193.8 MiB private；maximized bottom after render 约 135.9 MiB working set / 173.2 MiB private；关闭后约 11.5-11.9 MiB working set / 23.4-23.7 MiB private。
+- `render_pipeline_perf`：mixed render avg 约 3.434 ms / total avg 约 11.953 ms；text 0.116 ms；svg 0.571 ms；image 0.215 ms；dense dirty 0.038 ms。

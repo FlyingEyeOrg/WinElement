@@ -249,6 +249,23 @@ prepared_geometry_fill_signature(const rendering::PreparedGeometryFill& prepared
     return seed;
 }
 
+template <typename GlyphKey>
+[[nodiscard]] const rendering::PreparedTextGlyphCoverage*
+find_prepared_glyph_coverage(const rendering::PreparedTextGlyphCoverageList& prepared_glyphs,
+                             const GlyphKey& key) noexcept {
+    for (const auto& coverage : prepared_glyphs.glyphs) {
+        if (coverage != nullptr && !coverage->pixels.empty() &&
+            coverage->font_family == key.font_family && coverage->glyph_index == key.glyph_index &&
+            coverage->font_size_key == key.font_size_key &&
+            coverage->font_weight == key.font_weight &&
+            coverage->font_stretch == key.font_stretch && coverage->font_style == key.font_style &&
+            coverage->is_right_to_left == key.is_right_to_left) {
+            return coverage.get();
+        }
+    }
+    return nullptr;
+}
+
 [[nodiscard]] bool multiplied_at_least(std::size_t left, std::size_t right,
                                        std::size_t threshold) noexcept {
     return right != 0U && left >= (threshold + right - 1U) / right;
@@ -5813,21 +5830,9 @@ const D3D11DisplayListRenderer::GlyphAtlasEntry* D3D11DisplayListRenderer::glyph
     }
 
     if (prepared_glyphs != nullptr) {
-        const auto key_hash = GlyphAtlasKeyHash{}(key);
-        if (const auto iterator = prepared_glyphs->glyphs_by_hash.find(key_hash);
-            iterator != prepared_glyphs->glyphs_by_hash.end()) {
-            for (const auto& coverage : iterator->second) {
-                if (coverage != nullptr && !coverage->pixels.empty() &&
-                    coverage->font_family == key.font_family &&
-                    coverage->glyph_index == key.glyph_index &&
-                    coverage->font_size_key == key.font_size_key &&
-                    coverage->font_weight == key.font_weight &&
-                    coverage->font_stretch == key.font_stretch &&
-                    coverage->font_style == key.font_style &&
-                    coverage->is_right_to_left == key.is_right_to_left) {
-                    return prepared_glyph_atlas_entry(*coverage);
-                }
-            }
+        if (const auto* coverage = find_prepared_glyph_coverage(*prepared_glyphs, key);
+            coverage != nullptr) {
+            return prepared_glyph_atlas_entry(*coverage);
         }
     }
 
@@ -5912,21 +5917,9 @@ D3D11DisplayListRenderer::prepared_glyph_atlas_entry(
         return nullptr;
     }
 
-    const auto key_hash = GlyphAtlasKeyHash{}(key);
-    if (const auto iterator = prepared_glyphs->glyphs_by_hash.find(key_hash);
-        iterator != prepared_glyphs->glyphs_by_hash.end()) {
-        for (const auto& coverage : iterator->second) {
-            if (coverage != nullptr && !coverage->pixels.empty() &&
-                coverage->font_family == key.font_family &&
-                coverage->glyph_index == key.glyph_index &&
-                coverage->font_size_key == key.font_size_key &&
-                coverage->font_weight == key.font_weight &&
-                coverage->font_stretch == key.font_stretch &&
-                coverage->font_style == key.font_style &&
-                coverage->is_right_to_left == key.is_right_to_left) {
-                return prepared_glyph_atlas_entry(*coverage);
-            }
-        }
+    if (const auto* coverage = find_prepared_glyph_coverage(*prepared_glyphs, key);
+        coverage != nullptr) {
+        return prepared_glyph_atlas_entry(*coverage);
     }
     return nullptr;
 }

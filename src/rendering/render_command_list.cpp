@@ -1440,7 +1440,6 @@ struct PreparedTextGlyphCoveragePtrEqual {
         if (prepared_coverage != nullptr) {
             coverages->glyphs_by_layout_index[glyph_index] = prepared_coverage;
             if (unique_keys.insert(key).second) {
-                coverages->glyphs_by_hash[key_hash].push_back(prepared_coverage);
                 coverages->glyphs.push_back(prepared_coverage);
             }
         }

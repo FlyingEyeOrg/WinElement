@@ -1390,7 +1390,7 @@ TextLayout TextEngine::layout_text(std::string_view text, const TextStyle& style
         const std::scoped_lock lock(cache_mutex_);
         for (auto index = cache_.size(); index > 0U; --index) {
             auto& entry = cache_[index - 1U];
-            if (entry.text == text && entry.style == style && entry.options == options) {
+            if (entry.layout.text == text && entry.style == style && entry.options == options) {
                 auto layout = entry.layout;
                 if (index != cache_.size()) {
                     auto touched_entry = std::move(entry);
@@ -1406,8 +1406,7 @@ TextLayout TextEngine::layout_text(std::string_view text, const TextStyle& style
     {
         const std::scoped_lock lock(cache_mutex_);
         if (max_cached_layouts_ > 0U) {
-            cache_.push_back(CachedLayout{
-                .text = std::string(text), .style = style, .options = options, .layout = layout});
+            cache_.push_back(CachedLayout{.style = style, .options = options, .layout = layout});
             while (cache_.size() > max_cached_layouts_) {
                 cache_.erase(cache_.begin());
             }

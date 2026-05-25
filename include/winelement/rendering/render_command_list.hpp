@@ -57,8 +57,6 @@ struct PreparedTextGlyphCoverage {
 struct PreparedTextGlyphCoverageList {
     std::vector<std::shared_ptr<const PreparedTextGlyphCoverage>> glyphs;
     std::vector<std::shared_ptr<const PreparedTextGlyphCoverage>> glyphs_by_layout_index;
-    std::unordered_map<std::size_t, std::vector<std::shared_ptr<const PreparedTextGlyphCoverage>>>
-        glyphs_by_hash;
 };
 
 struct PreparedRenderCacheStats {

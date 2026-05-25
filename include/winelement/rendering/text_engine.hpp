@@ -215,7 +215,6 @@ class TextEngine final {
 
   private:
     struct CachedLayout {
-        std::string text;
         TextStyle style{};
         TextLayoutOptions options{};
         TextLayout layout{};
