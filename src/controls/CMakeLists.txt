@@ -3,6 +3,7 @@ add_library(winelement_controls STATIC
     button.cpp
     control.cpp
     context_menu.cpp
+    file_dialog.cpp
     feedback.cpp
     image.cpp
     input.cpp

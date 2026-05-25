@@ -7,6 +7,7 @@ add_library(winelement_platform STATIC
     win32/d3d11_render_resource_cache.cpp
     win32/direct_composition_bridge.cpp
     win32/dispatcher.cpp
+    win32/file_dialog.cpp
     win32/image_loader.cpp
     win32/window.cpp
     win32/window_render_worker.cpp
@@ -32,6 +33,8 @@ target_link_libraries(winelement_platform
         dxgi
         imm32
         ole32
+        shell32
+        uuid
         user32
         windowscodecs
 )

@@ -678,6 +678,23 @@ controls::StackPanel& add_demo_group(controls::StackPanel& parent, std::string_v
            "the action row into an awkward cramped position.";
 }
 
+[[nodiscard]] std::string path_leaf_label(std::string_view path) {
+    const auto offset = path.find_last_of("\\/");
+    return offset == std::string_view::npos ? std::string(path)
+                                            : std::string(path.substr(offset + 1U));
+}
+
+[[nodiscard]] std::string summarize_file_dialog_result(const controls::FileDialogResult& result,
+                                                       std::string_view cancel_label) {
+    if (!result.accepted || result.paths.empty()) {
+        return std::string(cancel_label);
+    }
+    if (result.paths.size() == 1U) {
+        return path_leaf_label(result.paths.front());
+    }
+    return std::to_string(result.paths.size()) + " items";
+}
+
 [[nodiscard]] std::string easing_curve_label(animation::EasingCurve curve) {
     switch (curve) {
     case animation::EasingCurve::Linear:
@@ -1665,6 +1682,98 @@ void add_feedback_section(controls::StackPanel& root, elements::UIElement& feedb
             dialog_windows->push_back(std::move(dialog));
         };
 
+    auto& file_dialog_group = add_demo_group(section, "FileDialog");
+    auto& file_dialog_row = file_dialog_group.append_new_child<controls::StackPanel>();
+    configure_row(file_dialog_row);
+    auto& open_file_button =
+        add_button(file_dialog_row, "Open file", controls::ButtonType::Primary);
+    open_file_button.clicked() +=
+        [&feedback_host, host_window](const controls::ButtonClickEvent&) {
+            const auto result = controls::FileDialog::open(
+                controls::FileDialogOptions{
+                    .title = "Open file",
+                    .confirm_button_text = "Open",
+                    .filters = {controls::FileDialogFilter{.name = "Images",
+                                                           .pattern = "*.png;*.jpg;*.jpeg;*.bmp"},
+                                controls::FileDialogFilter{.name = "All files",
+                                                           .pattern = "*.*"}},
+                    .owner = host_window});
+            controls::Message::show(
+                feedback_host,
+                controls::MessageOptions{
+                    .text = "Open file: " +
+                            summarize_file_dialog_result(result, "Open file cancelled"),
+                    .type = result.accepted ? controls::MessageType::Success
+                                            : controls::MessageType::Info,
+                    .show_close = true});
+        };
+    auto& open_multi_button =
+        add_button(file_dialog_row, "Open multiple", controls::ButtonType::Info);
+    open_multi_button.clicked() +=
+        [&feedback_host, host_window](const controls::ButtonClickEvent&) {
+            const auto result = controls::FileDialog::open(
+                controls::FileDialogOptions{
+                    .title = "Open multiple files",
+                    .confirm_button_text = "Select",
+                    .filters = {controls::FileDialogFilter{.name = "Source files",
+                                                           .pattern = "*.cpp;*.hpp;*.h;*.c"},
+                                controls::FileDialogFilter{.name = "All files",
+                                                           .pattern = "*.*"}},
+                    .multi_select = true,
+                    .owner = host_window});
+            controls::Message::show(
+                feedback_host,
+                controls::MessageOptions{
+                    .text = "Open multiple: " +
+                            summarize_file_dialog_result(result, "Open multiple cancelled"),
+                    .type = result.accepted ? controls::MessageType::Primary
+                                            : controls::MessageType::Info,
+                    .show_close = true});
+        };
+    auto& save_file_button =
+        add_button(file_dialog_row, "Save as", controls::ButtonType::Warning);
+    save_file_button.clicked() +=
+        [&feedback_host, host_window](const controls::ButtonClickEvent&) {
+            const auto result = controls::FileDialog::save(
+                controls::FileDialogOptions{
+                    .title = "Export report",
+                    .confirm_button_text = "Save",
+                    .file_name = "winelement-report.txt",
+                    .default_extension = "txt",
+                    .filters = {controls::FileDialogFilter{.name = "Text files",
+                                                           .pattern = "*.txt"},
+                                controls::FileDialogFilter{.name = "JSON files",
+                                                           .pattern = "*.json"},
+                                controls::FileDialogFilter{.name = "All files",
+                                                           .pattern = "*.*"}},
+                    .owner = host_window});
+            controls::Message::show(
+                feedback_host,
+                controls::MessageOptions{
+                    .text = "Save as: " +
+                            summarize_file_dialog_result(result, "Save as cancelled"),
+                    .type = result.accepted ? controls::MessageType::Warning
+                                            : controls::MessageType::Info,
+                    .show_close = true});
+        };
+    auto& pick_folder_button =
+        add_button(file_dialog_row, "Pick folder", controls::ButtonType::Success);
+    pick_folder_button.clicked() +=
+        [&feedback_host, host_window](const controls::ButtonClickEvent&) {
+            const auto result = controls::FileDialog::pick_folder(
+                controls::FileDialogOptions{.title = "Choose output folder",
+                                            .confirm_button_text = "Choose",
+                                            .owner = host_window});
+            controls::Message::show(
+                feedback_host,
+                controls::MessageOptions{
+                    .text = "Pick folder: " +
+                            summarize_file_dialog_result(result, "Pick folder cancelled"),
+                    .type = result.accepted ? controls::MessageType::Success
+                                            : controls::MessageType::Info,
+                    .show_close = true});
+        };
+
     auto& loading_group = add_demo_group(section, "Loading");
     auto& loading_row = loading_group.append_new_child<controls::StackPanel>();
     configure_row(loading_row);
@@ -2406,11 +2515,13 @@ int run_headless_showcase() {
 
     std::cout << "controls_showcase\n";
     std::cout << "  controls: panel border stack text image button input select radio switch "
-                 "scrollbar items path context-menu message message-box loading dialog\n";
+                 "scrollbar items path context-menu message message-box loading dialog "
+                 "file-dialog\n";
     std::cout << "  styles: Element Plus semantic variants sizes status borders shadows text "
                  "states dark/custom\n";
     std::cout << "  scroll: vertical and horizontal viewports with clipped overflowing content\n";
-    std::cout << "  feedback: message message-box dialog loading triggered from buttons\n";
+    std::cout << "  feedback: message message-box dialog file-dialog loading triggered from "
+                 "buttons\n";
     std::cout << "  animations: transforms shadows all easing curves timeline keyframes physics "
                  "implicit property\n";
     std::cout << "  render nodes: " << node_count << '\n';

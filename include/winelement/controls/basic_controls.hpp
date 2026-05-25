@@ -8,6 +8,7 @@
 #include <winelement/controls/context_menu.hpp>
 #include <winelement/controls/control.hpp>
 #include <winelement/controls/control_animation.hpp>
+#include <winelement/controls/file_dialog.hpp>
 #include <winelement/controls/feedback.hpp>
 #include <winelement/controls/image.hpp>
 #include <winelement/controls/input.hpp>
