@@ -301,6 +301,9 @@ class SelectDropdown final : public elements::UIElement {
         }
 
         const auto local_frame = layout::Rect{0.0F, 0.0F, frame().width, frame().height};
+        if (!contains_local_point(local_frame, local_position)) {
+            return elements::PointerCursor::Default;
+        }
         if (owner_.filterable_) {
             const auto metrics = select_popup_metrics();
             const auto filter_rect =

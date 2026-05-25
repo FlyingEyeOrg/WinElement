@@ -4811,6 +4811,8 @@ TEST(BasicControlsTests, SelectToggleClosesPopupAndFiltersUseInsetText) {
     EXPECT_EQ(router.cursor_for_point(Point{16.0F, 16.0F}), PointerCursor::Hand);
     EXPECT_EQ(router.cursor_for_point(Point{16.0F, 52.0F}), PointerCursor::IBeam);
     EXPECT_EQ(router.cursor_for_point(Point{16.0F, 90.0F}), PointerCursor::Hand);
+    EXPECT_EQ(router.cursor_for_point(Point{205.0F, 90.0F}), PointerCursor::Arrow);
+    EXPECT_EQ(router.cursor_for_point(Point{16.0F, 160.0F}), PointerCursor::Arrow);
 
     EXPECT_TRUE(router
                     .route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
