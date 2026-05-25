@@ -459,6 +459,15 @@ class WindowRenderCache final {
     return layout::Rect{left, top, std::max(0.0F, right - left), std::max(0.0F, bottom - top)};
 }
 
+[[nodiscard]] RECT dip_rect_to_client_pixel_rect(layout::Rect rect, float dpi) noexcept {
+    const auto scale = std::max(dpi, 1.0F) / default_dpi;
+    const auto left = static_cast<LONG>(std::floor(rect.x * scale));
+    const auto top = static_cast<LONG>(std::floor(rect.y * scale));
+    const auto right = static_cast<LONG>(std::ceil((rect.x + rect.width) * scale));
+    const auto bottom = static_cast<LONG>(std::ceil((rect.y + rect.height) * scale));
+    return RECT{left, top, right, bottom};
+}
+
 [[nodiscard]] std::string ime_composition_text(HWND hwnd, DWORD index) {
     auto* context = ImmGetContext(hwnd);
     if (context == nullptr) {
@@ -698,11 +707,14 @@ class Window::Impl final {
         request_repaint(false);
     }
 
-    void request_repaint(bool immediate) noexcept {
+    void request_repaint(bool immediate,
+                         std::optional<layout::Rect> immediate_bounds = std::nullopt) noexcept {
         if (hwnd_ == nullptr || repaint_requested_.exchange(true, std::memory_order_acq_rel)) {
             if (immediate && hwnd_ != nullptr && IsWindow(hwnd_) != FALSE) {
                 low_latency_repaint_pending_.store(true, std::memory_order_release);
-                RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+                const auto repaint_rect = immediate_repaint_rect(immediate_bounds);
+                RedrawWindow(hwnd_, repaint_rect ? &*repaint_rect : nullptr, nullptr,
+                             RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
             }
             return;
         }
@@ -710,7 +722,9 @@ class Window::Impl final {
         if (immediate) {
             low_latency_repaint_pending_.store(true, std::memory_order_release);
             if (IsWindow(hwnd) != FALSE) {
-                RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+                const auto repaint_rect = immediate_repaint_rect(immediate_bounds);
+                RedrawWindow(hwnd, repaint_rect ? &*repaint_rect : nullptr, nullptr,
+                             RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
             }
             return;
         }
@@ -722,6 +736,28 @@ class Window::Impl final {
             },
             core::FrameTaskPriority::Render, "window.repaint"));
         static_cast<void>(frame_scheduler_.drain(core::FrameBudget{.max_tasks = 1U}));
+    }
+
+    [[nodiscard]] std::optional<RECT>
+    immediate_repaint_rect(std::optional<layout::Rect> bounds) const noexcept {
+        if (!bounds.has_value() || !layout::is_visible_rect(*bounds) || hwnd_ == nullptr) {
+            return std::nullopt;
+        }
+
+        RECT client{};
+        if (GetClientRect(hwnd_, &client) == FALSE) {
+            return std::nullopt;
+        }
+
+        auto rect = dip_rect_to_client_pixel_rect(layout::inflate_rect(*bounds, 2.0F), dpi_);
+        rect.left = std::clamp(rect.left, client.left, client.right);
+        rect.top = std::clamp(rect.top, client.top, client.bottom);
+        rect.right = std::clamp(rect.right, client.left, client.right);
+        rect.bottom = std::clamp(rect.bottom, client.top, client.bottom);
+        if (rect.right <= rect.left || rect.bottom <= rect.top) {
+            return std::nullopt;
+        }
+        return rect;
     }
 
     int run() {
@@ -1516,6 +1552,25 @@ class Window::Impl final {
                has_any_pointer_button_state(button_state);
     }
 
+    [[nodiscard]] static std::optional<layout::Rect>
+    low_latency_pointer_dirty_bounds(const elements::RoutedEventResult& result) noexcept {
+        const auto* element = result.handled_by != nullptr ? result.handled_by : result.target;
+        if (element == nullptr) {
+            return std::nullopt;
+        }
+
+        const auto frame = element->absolute_frame();
+        if (!layout::is_visible_rect(frame)) {
+            return std::nullopt;
+        }
+
+        const auto origin = layout::Point{frame.x, frame.y};
+        const auto transform =
+            rendering::transform_around_point(element->render_transform(), origin);
+        return layout::inflate_rect(
+            rendering::transform_rect(layout::inflate_rect(frame, 64.0F), transform), 4.0F);
+    }
+
     void on_mouse_move(WPARAM wparam, LPARAM lparam) {
         if (!tracking_mouse_leave_) {
             TRACKMOUSEEVENT track_event{};
@@ -1553,6 +1608,7 @@ class Window::Impl final {
                        elements::PointerButton button, WPARAM button_state,
                        layout::Point wheel_delta = {}, std::uint8_t click_count = 0) {
         auto low_latency_repaint = false;
+        auto low_latency_bounds = std::optional<layout::Rect>{};
         {
             const std::scoped_lock lock(ui_tree_mutex_);
             if (router_ == nullptr) {
@@ -1573,6 +1629,19 @@ class Window::Impl final {
                 .x2_button_down = has_pointer_button_state(button_state, MK_XBUTTON2),
                 .modifiers = current_modifiers()});
             low_latency_repaint = should_flush_pointer_frame(kind, button_state, result);
+            if (low_latency_repaint) {
+                const auto current_bounds = low_latency_pointer_dirty_bounds(result);
+                if (current_bounds.has_value()) {
+                    low_latency_bounds =
+                        last_low_latency_repaint_bounds_.has_value()
+                            ? layout::union_rects(*last_low_latency_repaint_bounds_,
+                                                  *current_bounds)
+                            : *current_bounds;
+                    last_low_latency_repaint_bounds_ = current_bounds;
+                }
+            } else if (kind != elements::PointerEventKind::Enter) {
+                last_low_latency_repaint_bounds_.reset();
+            }
 
             const auto captured_direct_move =
                 low_latency_repaint && router_->pointer_capture() != nullptr;
@@ -1583,7 +1652,7 @@ class Window::Impl final {
                 update_ime_window_position();
             }
         }
-        request_repaint(low_latency_repaint);
+        request_repaint(low_latency_repaint, low_latency_bounds);
     }
 
     void apply_native_cursor(elements::PointerCursor cursor) noexcept {
@@ -1926,6 +1995,7 @@ class Window::Impl final {
     core::FrameScheduler frame_scheduler_;
     std::atomic_bool repaint_requested_ = false;
     std::atomic_bool low_latency_repaint_pending_ = false;
+    std::optional<layout::Rect> last_low_latency_repaint_bounds_;
     std::atomic_bool animation_repaint_pending_ = false;
     std::chrono::steady_clock::time_point next_animation_repaint_at_{};
     std::chrono::steady_clock::time_point last_interactive_resize_flush_at_{};
