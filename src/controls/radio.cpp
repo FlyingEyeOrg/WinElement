@@ -298,6 +298,16 @@ void Radio::on_key_event(elements::KeyEvent& event) {
     }
 }
 
+elements::PointerCursor Radio::cursor_for_local_point(layout::Point local_position) const noexcept {
+    if (disabled_) {
+        return elements::PointerCursor::NotAllowed;
+    }
+    const auto local_frame = layout::Rect{0.0F, 0.0F, frame().width, frame().height};
+    return layout::rect_contains_point(local_frame, local_position)
+               ? elements::PointerCursor::Hand
+               : elements::PointerCursor::Default;
+}
+
 bool Radio::on_animation_frame(animation::AnimationTimePoint now) {
     auto active = checked_progress_.tick(now);
     active = hover_progress_.tick(now) || active;
@@ -387,4 +397,3 @@ void Radio::activate() {
 }
 
 } // namespace winelement::controls
-

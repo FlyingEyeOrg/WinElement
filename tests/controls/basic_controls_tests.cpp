@@ -1920,6 +1920,103 @@ TEST(BasicControlsTests, ClearAffordancesUseHandCursor) {
     EXPECT_NE(router.cursor_for_point(select_clear_slot_edge), PointerCursor::Hand);
 }
 
+TEST(BasicControlsTests, InteractiveControlsExposeExpectedCursorStyles) {
+    auto engine = create_unrounded_engine();
+    StackPanel root;
+    root.bind_layout_tree(engine);
+    root.set_orientation(Orientation::Vertical).set_gap(8.0F);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(260.0F), Length::points(480.0F));
+    });
+
+    auto append_row = [&root]() -> StackPanel& {
+        auto& row = root.append_new_child<StackPanel>();
+        row.set_orientation(Orientation::Horizontal).set_gap(8.0F);
+        row.configure_layout([](LayoutElement& layout) {
+            layout.set_size(Length::points(260.0F), Length::points(40.0F)).set_flex_shrink(0.0F);
+        });
+        return row;
+    };
+    auto center_of = [](const UIElement& element) {
+        const auto frame = element.absolute_frame();
+        return Point{frame.x + frame.width * 0.5F, frame.y + frame.height * 0.5F};
+    };
+
+    auto& input = root.append_new_child<Input>();
+    input.set_text("Editable");
+    input.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(220.0F), Length::points(40.0F)).set_flex_shrink(0.0F);
+    });
+
+    auto& disabled_input = root.append_new_child<Input>();
+    disabled_input.set_text("Disabled").set_disabled(true);
+    disabled_input.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(220.0F), Length::points(40.0F)).set_flex_shrink(0.0F);
+    });
+
+    auto& button_row = append_row();
+    auto& button = button_row.append_new_child<Button>();
+    button.set_text("Button");
+    auto& disabled_button = button_row.append_new_child<Button>();
+    disabled_button.set_text("Disabled").set_disabled(true);
+
+    auto& select_row = append_row();
+    auto& select = select_row.append_new_child<Select>();
+    select.set_options({SelectOption{.label = "One", .value = "1"}}).set_selected_index(0U);
+    auto& disabled_select = select_row.append_new_child<Select>();
+    disabled_select.set_options({SelectOption{.label = "One", .value = "1"}})
+        .set_selected_index(0U)
+        .set_disabled(true);
+
+    auto& choice_row = append_row();
+    auto& radio = choice_row.append_new_child<Radio>();
+    radio.set_text("Radio");
+    auto& disabled_radio = choice_row.append_new_child<Radio>();
+    disabled_radio.set_text("Disabled").set_disabled(true);
+
+    auto& switch_row = append_row();
+    auto& switch_control = switch_row.append_new_child<Switch>();
+    switch_control.set_active_text("On").set_inactive_text("Off");
+    auto& disabled_switch = switch_row.append_new_child<Switch>();
+    disabled_switch.set_disabled(true);
+    auto& loading_switch = switch_row.append_new_child<Switch>();
+    loading_switch.set_loading(true);
+
+    auto& scrollbar = root.append_new_child<Scrollbar>();
+    scrollbar.set_orientation(ScrollbarOrientation::Vertical)
+        .set_visibility_mode(ScrollbarVisibility::Always)
+        .set_range(0.0F, 100.0F, 20.0F);
+    scrollbar.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(16.0F), Length::points(80.0F)).set_flex_shrink(0.0F);
+    });
+
+    auto& disabled_scrollbar = root.append_new_child<Scrollbar>();
+    disabled_scrollbar.set_orientation(ScrollbarOrientation::Vertical)
+        .set_visibility_mode(ScrollbarVisibility::Always)
+        .set_range(0.0F, 100.0F, 20.0F)
+        .set_disabled(true);
+    disabled_scrollbar.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(16.0F), Length::points(80.0F)).set_flex_shrink(0.0F);
+    });
+
+    root.calculate_layout(LayoutConstraints{.width = 260.0F, .height = 480.0F});
+    EventRouter router(root);
+
+    EXPECT_EQ(router.cursor_for_point(center_of(input)), PointerCursor::IBeam);
+    EXPECT_EQ(router.cursor_for_point(center_of(disabled_input)), PointerCursor::NotAllowed);
+    EXPECT_EQ(router.cursor_for_point(center_of(button)), PointerCursor::Hand);
+    EXPECT_EQ(router.cursor_for_point(center_of(disabled_button)), PointerCursor::NotAllowed);
+    EXPECT_EQ(router.cursor_for_point(center_of(select)), PointerCursor::Hand);
+    EXPECT_EQ(router.cursor_for_point(center_of(disabled_select)), PointerCursor::NotAllowed);
+    EXPECT_EQ(router.cursor_for_point(center_of(radio)), PointerCursor::Hand);
+    EXPECT_EQ(router.cursor_for_point(center_of(disabled_radio)), PointerCursor::NotAllowed);
+    EXPECT_EQ(router.cursor_for_point(center_of(switch_control)), PointerCursor::Hand);
+    EXPECT_EQ(router.cursor_for_point(center_of(disabled_switch)), PointerCursor::NotAllowed);
+    EXPECT_EQ(router.cursor_for_point(center_of(loading_switch)), PointerCursor::NotAllowed);
+    EXPECT_EQ(router.cursor_for_point(center_of(scrollbar)), PointerCursor::Hand);
+    EXPECT_EQ(router.cursor_for_point(center_of(disabled_scrollbar)), PointerCursor::NotAllowed);
+}
+
 TEST(BasicControlsTests, InputCaretCommandKeepsStyleWidthWithAndWithoutText) {
     auto engine = create_unrounded_engine();
     Input input;
@@ -4365,7 +4462,7 @@ TEST(BasicControlsTests, ScrollbarDisabledStateIgnoresPointerDrag) {
     scrollbar.calculate_layout(LayoutConstraints{.width = 6.0F, .height = 120.0F});
 
     EventRouter router(scrollbar);
-    EXPECT_EQ(router.cursor_for_point(Point{3.0F, 20.0F}), PointerCursor::Arrow);
+    EXPECT_EQ(router.cursor_for_point(Point{3.0F, 20.0F}), PointerCursor::NotAllowed);
     EXPECT_FALSE(router
                      .route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
                                                        .position = Point{3.0F, 20.0F},

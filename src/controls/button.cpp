@@ -520,7 +520,7 @@ void Button::on_focus_changed(const elements::FocusChangeEvent& event) {
 elements::PointerCursor
 Button::cursor_for_local_point(layout::Point local_position) const noexcept {
     if (disabled_ || has_flag(flags_, ButtonFlag::Loading)) {
-        return elements::PointerCursor::Default;
+        return elements::PointerCursor::NotAllowed;
     }
     const auto local_frame = layout::Rect{0.0F, 0.0F, frame().width, frame().height};
     return contains_local_point(local_frame, local_position) ? elements::PointerCursor::Hand
@@ -989,4 +989,3 @@ void Button::click(bool from_keyboard) {
 }
 
 } // namespace winelement::controls
-

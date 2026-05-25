@@ -29,7 +29,7 @@ enum class PointerEventKind {
     Leave
 };
 enum class PointerButton { None, Primary, Secondary, Middle, X1, X2 };
-enum class PointerCursor { Default, Arrow, Move, Hand };
+enum class PointerCursor { Default, Arrow, Move, Hand, IBeam, NotAllowed };
 enum class EventRoutePhase { Tunnel, Bubble };
 enum class KeyEventKind {
     Down,

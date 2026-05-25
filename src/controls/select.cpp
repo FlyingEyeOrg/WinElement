@@ -987,7 +987,7 @@ void Select::on_pointer_event(elements::PointerEvent& event) {
 elements::PointerCursor
 Select::cursor_for_local_point(layout::Point local_position) const noexcept {
     if (disabled_ || loading_) {
-        return elements::PointerCursor::Default;
+        return elements::PointerCursor::NotAllowed;
     }
     if (tag_close_index_at(local_position)) {
         return elements::PointerCursor::Hand;

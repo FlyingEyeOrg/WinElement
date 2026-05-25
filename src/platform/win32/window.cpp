@@ -443,10 +443,14 @@ class WindowRenderCache final {
 
 [[nodiscard]] LPCWSTR native_cursor_id(elements::PointerCursor cursor) noexcept {
     switch (cursor) {
+    case elements::PointerCursor::IBeam:
+        return IDC_IBEAM;
     case elements::PointerCursor::Move:
         return IDC_SIZEALL;
     case elements::PointerCursor::Hand:
         return IDC_HAND;
+    case elements::PointerCursor::NotAllowed:
+        return IDC_NO;
     case elements::PointerCursor::Arrow:
     case elements::PointerCursor::Default:
     default:

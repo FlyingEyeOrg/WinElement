@@ -1661,14 +1661,18 @@ void Input::on_key_event(elements::KeyEvent& event) {
 
 elements::PointerCursor Input::cursor_for_local_point(layout::Point local_position) const noexcept {
     if (disabled_) {
-        return elements::PointerCursor::Default;
+        return elements::PointerCursor::NotAllowed;
     }
     const auto geometry = create_geometry(layout::Rect{0.0F, 0.0F, frame().width, frame().height});
-    if ((geometry.has_clear_button &&
-         contains_centered_circle(geometry.clear_button_rect, input_icon_draw_size,
-                                  local_position)) ||
-        (geometry.has_password_button &&
-         contains_local_point(geometry.password_button_rect, local_position))) {
+    if (geometry.has_clear_button &&
+        contains_local_point(geometry.clear_button_rect, local_position)) {
+        return contains_centered_circle(geometry.clear_button_rect, input_icon_draw_size,
+                                        local_position)
+                   ? elements::PointerCursor::Hand
+                   : elements::PointerCursor::Default;
+    }
+    if (geometry.has_password_button &&
+        contains_local_point(geometry.password_button_rect, local_position)) {
         return elements::PointerCursor::Hand;
     }
     if (textarea()) {
@@ -1678,6 +1682,9 @@ elements::PointerCursor Input::cursor_for_local_point(layout::Point local_positi
             contains_local_point(vertical_scrollbar_track_rect(geometry), local_position)) {
             return elements::PointerCursor::Hand;
         }
+    }
+    if (contains_local_point(geometry.control_rect, local_position)) {
+        return elements::PointerCursor::IBeam;
     }
     return elements::PointerCursor::Default;
 }

@@ -658,7 +658,10 @@ void Scrollbar::on_key_event(elements::KeyEvent& event) {
 
 elements::PointerCursor
 Scrollbar::cursor_for_local_point(layout::Point local_position) const noexcept {
-    if (disabled_ || visibility_ == ScrollbarVisibility::Never) {
+    if (disabled_) {
+        return elements::PointerCursor::NotAllowed;
+    }
+    if (visibility_ == ScrollbarVisibility::Never) {
         return elements::PointerCursor::Default;
     }
 
@@ -979,9 +982,8 @@ void Scrollbar::emit_container_scroll_changed(layout::Point previous_scroll) {
 
     sync_container_range_if_needed();
     if (event_state_ != nullptr && !event_state_->scrolled.empty()) {
-        event_state_->scrolled.emit(orientation_ == ScrollbarOrientation::Vertical
-                                        ? current_scroll.y
-                                        : current_scroll.x);
+        event_state_->scrolled.emit(
+            orientation_ == ScrollbarOrientation::Vertical ? current_scroll.y : current_scroll.x);
     }
     if (event_state_ != nullptr && !event_state_->scroll_data_changed.empty()) {
         event_state_->scroll_data_changed.emit(
@@ -1040,4 +1042,3 @@ void Scrollbar::reset_end_reached_latches() {
 }
 
 } // namespace winelement::controls
-
