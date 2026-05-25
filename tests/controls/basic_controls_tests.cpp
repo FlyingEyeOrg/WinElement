@@ -695,6 +695,9 @@ TEST(BasicControlsTests, MessageBoxAndDialogCanDragTopLayerBounds) {
                                           std::chrono::milliseconds(250)));
     const auto box_start = root.top_layer_bounds(box);
     const auto box_initial_transform = box.render_transform();
+    EXPECT_TRUE(box.layer_enabled());
+    ASSERT_GT(box.child_count(), 0U);
+    EXPECT_TRUE(box.child_at(0U).repaint_boundary());
     EXPECT_EQ(router.cursor_for_point({box_start.x + 24.0F, box_start.y + 20.0F}),
               PointerCursor::Move);
     EXPECT_EQ(router.cursor_for_point({box_start.x + 24.0F, box_start.y + 38.0F}),
@@ -743,6 +746,9 @@ TEST(BasicControlsTests, MessageBoxAndDialogCanDragTopLayerBounds) {
                                              std::chrono::milliseconds(250)));
     const auto dialog_start = root.top_layer_bounds(dialog);
     const auto dialog_initial_transform = dialog.render_transform();
+    EXPECT_TRUE(dialog.layer_enabled());
+    ASSERT_GT(dialog.child_count(), 0U);
+    EXPECT_TRUE(dialog.child_at(0U).repaint_boundary());
     EXPECT_EQ(router.cursor_for_point({dialog_start.x + 24.0F, dialog_start.y + 24.0F}),
               PointerCursor::Move);
     EXPECT_EQ(router.cursor_for_point(
@@ -875,9 +881,8 @@ TEST(BasicControlsTests, ScrollbarCallbackKeepsVirtualChildrenRenderableAfterThu
     });
 
     auto& content = root.append_new_child<UIElement>();
-    content.configure_layout([](LayoutElement& layout) {
-        layout.set_flex_direction(FlexDirection::Column);
-    });
+    content.configure_layout(
+        [](LayoutElement& layout) { layout.set_flex_direction(FlexDirection::Column); });
     content.set_vertical_virtual_children(
         100U, 10.0F,
         [](std::size_t index) {
@@ -1095,14 +1100,14 @@ TEST(BasicControlsTests, ButtonClickedEventSupportsObserverTokens) {
 
     auto mouse_clicks = 0;
     auto keyboard_clicks = 0;
-    const auto token = (button_ref.clicked() +=
-                        [&mouse_clicks, &keyboard_clicks](const ButtonClickEvent& event) {
-                            if (event.from_keyboard) {
-                                ++keyboard_clicks;
-                            } else {
-                                ++mouse_clicks;
-                            }
-                        });
+    const auto token =
+        (button_ref.clicked() += [&mouse_clicks, &keyboard_clicks](const ButtonClickEvent& event) {
+            if (event.from_keyboard) {
+                ++keyboard_clicks;
+            } else {
+                ++mouse_clicks;
+            }
+        });
 
     EventRouter router(root);
     static_cast<void>(router.route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
@@ -1115,14 +1120,14 @@ TEST(BasicControlsTests, ButtonClickedEventSupportsObserverTokens) {
     EXPECT_EQ(keyboard_clicks, 0);
 
     ASSERT_TRUE(router.focus_manager().set_focus(&button_ref));
-    static_cast<void>(router.route_key_event(
-        KeyEvent{.kind = KeyEventKind::Down, .key = Key::Space}));
+    static_cast<void>(
+        router.route_key_event(KeyEvent{.kind = KeyEventKind::Down, .key = Key::Space}));
     EXPECT_EQ(mouse_clicks, 1);
     EXPECT_EQ(keyboard_clicks, 1);
 
     button_ref.clicked() -= token;
-    static_cast<void>(router.route_key_event(
-        KeyEvent{.kind = KeyEventKind::Down, .key = Key::Enter}));
+    static_cast<void>(
+        router.route_key_event(KeyEvent{.kind = KeyEventKind::Down, .key = Key::Enter}));
     EXPECT_EQ(mouse_clicks, 1);
     EXPECT_EQ(keyboard_clicks, 1);
 }
@@ -1130,8 +1135,9 @@ TEST(BasicControlsTests, ButtonClickedEventSupportsObserverTokens) {
 TEST(BasicControlsTests, ObserverSignalsSupportTokenSubscriptionAcrossControls) {
     Switch switch_control;
     auto switch_values = std::vector<bool>{};
-    const auto switch_token = (switch_control.changed() +=
-                               [&switch_values](bool checked) { switch_values.push_back(checked); });
+    const auto switch_token = (switch_control.changed() += [&switch_values](bool checked) {
+        switch_values.push_back(checked);
+    });
     switch_control.set_checked(true);
     switch_control.changed() -= switch_token;
     switch_control.set_checked(false);
@@ -1141,12 +1147,12 @@ TEST(BasicControlsTests, ObserverSignalsSupportTokenSubscriptionAcrossControls) 
     scrollbar.set_range(0.0F, 100.0F, 10.0F).set_distance(0.0F);
     auto scrolled_values = std::vector<float>{};
     auto reached_edges = std::vector<ScrollbarEndDirection>{};
-    const auto scroll_token =
-        (scrollbar.scrolled() += [&scrolled_values](float value) { scrolled_values.push_back(value); });
-    const auto end_token = (scrollbar.end_reached() +=
-                            [&reached_edges](ScrollbarEndDirection direction) {
-                                reached_edges.push_back(direction);
-                            });
+    const auto scroll_token = (scrollbar.scrolled() += [&scrolled_values](float value) {
+        scrolled_values.push_back(value);
+    });
+    const auto end_token =
+        (scrollbar.end_reached() +=
+         [&reached_edges](ScrollbarEndDirection direction) { reached_edges.push_back(direction); });
     scrollbar.set_value(100.0F);
     scrollbar.scrolled() -= scroll_token;
     scrollbar.end_reached() -= end_token;
@@ -1156,8 +1162,9 @@ TEST(BasicControlsTests, ObserverSignalsSupportTokenSubscriptionAcrossControls) 
 
     RadioGroupContext group;
     auto radio_values = std::vector<std::string>{};
-    const auto group_token =
-        (group.changed() += [&radio_values](std::string_view value) { radio_values.emplace_back(value); });
+    const auto group_token = (group.changed() += [&radio_values](std::string_view value) {
+        radio_values.emplace_back(value);
+    });
     group.set_value("alpha");
     group.changed() -= group_token;
     group.set_value("beta");
@@ -1166,10 +1173,10 @@ TEST(BasicControlsTests, ObserverSignalsSupportTokenSubscriptionAcrossControls) 
     ItemsControl items;
     items.set_items({"one", "two", "three"});
     auto selected_indices = std::vector<std::optional<std::size_t>>{};
-    const auto items_token = (items.selection_changed() +=
-                              [&selected_indices](std::optional<std::size_t> index) {
-                                  selected_indices.push_back(index);
-                              });
+    const auto items_token =
+        (items.selection_changed() += [&selected_indices](std::optional<std::size_t> index) {
+            selected_indices.push_back(index);
+        });
     items.set_selected_index(1);
     items.selection_changed() -= items_token;
     items.set_selected_index(2);
@@ -1178,8 +1185,9 @@ TEST(BasicControlsTests, ObserverSignalsSupportTokenSubscriptionAcrossControls) 
     EXPECT_EQ(*selected_indices.front(), 1U);
 
     Select select;
-    select.set_options({SelectOption{.label = "One", .value = "1"},
-                        SelectOption{.label = "Two", .value = "2"}})
+    select
+        .set_options({SelectOption{.label = "One", .value = "1"},
+                      SelectOption{.label = "Two", .value = "2"}})
         .set_filterable(true)
         .set_remote_search(true);
     auto filter_queries = std::vector<std::string>{};
@@ -2407,8 +2415,9 @@ TEST(BasicControlsTests, ContextMenuNestedSubmenuSelectionDismissesSafely) {
          ContextMenuItem{.text = "More", .submenu = {ContextMenuItem{.text = "Nested"}}}});
 
     std::string selected_text;
-    menu.selected() +=
-        [&selected_text](const ContextMenu::SelectEvent& event) { selected_text = event.item.text; };
+    menu.selected() += [&selected_text](const ContextMenu::SelectEvent& event) {
+        selected_text = event.item.text;
+    };
     menu.calculate_layout();
 
     EventRouter router(menu);
@@ -3823,9 +3832,7 @@ TEST(BasicControlsTests, BorderRadioSwitchScrollbarSelectAndItemsControlExposeCo
 
     switch_control.bind_layout_tree(engine);
     auto switch_value = false;
-    switch_control.set_size(SwitchSize::Large)
-        .set_active_text("ON")
-        .set_inactive_text("OFF");
+    switch_control.set_size(SwitchSize::Large).set_active_text("ON").set_inactive_text("OFF");
     switch_control.changed() += [&switch_value](bool checked) { switch_value = checked; };
     EXPECT_EQ(switch_control.size(), SwitchSize::Large);
     EventRouter switch_router(switch_control);
@@ -3875,15 +3882,12 @@ TEST(BasicControlsTests, BorderRadioSwitchScrollbarSelectAndItemsControlExposeCo
 
     ScrollbarScrollData scroll_data;
     std::vector<ScrollbarEndDirection> reached;
-    scrollbar.scroll_data_changed() += [&scroll_data](ScrollbarScrollData data) {
-        scroll_data = data;
-    };
+    scrollbar.scroll_data_changed() +=
+        [&scroll_data](ScrollbarScrollData data) { scroll_data = data; };
     scrollbar.end_reached() +=
         [&reached](ScrollbarEndDirection direction) { reached.push_back(direction); };
-    scrollbar.set_always_visible(true)
-        .set_min_size(20.0F)
-        .set_distance(5.0F)
-        .scroll_to(24.0F, 0.0F);
+    scrollbar.set_always_visible(true).set_min_size(20.0F).set_distance(5.0F).scroll_to(24.0F,
+                                                                                        0.0F);
     EXPECT_EQ(scrollbar.visibility_mode(), ScrollbarVisibility::Always);
     EXPECT_FLOAT_EQ(scrollbar.min_size(), 20.0F);
     EXPECT_FLOAT_EQ(scrollbar.distance(), 5.0F);
@@ -3933,9 +3937,8 @@ TEST(BasicControlsTests, BorderRadioSwitchScrollbarSelectAndItemsControlExposeCo
 
     select.bind_layout_tree(engine);
     std::optional<std::size_t> selected;
-    select.selection_changed() += [&selected](std::optional<std::size_t> index) {
-        selected = index;
-    };
+    select.selection_changed() +=
+        [&selected](std::optional<std::size_t> index) { selected = index; };
     select
         .set_options({SelectOption{.label = "Alpha", .value = "a"},
                       SelectOption{.label = "Beta", .value = "b", .disabled = true}})

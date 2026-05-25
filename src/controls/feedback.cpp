@@ -282,15 +282,20 @@ void configure_feedback_surface(elements::UIElement& element, layout::Size size)
     });
 }
 
-void configure_surface_layer(elements::UIElement& surface) {
+void configure_surface_layer(elements::UIElement& surface, bool cache_subtree = false) {
     // Shadows must be allowed to bleed outside the dialog surface like Element Plus overlays.
-    surface.set_hit_test_visible(false).set_repaint_boundary(false);
+    surface.set_hit_test_visible(false).set_repaint_boundary(cache_subtree);
     surface.configure_layout([](layout::LayoutElement& item) {
         item.set_position_type(layout::PositionType::Absolute)
             .set_position(layout::Edge::Left, layout::Length::points(0.0F))
             .set_position(layout::Edge::Top, layout::Length::points(0.0F))
             .set_size(layout::Length::percent(100.0F), layout::Length::percent(100.0F));
     });
+}
+
+[[nodiscard]] bool nearly_same_point(layout::Point left, layout::Point right) noexcept {
+    constexpr auto epsilon = 0.01F;
+    return std::abs(left.x - right.x) <= epsilon && std::abs(left.y - right.y) <= epsilon;
 }
 
 void apply_surface_style(elements::UIElement& surface, float radius, rendering::Color background,
@@ -366,8 +371,8 @@ void configure_footer_button(Button& button, std::string_view text, ButtonType t
 
 bool handle_overlay_drag(elements::UIElement& element, bool draggable, bool& dragging,
                          layout::Point& drag_start_pointer, layout::Rect& drag_start_bounds,
-                         layout::Point& drag_current_delta, elements::PointerEvent& event,
-                         float drag_height) {
+                         layout::Point& drag_current_delta, layout::Rect& drag_viewport,
+                         elements::PointerEvent& event, float drag_height) {
     if (!draggable) {
         return false;
     }
@@ -386,6 +391,8 @@ bool handle_overlay_drag(elements::UIElement& element, bool draggable, bool& dra
         dragging = true;
         drag_start_pointer = event.position;
         drag_current_delta = {};
+        const auto* host = element.parent();
+        drag_viewport = host != nullptr ? viewport_for(*host) : fallback_viewport;
         element.set_render_transform(rendering::Transform2D::identity());
         event.handled = true;
         return true;
@@ -399,13 +406,13 @@ bool handle_overlay_drag(elements::UIElement& element, bool draggable, bool& dra
                 element, layout::Rect{drag_start_bounds.x + drag_current_delta.x,
                                       drag_start_bounds.y + drag_current_delta.y,
                                       drag_start_bounds.width, drag_start_bounds.height});
+            drag_viewport = {};
             event.handled = true;
             return true;
         }
         const auto delta = layout::Point{event.position.x - drag_start_pointer.x,
                                          event.position.y - drag_start_pointer.y};
-        const auto* host = element.parent();
-        const auto viewport = host != nullptr ? viewport_for(*host) : fallback_viewport;
+        const auto viewport = drag_viewport;
         const auto min_x = viewport.x - drag_start_bounds.x;
         const auto max_x =
             viewport.x + viewport.width - (drag_start_bounds.x + drag_start_bounds.width);
@@ -415,8 +422,13 @@ bool handle_overlay_drag(elements::UIElement& element, bool draggable, bool& dra
         const auto clamp_axis = [](float value, float minimum, float maximum) noexcept {
             return minimum <= maximum ? std::clamp(value, minimum, maximum) : value;
         };
-        drag_current_delta =
+        const auto next_delta =
             layout::Point{clamp_axis(delta.x, min_x, max_x), clamp_axis(delta.y, min_y, max_y)};
+        if (nearly_same_point(next_delta, drag_current_delta)) {
+            event.handled = true;
+            return true;
+        }
+        drag_current_delta = next_delta;
         element.set_render_transform(
             rendering::Transform2D::translation(drag_current_delta.x, drag_current_delta.y));
         event.handled = true;
@@ -431,6 +443,7 @@ bool handle_overlay_drag(elements::UIElement& element, bool draggable, bool& dra
                                   drag_start_bounds.y + drag_current_delta.y,
                                   drag_start_bounds.width, drag_start_bounds.height});
         drag_current_delta = {};
+        drag_viewport = {};
         event.handled = true;
         return true;
     }
@@ -439,6 +452,7 @@ bool handle_overlay_drag(elements::UIElement& element, bool draggable, bool& dra
         dragging = false;
         element.set_render_transform(rendering::Transform2D::identity());
         drag_current_delta = {};
+        drag_viewport = {};
         event.handled = true;
         return true;
     }
@@ -574,9 +588,7 @@ Message& Message::show(elements::UIElement& host, MessageOptions options) {
                                      viewport.y + std::max(options.top, 0.0F), width, size.height};
 
     auto message = std::make_unique<Message>();
-    message->set_text(options.text)
-        .set_type(options.type)
-        .set_show_close(options.show_close);
+    message->set_text(options.text).set_type(options.type).set_show_close(options.show_close);
     message->width_ = width;
     message->height_ = size.height;
     message->top_offset_ = std::max(options.top, 0.0F);
@@ -726,8 +738,9 @@ void Message::close() {
 
 MessageBox::MessageBox() : Control() {
     set_theme_class("wm.message_box");
+    set_layer_enabled(true);
     auto& surface = append_new_child<elements::UIElement>();
-    configure_surface_layer(surface);
+    configure_surface_layer(surface, true);
     surface_ = &surface;
 
     configure_layout([](layout::LayoutElement& item) {
@@ -860,7 +873,8 @@ MessageBox::MessageBox() : Control() {
             .set_position(layout::Edge::Top, layout::Length::points(0.0F))
             .set_size(layout::Length::points(40.0F), layout::Length::points(40.0F));
     });
-    close.clicked() += [this](const ButtonClickEvent&) { close_with_action(MessageBoxAction::Close); };
+    close.clicked() +=
+        [this](const ButtonClickEvent&) { close_with_action(MessageBoxAction::Close); };
     close_button_ = &close;
 
     set_title("Message");
@@ -1131,7 +1145,7 @@ bool MessageBox::on_animation_frame(animation::AnimationTimePoint now) {
 void MessageBox::on_pointer_event(elements::PointerEvent& event) {
     const auto was_dragging = dragging_;
     if (handle_overlay_drag(*this, draggable_, dragging_, drag_start_pointer_, drag_start_bounds_,
-                            drag_current_delta_, event, message_box_drag_height)) {
+                            drag_current_delta_, drag_viewport_, event, message_box_drag_height)) {
         if (event.kind == elements::PointerEventKind::Down && dragging_) {
             open_progress_.set(1.0F);
             static_cast<void>(capture_pointer());
@@ -1692,7 +1706,8 @@ class DialogWindowImpl final {
         platform::WindowOptions window_options;
         window_options.title = utf8_to_wide(options.title);
         window_options.width = std::max(options.width, 360);
-        window_options.height = dialog_window_client_height_for(options, static_cast<float>(window_options.width));
+        window_options.height =
+            dialog_window_client_height_for(options, static_cast<float>(window_options.width));
         window_options.owner = options.owner;
         window_options.modal = options.modal;
         window_options.center_on_owner = true;
@@ -1740,12 +1755,14 @@ class DialogWindowImpl final {
         auto& cancel = footer.append_new_child<Button>();
         configure_footer_button(cancel, cancel_button_text_, ButtonType::Default);
         cancel.set_visible(show_cancel_button_);
-        cancel.clicked() += [this](const ButtonClickEvent&) { close_with_action(DialogAction::Cancel); };
+        cancel.clicked() +=
+            [this](const ButtonClickEvent&) { close_with_action(DialogAction::Cancel); };
         cancel_button_ = &cancel;
 
         auto& confirm = footer.append_new_child<Button>();
         configure_footer_button(confirm, confirm_button_text_, ButtonType::Primary);
-        confirm.clicked() += [this](const ButtonClickEvent&) { close_with_action(DialogAction::Confirm); };
+        confirm.clicked() +=
+            [this](const ButtonClickEvent&) { close_with_action(DialogAction::Confirm); };
         confirm_button_ = &confirm;
 
         return root;
@@ -1891,8 +1908,9 @@ void DialogWindow::close() {
 
 Dialog::Dialog() : Control() {
     set_theme_class("wm.dialog");
+    set_layer_enabled(true);
     auto& surface = append_new_child<elements::UIElement>();
-    configure_surface_layer(surface);
+    configure_surface_layer(surface, true);
     apply_surface_style(surface, 4.0F, rendering::Color::rgba(255, 255, 255),
                         rendering::Color::rgba(235, 238, 245), true);
     surface_ = &surface;
@@ -1939,7 +1957,8 @@ Dialog::Dialog() : Control() {
     });
     auto& cancel = footer.append_new_child<Button>();
     configure_footer_button(cancel, "Cancel", ButtonType::Default);
-    cancel.clicked() += [this](const ButtonClickEvent&) { close_with_action(DialogAction::Cancel); };
+    cancel.clicked() +=
+        [this](const ButtonClickEvent&) { close_with_action(DialogAction::Cancel); };
     cancel_button_ = &cancel;
     auto& confirm = footer.append_new_child<Button>();
     configure_footer_button(confirm, "Confirm", ButtonType::Primary);
@@ -2082,12 +2101,12 @@ Dialog& Dialog::show(elements::UIElement& host, DialogOptions options) {
     const auto size = options.fullscreen
                           ? layout::Size{viewport.width, viewport.height}
                           : layout::Size{width, dialog_height_for(options, width, viewport)};
-    const auto bounds = options.fullscreen
-                            ? layout::Rect{viewport.x, viewport.y,
-                                           std::numeric_limits<float>::quiet_NaN(),
-                                           std::numeric_limits<float>::quiet_NaN()}
-                            : cascaded_bounds(viewport, centered_bounds(viewport, size),
-                                              floating_overlay_count(host));
+    const auto bounds =
+        options.fullscreen
+            ? layout::Rect{viewport.x, viewport.y, std::numeric_limits<float>::quiet_NaN(),
+                           std::numeric_limits<float>::quiet_NaN()}
+            : cascaded_bounds(viewport, centered_bounds(viewport, size),
+                              floating_overlay_count(host));
     auto dialog = std::make_unique<Dialog>();
     dialog->modal_ = options.modal;
     dialog->set_title(options.title)
@@ -2134,7 +2153,7 @@ bool Dialog::on_animation_frame(animation::AnimationTimePoint now) {
 void Dialog::on_pointer_event(elements::PointerEvent& event) {
     const auto was_dragging = dragging_;
     if (handle_overlay_drag(*this, draggable_, dragging_, drag_start_pointer_, drag_start_bounds_,
-                            drag_current_delta_, event, dialog_drag_height)) {
+                            drag_current_delta_, drag_viewport_, event, dialog_drag_height)) {
         if (event.kind == elements::PointerEventKind::Down && dragging_) {
             open_progress_.set(1.0F);
             static_cast<void>(capture_pointer());
@@ -2178,4 +2197,3 @@ void Dialog::apply_open_animation() noexcept {
 }
 
 } // namespace winelement::controls
-

@@ -11,6 +11,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -42,7 +43,7 @@ class ObservableObject : public std::enable_shared_from_this<ObservableObject> {
         auto change = ObservableChange{};
         auto changed = false;
         {
-            const std::lock_guard lock(values_mutex_);
+            const std::unique_lock lock(values_mutex_);
             auto iterator = find_entry(name);
             if (iterator != values_.end() && iterator->name == name) {
                 if (const auto* current = iterator->value.template get<ValueType>();
@@ -72,7 +73,7 @@ class ObservableObject : public std::enable_shared_from_this<ObservableObject> {
     ObservableObject& set_value(std::string name, PropertyValue value);
 
     template <typename T> [[nodiscard]] std::optional<T> get(std::string_view name) const {
-        const std::lock_guard lock(values_mutex_);
+        const std::shared_lock lock(values_mutex_);
         const auto iterator = find_entry(name);
         if (iterator == values_.end() || iterator->name != name) {
             return std::nullopt;
@@ -113,7 +114,7 @@ class ObservableObject : public std::enable_shared_from_this<ObservableObject> {
     void notify(const ObservableChange& change);
 
     std::vector<Entry> values_;
-    mutable std::mutex values_mutex_;
+    mutable std::shared_mutex values_mutex_;
     EventHandler<const ObservableChange&> observers_;
 };
 
@@ -156,22 +157,22 @@ template <typename T> class ObservableList final {
     explicit ObservableList(std::vector<T> items) : items_(std::move(items)) {}
 
     [[nodiscard]] std::size_t size() const noexcept {
-        const std::lock_guard lock(mutex_);
+        const std::shared_lock lock(mutex_);
         return items_.size();
     }
 
     [[nodiscard]] bool empty() const noexcept {
-        const std::lock_guard lock(mutex_);
+        const std::shared_lock lock(mutex_);
         return items_.empty();
     }
 
     [[nodiscard]] const T& at(std::size_t index) const {
-        const std::lock_guard lock(mutex_);
+        const std::shared_lock lock(mutex_);
         return items_.at(index);
     }
 
     [[nodiscard]] T& at(std::size_t index) {
-        const std::lock_guard lock(mutex_);
+        const std::unique_lock lock(mutex_);
         return items_.at(index);
     }
 
@@ -182,7 +183,7 @@ template <typename T> class ObservableList final {
     void reset(std::vector<T> items) {
         auto added_count = std::size_t{0U};
         {
-            const std::lock_guard lock(mutex_);
+            const std::unique_lock lock(mutex_);
             items_ = std::move(items);
             added_count = items_.size();
         }
@@ -193,7 +194,7 @@ template <typename T> class ObservableList final {
     void append(T item) {
         auto index = std::size_t{0U};
         {
-            const std::lock_guard lock(mutex_);
+            const std::unique_lock lock(mutex_);
             index = items_.size();
             items_.push_back(std::move(item));
         }
@@ -203,7 +204,7 @@ template <typename T> class ObservableList final {
 
     void insert(std::size_t index, T item) {
         {
-            const std::lock_guard lock(mutex_);
+            const std::unique_lock lock(mutex_);
             if (index > items_.size()) {
                 index = items_.size();
             }
@@ -215,7 +216,7 @@ template <typename T> class ObservableList final {
 
     void erase(std::size_t index) {
         {
-            const std::lock_guard lock(mutex_);
+            const std::unique_lock lock(mutex_);
             if (index >= items_.size()) {
                 return;
             }
@@ -227,7 +228,7 @@ template <typename T> class ObservableList final {
 
     void replace(std::size_t index, T item) {
         {
-            const std::lock_guard lock(mutex_);
+            const std::unique_lock lock(mutex_);
             if (index >= items_.size()) {
                 return;
             }
@@ -256,7 +257,7 @@ template <typename T> class ObservableList final {
         observers_.emit(change);
     }
 
-    mutable std::mutex mutex_;
+    mutable std::shared_mutex mutex_;
     std::vector<T> items_;
     EventHandler<const ObservableChange&> observers_;
 };

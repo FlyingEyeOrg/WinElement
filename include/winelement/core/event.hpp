@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <utility>
 #include <vector>
 
@@ -22,7 +23,7 @@ template <typename... Args> class EventHandler final {
     EventHandler(const EventHandler&) = delete;
     EventHandler& operator=(const EventHandler&) = delete;
     EventHandler(EventHandler&& other) noexcept {
-        const std::lock_guard lock(other.mutex_);
+        const std::unique_lock lock(other.mutex_);
         handlers_ = std::move(other.handlers_);
         next_token_ = other.next_token_;
         other.next_token_ = 1U;
@@ -45,7 +46,7 @@ template <typename... Args> class EventHandler final {
             return 0U;
         }
 
-        const std::lock_guard lock(mutex_);
+        const std::unique_lock lock(mutex_);
         compact_locked();
         auto token = next_token_++;
         if (token == 0U) {
@@ -63,7 +64,7 @@ template <typename... Args> class EventHandler final {
         if (token == 0U) {
             return;
         }
-        const std::lock_guard lock(mutex_);
+        const std::unique_lock lock(mutex_);
         for (auto& entry : handlers_) {
             if (entry->token != token) {
                 continue;
@@ -79,7 +80,7 @@ template <typename... Args> class EventHandler final {
     }
 
     void clear() noexcept {
-        const std::lock_guard lock(mutex_);
+        const std::unique_lock lock(mutex_);
         for (const auto& entry : handlers_) {
             entry->active.store(false, std::memory_order_release);
         }
@@ -87,14 +88,14 @@ template <typename... Args> class EventHandler final {
     }
 
     [[nodiscard]] bool empty() const noexcept {
-        const std::lock_guard lock(mutex_);
+        const std::shared_lock lock(mutex_);
         return std::none_of(handlers_.begin(), handlers_.end(), [](const auto& entry) {
             return entry->active.load(std::memory_order_acquire);
         });
     }
 
     [[nodiscard]] std::size_t size() const noexcept {
-        const std::lock_guard lock(mutex_);
+        const std::shared_lock lock(mutex_);
         return static_cast<std::size_t>(
             std::count_if(handlers_.begin(), handlers_.end(), [](const auto& entry) {
                 return entry->active.load(std::memory_order_acquire);
@@ -104,7 +105,7 @@ template <typename... Args> class EventHandler final {
     void emit(Args... args) const {
         auto handlers = std::vector<std::shared_ptr<Entry>>{};
         {
-            const std::lock_guard lock(mutex_);
+            const std::shared_lock lock(mutex_);
             handlers = handlers_;
         }
 
@@ -133,7 +134,7 @@ template <typename... Args> class EventHandler final {
                         handlers_.end());
     }
 
-    mutable std::mutex mutex_;
+    mutable std::shared_mutex mutex_;
     mutable std::vector<std::shared_ptr<Entry>> handlers_;
     EventToken next_token_ = 1U;
 };

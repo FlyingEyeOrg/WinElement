@@ -218,6 +218,7 @@ class MessageBox final : public Control {
     layout::Point drag_start_pointer_{};
     layout::Point drag_current_delta_{};
     layout::Rect drag_start_bounds_{};
+    layout::Rect drag_viewport_{};
     std::unique_ptr<EventState> event_state_;
     AnimatedFloat open_progress_{0.82F};
 };
@@ -391,9 +392,9 @@ class Dialog final : public Control {
     layout::Point drag_start_pointer_{};
     layout::Point drag_current_delta_{};
     layout::Rect drag_start_bounds_{};
+    layout::Rect drag_viewport_{};
     std::unique_ptr<EventState> event_state_;
     AnimatedFloat open_progress_{0.82F};
 };
 
 } // namespace winelement::controls
-

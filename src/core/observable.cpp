@@ -7,7 +7,7 @@ namespace winelement::core {
 ObservableObject& ObservableObject::set_value(std::string name, PropertyValue value) {
     auto change = ObservableChange{};
     {
-        const std::lock_guard lock(values_mutex_);
+        const std::unique_lock lock(values_mutex_);
         auto iterator = find_entry(name);
         if (iterator != values_.end() && iterator->name == name) {
             iterator->value = std::move(value);
@@ -26,7 +26,7 @@ ObservableObject& ObservableObject::set_value(std::string name, PropertyValue va
 }
 
 const PropertyValue* ObservableObject::value(std::string_view name) const noexcept {
-    const std::lock_guard lock(values_mutex_);
+    const std::shared_lock lock(values_mutex_);
     const auto iterator = find_entry(name);
     if (iterator == values_.end() || iterator->name != name) {
         return nullptr;
@@ -41,7 +41,7 @@ bool ObservableObject::has_value(std::string_view name) const noexcept {
 void ObservableObject::clear(std::string_view name) {
     auto change = ObservableChange{};
     {
-        const std::lock_guard lock(values_mutex_);
+        const std::unique_lock lock(values_mutex_);
         const auto iterator = find_entry(name);
         if (iterator == values_.end() || iterator->name != name) {
             return;
@@ -55,7 +55,7 @@ void ObservableObject::clear(std::string_view name) {
 
 void ObservableObject::clear_values() {
     {
-        const std::lock_guard lock(values_mutex_);
+        const std::unique_lock lock(values_mutex_);
         values_.clear();
     }
     notify(ObservableChange{.kind = ObservableChangeKind::Reset});
@@ -74,7 +74,7 @@ void ObservableObject::clear_observers() noexcept {
 }
 
 std::size_t ObservableObject::value_count() const noexcept {
-    const std::lock_guard lock(values_mutex_);
+    const std::shared_lock lock(values_mutex_);
     return values_.size();
 }
 

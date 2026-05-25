@@ -71,6 +71,47 @@ TEST(CoreTests, ObservableObjectNotifiesAndRemovesObservers) {
     EXPECT_EQ(model->get<std::string>("title"), std::optional<std::string>{"Running"});
 }
 
+TEST(CoreTests, ObservableObjectAllowsConcurrentReadHeavyAccess) {
+    auto model = std::make_shared<ObservableObject>();
+    model->set("counter", 0);
+    std::atomic_bool start = false;
+    std::atomic_int observed_reads = 0;
+
+    auto readers = std::vector<std::thread>{};
+    readers.reserve(4U);
+    for (auto index = 0; index < 4; ++index) {
+        readers.emplace_back([&] {
+            while (!start.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+            for (auto iteration = 0; iteration < 1024; ++iteration) {
+                if (model->get<int>("counter").has_value()) {
+                    observed_reads.fetch_add(1, std::memory_order_acq_rel);
+                }
+            }
+        });
+    }
+
+    auto writer = std::thread([&] {
+        while (!start.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+        for (auto value = 1; value <= 512; ++value) {
+            model->set("counter", value);
+            EXPECT_GE(model->value_count(), 1U);
+        }
+    });
+
+    start.store(true, std::memory_order_release);
+    for (auto& reader : readers) {
+        reader.join();
+    }
+    writer.join();
+
+    EXPECT_EQ(model->get<int>("counter"), std::optional<int>{512});
+    EXPECT_GT(observed_reads.load(std::memory_order_acquire), 0);
+}
+
 TEST(CoreTests, EventHandlerSupportsConcurrentSubscriptionAndEmit) {
     EventHandler<int> event;
     std::atomic_int sum = 0;
