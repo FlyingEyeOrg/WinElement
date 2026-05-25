@@ -288,6 +288,32 @@ class SelectDropdown final : public elements::UIElement {
         }
     }
 
+    [[nodiscard]] elements::PointerCursor
+    cursor_for_local_point(layout::Point local_position) const noexcept override {
+        const auto dropdown_frame = absolute_frame();
+        const auto owner_frame = owner_.absolute_frame();
+        const auto owner_local = layout::Point{dropdown_frame.x + local_position.x - owner_frame.x,
+                                               dropdown_frame.y + local_position.y - owner_frame.y};
+        const auto owner_local_frame =
+            layout::Rect{0.0F, 0.0F, owner_frame.width, owner_frame.height};
+        if (contains_local_point(owner_local_frame, owner_local)) {
+            return owner_.cursor_for_local_point(owner_local);
+        }
+
+        const auto local_frame = layout::Rect{0.0F, 0.0F, frame().width, frame().height};
+        if (owner_.filterable_) {
+            const auto metrics = select_popup_metrics();
+            const auto filter_rect =
+                layout::Rect{8.0F, metrics.vertical_padding + 4.0F,
+                             std::max(0.0F, local_frame.width - 16.0F), filter_height - 8.0F};
+            if (contains_local_point(filter_rect, local_position)) {
+                return elements::PointerCursor::IBeam;
+            }
+        }
+        return item_at(local_position) ? elements::PointerCursor::Hand
+                                       : elements::PointerCursor::Default;
+    }
+
     [[nodiscard]] bool on_animation_frame(animation::AnimationTimePoint now) override {
         auto active = false;
         if (!open_animation_.empty()) {
@@ -1004,9 +1030,8 @@ Select::cursor_for_local_point(layout::Point local_position) const noexcept {
                    ? elements::PointerCursor::Hand
                    : elements::PointerCursor::Default;
     }
-    return contains_local_point(local_frame, local_position) && !filterable_
-               ? elements::PointerCursor::Hand
-               : elements::PointerCursor::Default;
+    return contains_local_point(local_frame, local_position) ? elements::PointerCursor::Hand
+                                                             : elements::PointerCursor::Default;
 }
 
 void Select::on_key_event(elements::KeyEvent& event) {

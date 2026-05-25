@@ -4787,6 +4787,7 @@ TEST(BasicControlsTests, SelectToggleClosesPopupAndFiltersUseInsetText) {
     root.calculate_layout(LayoutConstraints{.width = 220.0F, .height = 180.0F});
 
     EventRouter router(root);
+    EXPECT_EQ(router.cursor_for_point(Point{16.0F, 16.0F}), PointerCursor::Hand);
     EXPECT_TRUE(router
                     .route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
                                                       .position = Point{16.0F, 16.0F},
@@ -4806,6 +4807,10 @@ TEST(BasicControlsTests, SelectToggleClosesPopupAndFiltersUseInsetText) {
         find_command(open_context, RenderCommandType::DrawText, "Filter options");
     ASSERT_NE(filter_text, nullptr);
     EXPECT_GE(command_rect(*filter_text).x, 24.0F);
+
+    EXPECT_EQ(router.cursor_for_point(Point{16.0F, 16.0F}), PointerCursor::Hand);
+    EXPECT_EQ(router.cursor_for_point(Point{16.0F, 52.0F}), PointerCursor::IBeam);
+    EXPECT_EQ(router.cursor_for_point(Point{16.0F, 90.0F}), PointerCursor::Hand);
 
     EXPECT_TRUE(router
                     .route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
