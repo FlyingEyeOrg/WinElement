@@ -695,10 +695,25 @@ class Window::Impl final {
     }
 
     void request_repaint() noexcept {
+        request_repaint(false);
+    }
+
+    void request_repaint(bool immediate) noexcept {
         if (hwnd_ == nullptr || repaint_requested_.exchange(true, std::memory_order_acq_rel)) {
+            if (immediate && hwnd_ != nullptr && IsWindow(hwnd_) != FALSE) {
+                low_latency_repaint_pending_.store(true, std::memory_order_release);
+                RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+            }
             return;
         }
         const auto hwnd = hwnd_;
+        if (immediate) {
+            low_latency_repaint_pending_.store(true, std::memory_order_release);
+            if (IsWindow(hwnd) != FALSE) {
+                RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+            }
+            return;
+        }
         static_cast<void>(frame_scheduler_.post(
             [hwnd]() noexcept {
                 if (hwnd != nullptr && IsWindow(hwnd) != FALSE) {
@@ -1435,6 +1450,8 @@ class Window::Impl final {
         PAINTSTRUCT paint{};
         BeginPaint(hwnd_, &paint);
         repaint_requested_.store(false, std::memory_order_release);
+        const auto low_latency_repaint =
+            low_latency_repaint_pending_.exchange(false, std::memory_order_acq_rel);
 
         try {
             ensure_render_worker();
@@ -1452,9 +1469,10 @@ class Window::Impl final {
                 request.target_pixel_width = target_pixel_size.width;
                 request.target_pixel_height = target_pixel_size.height;
                 request.tick_animations = !interactive_resize_;
-                if (interactive_resize_) {
+                if (interactive_resize_ || low_latency_repaint) {
                     cancel_pending_ui_frame();
-                    prepare_ui_frame(std::move(request), true);
+                    prepare_ui_frame(std::move(request),
+                                     interactive_resize_ || low_latency_repaint);
                 } else {
                     post_ui_frame(std::move(request));
                 }
@@ -1483,6 +1501,19 @@ class Window::Impl final {
 
     [[nodiscard]] static bool has_pointer_button_state(WPARAM wparam, UINT flag) noexcept {
         return (LOWORD(wparam) & flag) != 0;
+    }
+
+    [[nodiscard]] static bool has_any_pointer_button_state(WPARAM wparam) noexcept {
+        constexpr auto button_flags =
+            MK_LBUTTON | MK_RBUTTON | MK_MBUTTON | MK_XBUTTON1 | MK_XBUTTON2;
+        return (LOWORD(wparam) & button_flags) != 0;
+    }
+
+    [[nodiscard]] static bool
+    should_flush_pointer_frame(elements::PointerEventKind kind, WPARAM button_state,
+                               elements::RoutedEventResult result) noexcept {
+        return kind == elements::PointerEventKind::Move && result.handled &&
+               has_any_pointer_button_state(button_state);
     }
 
     void on_mouse_move(WPARAM wparam, LPARAM lparam) {
@@ -1521,27 +1552,38 @@ class Window::Impl final {
     void route_pointer(elements::PointerEventKind kind, layout::Point position,
                        elements::PointerButton button, WPARAM button_state,
                        layout::Point wheel_delta = {}, std::uint8_t click_count = 0) {
-        const std::scoped_lock lock(ui_tree_mutex_);
-        if (router_ == nullptr) {
-            return;
-        }
+        auto low_latency_repaint = false;
+        {
+            const std::scoped_lock lock(ui_tree_mutex_);
+            if (router_ == nullptr) {
+                return;
+            }
 
-        last_pointer_position_ = position;
-        router_->route_pointer_event(elements::PointerEvent{
-            .kind = kind,
-            .position = position,
-            .wheel_delta = wheel_delta,
-            .button = button,
-            .click_count = click_count,
-            .primary_button_down = has_pointer_button_state(button_state, MK_LBUTTON),
-            .secondary_button_down = has_pointer_button_state(button_state, MK_RBUTTON),
-            .middle_button_down = has_pointer_button_state(button_state, MK_MBUTTON),
-            .x1_button_down = has_pointer_button_state(button_state, MK_XBUTTON1),
-            .x2_button_down = has_pointer_button_state(button_state, MK_XBUTTON2),
-            .modifiers = current_modifiers()});
-        apply_native_cursor(router_->cursor_for_point(position));
-        update_ime_window_position();
-        request_repaint();
+            last_pointer_position_ = position;
+            const auto result = router_->route_pointer_event(elements::PointerEvent{
+                .kind = kind,
+                .position = position,
+                .wheel_delta = wheel_delta,
+                .button = button,
+                .click_count = click_count,
+                .primary_button_down = has_pointer_button_state(button_state, MK_LBUTTON),
+                .secondary_button_down = has_pointer_button_state(button_state, MK_RBUTTON),
+                .middle_button_down = has_pointer_button_state(button_state, MK_MBUTTON),
+                .x1_button_down = has_pointer_button_state(button_state, MK_XBUTTON1),
+                .x2_button_down = has_pointer_button_state(button_state, MK_XBUTTON2),
+                .modifiers = current_modifiers()});
+            low_latency_repaint = should_flush_pointer_frame(kind, button_state, result);
+
+            const auto captured_direct_move =
+                low_latency_repaint && router_->pointer_capture() != nullptr;
+            if (!captured_direct_move) {
+                apply_native_cursor(router_->cursor_for_point(position));
+            }
+            if (kind != elements::PointerEventKind::Move || !result.handled) {
+                update_ime_window_position();
+            }
+        }
+        request_repaint(low_latency_repaint);
     }
 
     void apply_native_cursor(elements::PointerCursor cursor) noexcept {
@@ -1883,6 +1925,7 @@ class Window::Impl final {
     WindowRenderCache render_cache_;
     core::FrameScheduler frame_scheduler_;
     std::atomic_bool repaint_requested_ = false;
+    std::atomic_bool low_latency_repaint_pending_ = false;
     std::atomic_bool animation_repaint_pending_ = false;
     std::chrono::steady_clock::time_point next_animation_repaint_at_{};
     std::chrono::steady_clock::time_point last_interactive_resize_flush_at_{};
@@ -1996,4 +2039,3 @@ int Window::run_message_loop() {
 }
 
 } // namespace winelement::platform
-

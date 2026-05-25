@@ -51,6 +51,35 @@ class ThreadRecordingElement final : public elements::UIElement {
     std::mutex& mutex_;
 };
 
+class LowLatencyDragElement final : public elements::UIElement {
+  public:
+    explicit LowLatencyDragElement(std::atomic_int& paint_count) noexcept
+        : paint_count_(paint_count) {}
+
+  protected:
+    void on_pointer_event(elements::PointerEvent& event) override {
+        if (event.kind == elements::PointerEventKind::Down &&
+            event.button == elements::PointerButton::Primary) {
+            capture_pointer();
+            event.handled = true;
+            return;
+        }
+
+        if (event.kind == elements::PointerEventKind::Move && event.primary_button_down) {
+            invalidate_paint();
+            event.handled = true;
+        }
+    }
+
+    void on_paint(rendering::RenderContext& context, layout::Rect absolute_frame) const override {
+        elements::UIElement::on_paint(context, absolute_frame);
+        paint_count_.fetch_add(1, std::memory_order_acq_rel);
+    }
+
+  private:
+    std::atomic_int& paint_count_;
+};
+
 TEST(WindowTests, CreatesMultipleIndependentWindows) {
     platform::Window first(
         platform::WindowOptions{.title = L"WinElement Test A", .width = 320, .height = 240});
@@ -335,6 +364,56 @@ TEST(WindowTests, UiFramePipelineRunsLayoutAndRecordOnDedicatedThread) {
     EXPECT_NE(paint_thread_id, window_thread_id);
     EXPECT_EQ(layout_thread_id, paint_thread_id);
     EXPECT_FALSE(window.is_open());
+}
+
+TEST(WindowTests, HandledPointerDragFlushesFrameSynchronously) {
+#ifdef _WIN32
+    platform::Application application;
+    platform::Window window(platform::WindowOptions{
+        .title = L"WinElement Low Latency Drag", .width = 320, .height = 240});
+    auto dispatcher = application.dispatcher();
+    auto* hwnd = static_cast<HWND>(window.native_handle());
+    ASSERT_NE(hwnd, nullptr);
+
+    std::atomic_int paint_count = 0;
+    std::atomic_bool drag_move_painted = false;
+    auto content = std::make_unique<LowLatencyDragElement>(paint_count);
+    content->set_measure_callback(
+        [](const layout::MeasureInput&) { return layout::Size{200.0F, 120.0F}; });
+    window.set_content(std::move(content));
+    window.show();
+
+    std::thread driver([dispatcher, hwnd, &paint_count, &drag_move_painted] {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (std::chrono::steady_clock::now() < deadline &&
+               paint_count.load(std::memory_order_acquire) == 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        dispatcher.post([dispatcher, hwnd, &paint_count, &drag_move_painted] {
+            if (paint_count.load(std::memory_order_acquire) == 0) {
+                dispatcher.request_quit(9);
+                return;
+            }
+
+            const auto before_drag = paint_count.load(std::memory_order_acquire);
+            static_cast<void>(
+                SendMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(16, 16)));
+            static_cast<void>(
+                SendMessageW(hwnd, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(64, 48)));
+            drag_move_painted.store(paint_count.load(std::memory_order_acquire) > before_drag,
+                                    std::memory_order_release);
+            dispatcher.request_quit(drag_move_painted.load(std::memory_order_acquire) ? 0 : 8);
+        });
+    });
+
+    EXPECT_EQ(application.run(), 0);
+    driver.join();
+    EXPECT_TRUE(drag_move_painted.load(std::memory_order_acquire));
+    EXPECT_FALSE(window.is_open());
+#else
+    GTEST_SKIP() << "Low latency drag flush test is only available on Win32.";
+#endif
 }
 
 TEST(WindowTests, ApplicationRequestQuitBroadcastsAcrossUiThreads) {
