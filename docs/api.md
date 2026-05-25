@@ -130,8 +130,26 @@ auto metrics = content.virtualization_metrics();
 - `controls::Image`
 - `controls::Scrollbar`
 - `controls::Dialog`、`Message`、`MessageBox`、`Loading`
+- `controls::FileDialog`
 
 控件是普通的 `UIElement` 子类。它们应暴露领域相关的状态，同时将通用的样式、布局、输入和渲染行为委托给元素层处理。
+
+`FileDialog` 提供静态便利方法封装原生对话框，支持文件打开、保存和文件夹选取：
+
+```cpp
+const auto result = controls::FileDialog::open(
+    controls::FileDialogOptions{
+        .title = "Open file",
+        .filters = {controls::FileDialogFilter{.name = "Images",
+                                               .pattern = "*.png;*.jpg"}},
+        .owner = host_window});
+
+if (result.accepted) {
+    // result.paths, result.selected_filter_index
+}
+```
+
+其他模式：`FileDialog::save()`、`FileDialog::pick_folder()`、`FileDialog::show(mode, ...)`。
 
 ## Platform（平台）
 
@@ -144,8 +162,19 @@ auto metrics = content.virtualization_metrics();
 - `platform::Dispatcher`
 - `platform::ImageLoader`
 - `platform::RenderThreadPool`
+- `platform::FileDialog`
 
 平台层目前仅支持 Windows，使用 Win32、D3D11、DirectWrite、DirectComposition、WIC 和 IMM。
+
+`platform::FileDialog` 是原生文件对话框的底层封装，`controls::FileDialog` 在其上提供控件层便利接口：
+
+```cpp
+const auto result = platform::FileDialog::open(
+    platform::FileDialogOptions{
+        .title = L"Choose file",
+        .filters = {{L"All files", L"*.*"}},
+        .owner = window_ptr});
+```
 
 `WindowOptions` 可以在构造窗口时集中配置 Win32 创建参数、消息拦截和关闭回调：
 

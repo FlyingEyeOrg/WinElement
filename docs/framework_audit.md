@@ -16,6 +16,10 @@
 - 为 `ObservableObject` 和 `ObservableList` 的观察者列表以及主要读写路径加锁，避免绑定模型跨线程更新时破坏内部 vector。
 - 放开 `platform::Window` 的 `final` 限制，并在 `WindowOptions` 增加构造期 `on_message`、`on_post_message`、`on_closed`，让自定义窗口可在创建时集中配置 native 扩展点。
 - 使用 x64 Release 运行 `controls_showcase --headless`、`--profile-memory` 和 500ms CPU/内存采样，验证最大化滚动到底部动画/长列表区域后控件树和内存仍处在有界范围。
+- 将 `ObservableObject` 和 `ObservableList` 的观察者机制迁移到 `core::EventHandler`，统一线程安全观察者管理，移除重复的 ObserverEntry 自实现。
+- 为 `MessageBox` 和 `Dialog` 增加 `drag_viewport_` 缓存拖拽起始视口，避免每帧重复查询宿主视口；拖拽 delta 不变时跳过 transform 写入，降低逐帧重绘开销。
+- 为 `MessageBox` 和 `Dialog` 启用 `set_layer_enabled(true)` + `configure_surface_layer(true)` 缓存子树，减少叠加层拖拽时的全帧重绘区域。
+- 增加 `platform::FileDialog` 和 `controls::FileDialog` 原生文件对话框 API，支持打开、保存、多选、文件夹选取和筛选器。
 
 ## 逐项清单
 
@@ -71,3 +75,7 @@
 | 48 | 测试 | visual regression 受字体/GPU 影响，稳定性边界需要更清楚。 | 后续将机器相关项标记 non-blocking 并增加 command-level regression。 |
 | 49 | 文档 | API 文档缺少最新 UIElement ergonomics 示例。 | 本轮已补充 `set_min_size`、`set_vertical_virtual_children`、`virtualization_metrics` 示例。 |
 | 50 | 文档 | 性能文档未明确 memory sampling 的解释边界。 | 现有文档已说明 working set/private bytes；后续补历史基线表。 |
+| 51 | 平台 | 缺少原生文件对话框支持，应用层需要手动调用 Win32 IFileDialog。 | 本轮新增 `platform::FileDialog` 和 `controls::FileDialog`，基于 `IFileDialog`/`IFileOpenDialog`/`IFileSaveDialog`，支持 Mode/Filter/MultiSelect/OverwritePrompt 等选项。 |
+| 52 | 性能 | Dialog/MessageBox 拖拽时每帧都重新查询宿主视口，增加布局系统调用；delta 未变化时仍更新 transform 触发重绘。 | 本轮缓存 `drag_viewport_` 减少重复查询；delta 相似（<0.01px）时跳过 transform 更新。 |
+| 53 | 渲染 | 叠加层（MessageBox/Dialog）拖拽时触发全帧重绘。 | 本轮启用 `set_layer_enabled` + 子树缓存，窄化重绘边界。 |
+| 54 | 代码结构 | `ObservableObject` 和 `ObservableList` 自实现观察者管理（ObserverEntry/next_observer_token_），与 `core::EventHandler` 功能重复且缺少统一线程安全保证。 | 本轮迁移到 `core::EventHandler`，复用其线程安全快照派发机制，减少 ~40 行重复状态管理代码。 |
