@@ -1,7 +1,6 @@
 #pragma once
 
 #include <algorithm>
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -59,14 +58,7 @@ struct PropertyMetadata {
     bool inherits = false;
 };
 
-[[nodiscard]] inline std::uint64_t allocate_property_id() noexcept {
-    static std::atomic_uint64_t next_id{1U};
-    auto id = next_id.fetch_add(1U, std::memory_order_relaxed);
-    if (id == 0U) {
-        id = next_id.fetch_add(1U, std::memory_order_relaxed);
-    }
-    return id;
-}
+[[nodiscard]] std::uint64_t allocate_property_id() noexcept;
 
 template <typename T>
 [[nodiscard]] PropertyMetadata
@@ -411,8 +403,7 @@ class PropertyStore final {
     [[nodiscard]] bool contains(const PropertyMetadata& metadata) const noexcept {
         return has_local_value(metadata);
     }
-    template <typename T>
-    [[nodiscard]] bool contains(const Property<T>& property) const noexcept {
+    template <typename T> [[nodiscard]] bool contains(const Property<T>& property) const noexcept {
         return contains(property.metadata);
     }
     PropertyChange clear_value(const PropertyMetadata& metadata);

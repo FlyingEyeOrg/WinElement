@@ -41,7 +41,6 @@ endif()
 
 if(WINELEMENT_BUILD_TESTS)
     find_package(fmt CONFIG REQUIRED)
-    enable_testing()
     find_package(GTest CONFIG REQUIRED)
     add_subdirectory(tests)
 endif()

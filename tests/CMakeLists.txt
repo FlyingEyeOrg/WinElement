@@ -81,7 +81,7 @@ target_link_libraries(winelement_visual_regression_tests
         WinElement::platform
         WinElement::rendering
         GTest::gtest_main
-    fmt::fmt
+        fmt::fmt
         ole32
         user32
         windowscodecs

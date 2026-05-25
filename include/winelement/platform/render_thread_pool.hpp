@@ -6,6 +6,7 @@
 #include <functional>
 #include <future>
 #include <memory>
+#include <mutex>
 #include <thread>
 #include <type_traits>
 #include <utility>
@@ -83,12 +84,14 @@ class RenderThreadPoolPlanner final {
         : max_threads_(std::max<std::size_t>(max_threads, 1U)) {}
 
     [[nodiscard]] RenderThreadLease lease(std::uint64_t window_id) {
+        const std::scoped_lock lock(mutex_);
         const auto thread_index = next_thread_index_++ % max_threads_;
         leases_.push_back(RenderThreadLease{.window_id = window_id, .thread_index = thread_index});
         return leases_.back();
     }
 
     void release(std::uint64_t window_id) noexcept {
+        const std::scoped_lock lock(mutex_);
         leases_.erase(
             std::remove_if(leases_.begin(), leases_.end(),
                            [window_id](auto lease) { return lease.window_id == window_id; }),
@@ -100,11 +103,13 @@ class RenderThreadPoolPlanner final {
     }
 
     [[nodiscard]] std::size_t active_window_count() const noexcept {
+        const std::scoped_lock lock(mutex_);
         return leases_.size();
     }
 
   private:
     std::size_t max_threads_ = 1U;
+    mutable std::mutex mutex_;
     std::size_t next_thread_index_ = 0U;
     std::vector<RenderThreadLease> leases_;
 };

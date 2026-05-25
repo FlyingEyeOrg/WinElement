@@ -29,6 +29,11 @@ namespace {
 
 } // namespace
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4324) // Cache-line padding is intentional for contended atomics.
+#endif
+
 class RenderThreadPoolService::Impl final {
   public:
     explicit Impl(std::size_t requested_worker_count)
@@ -66,8 +71,8 @@ class RenderThreadPoolService::Impl final {
         {
             const std::scoped_lock lock(queues_[queue_index]->mutex);
             if (stopping_.load(std::memory_order_acquire)) {
-                task->completion.set_exception(std::make_exception_ptr(
-                    std::runtime_error("render thread pool is stopping")));
+                task->completion.set_exception(
+                    std::make_exception_ptr(std::runtime_error("render thread pool is stopping")));
                 return future;
             }
             queues_[queue_index]->tasks.push_back(std::move(task));
@@ -217,11 +222,15 @@ class RenderThreadPoolService::Impl final {
     std::mutex wake_mutex_;
     std::condition_variable idle_;
     std::mutex idle_mutex_;
-    std::atomic<std::size_t> queued_jobs_{0U};
-    std::atomic<std::size_t> active_jobs_{0U};
-    std::atomic<std::size_t> next_queue_{0U};
-    std::atomic<bool> stopping_{false};
+    alignas(64) std::atomic<std::size_t> queued_jobs_{0U};
+    alignas(64) std::atomic<std::size_t> active_jobs_{0U};
+    alignas(64) std::atomic<std::size_t> next_queue_{0U};
+    alignas(64) std::atomic<bool> stopping_{false};
 };
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 thread_local RenderThreadPoolService::Impl* RenderThreadPoolService::Impl::current_pool_ = nullptr;
 thread_local std::size_t RenderThreadPoolService::Impl::current_worker_index_ =

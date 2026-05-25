@@ -141,10 +141,12 @@ int DispatcherState::run() {
     MSG message{};
     for (;;) {
         if (impl_->quit_requested.load(std::memory_order_acquire)) {
+            drain_pending_callbacks();
             close_all_windows();
             return impl_->exit_code.load(std::memory_order_acquire);
         }
         if (!has_live_windows()) {
+            drain_pending_callbacks();
             return 0;
         }
 
@@ -225,9 +227,20 @@ std::vector<std::function<void()>> DispatcherState::take_callbacks() {
     return callbacks;
 }
 
+bool DispatcherState::has_pending_callbacks() const noexcept {
+    const std::lock_guard lock(impl_->mutex);
+    return !impl_->callbacks.empty();
+}
+
 void DispatcherState::run_pending_callbacks() {
     for (auto& callback : take_callbacks()) {
         callback();
+    }
+}
+
+void DispatcherState::drain_pending_callbacks() {
+    while (has_pending_callbacks()) {
+        run_pending_callbacks();
     }
 }
 

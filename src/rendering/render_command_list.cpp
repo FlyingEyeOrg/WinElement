@@ -891,6 +891,15 @@ struct ActiveFillEdge {
     return edge.start.x + (edge.end.x - edge.start.x) * t;
 }
 
+[[nodiscard]] bool fill_edge_x_ranges_overlap(const FillEdge& first,
+                                              const FillEdge& second) noexcept {
+    const auto first_min = std::min(first.start.x, first.end.x);
+    const auto first_max = std::max(first.start.x, first.end.x);
+    const auto second_min = std::min(second.start.x, second.end.x);
+    const auto second_max = std::max(second.start.x, second.end.x);
+    return first_max + geometry_epsilon >= second_min && second_max + geometry_epsilon >= first_min;
+}
+
 void add_sorted_y(std::vector<float>& values, float y) {
     if (std::isfinite(y)) {
         values.push_back(y);
@@ -987,17 +996,35 @@ tessellate_prepared_geometry_fill(const std::vector<std::vector<layout::Point>>&
         return {};
     }
 
-    for (std::size_t first = 0; first < edges.size(); ++first) {
-        for (std::size_t second = first + 1U; second < edges.size(); ++second) {
-            if (edges[first].max_y <= edges[second].min_y + geometry_epsilon ||
-                edges[second].max_y <= edges[first].min_y + geometry_epsilon) {
+    auto edge_order = std::vector<std::size_t>{};
+    edge_order.reserve(edges.size());
+    for (std::size_t index = 0U; index < edges.size(); ++index) {
+        edge_order.push_back(index);
+    }
+    std::sort(edge_order.begin(), edge_order.end(),
+              [&edges](auto left, auto right) { return edges[left].min_y < edges[right].min_y; });
+
+    auto active_intersection_edges = std::vector<std::size_t>{};
+    active_intersection_edges.reserve(edges.size());
+    for (const auto edge_index : edge_order) {
+        const auto& edge = edges[edge_index];
+        active_intersection_edges.erase(
+            std::remove_if(active_intersection_edges.begin(), active_intersection_edges.end(),
+                           [&edges, edge](auto active_index) {
+                               return edges[active_index].max_y <= edge.min_y + geometry_epsilon;
+                           }),
+            active_intersection_edges.end());
+
+        for (const auto active_index : active_intersection_edges) {
+            if (!fill_edge_x_ranges_overlap(edge, edges[active_index])) {
                 continue;
             }
             auto y = 0.0F;
-            if (edge_intersection_y(edges[first], edges[second], y)) {
+            if (edge_intersection_y(edge, edges[active_index], y)) {
                 add_sorted_y(y_values, y);
             }
         }
+        active_intersection_edges.push_back(edge_index);
     }
 
     std::sort(y_values.begin(), y_values.end());

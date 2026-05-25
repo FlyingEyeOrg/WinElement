@@ -4,15 +4,16 @@
 #include <winelement/core/property.hpp>
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -176,7 +177,8 @@ template <typename T> class ObservableList final {
         return items_.at(index);
     }
 
-    [[nodiscard]] const std::vector<T>& items() const noexcept {
+    [[nodiscard]] std::vector<T> items() const {
+        const std::shared_lock lock(mutex_);
         return items_;
     }
 
@@ -266,6 +268,15 @@ using ObservableObjectPtr = std::shared_ptr<ObservableObject>;
 using ObservableObjectList = ObservableList<ObservableObjectPtr>;
 using ObservableStringList = ObservableList<std::string>;
 
+template <typename T> [[nodiscard]] std::string arithmetic_to_string(T value) {
+    auto buffer = std::array<char, std::numeric_limits<T>::max_digits10 + 8U>{};
+    const auto result = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+    if (result.ec == std::errc{}) {
+        return std::string(buffer.data(), result.ptr);
+    }
+    return std::to_string(value);
+}
+
 template <typename T>
 [[nodiscard]] std::optional<T> coerce_property_value(const PropertyValue& value) {
     if (const auto* typed = value.template get<T>()) {
@@ -283,14 +294,10 @@ template <typename T>
             return std::to_string(*size_value);
         }
         if (const auto* float_value = value.get<float>()) {
-            std::ostringstream stream;
-            stream << *float_value;
-            return stream.str();
+            return arithmetic_to_string(*float_value);
         }
         if (const auto* double_value = value.get<double>()) {
-            std::ostringstream stream;
-            stream << *double_value;
-            return stream.str();
+            return arithmetic_to_string(*double_value);
         }
     } else if constexpr (std::is_same_v<T, bool>) {
         if (const auto* string_value = value.get<std::string>()) {

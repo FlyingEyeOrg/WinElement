@@ -5,5 +5,5 @@ Checks: >
   bugprone-*,
   cppcoreguidelines-*
 WarningsAsErrors: ''
-HeaderFilterRegex: 'include/dcompframe/.*'
+HeaderFilterRegex: 'include/winelement/.*'
 FormatStyle: file

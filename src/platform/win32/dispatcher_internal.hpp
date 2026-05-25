@@ -35,7 +35,9 @@ class DispatcherState final {
   private:
     void close_all_windows() noexcept;
     [[nodiscard]] std::vector<std::function<void()>> take_callbacks();
+    [[nodiscard]] bool has_pending_callbacks() const noexcept;
     void run_pending_callbacks();
+    void drain_pending_callbacks();
 
     struct Impl;
     std::unique_ptr<Impl> impl_;

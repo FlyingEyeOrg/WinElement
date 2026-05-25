@@ -17,7 +17,9 @@ jobs:
           vcpkgConfigurationJsonGlob: vcpkg-configuration.json
           vcpkgJsonGlob: vcpkg.json
       - name: Configure
-        run: cmake --preset=vs2022-x64 -DWINELEMENT_WARNINGS_AS_ERRORS=ON
+        run: cmake --preset=vs2022-x64 -DWINELEMENT_WARNINGS_AS_ERRORS=ON -DCMAKE_CXX_CLANG_TIDY=clang-tidy
+      - name: Static Analysis
+        run: clang-tidy --version
       - name: Build
         run: cmake --build --preset=vs2022-x64-debug -- /m
       - name: Test

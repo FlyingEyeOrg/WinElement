@@ -1,8 +1,18 @@
 #include <winelement/core/property.hpp>
 
 #include <algorithm>
+#include <atomic>
 
 namespace winelement::core {
+
+std::uint64_t allocate_property_id() noexcept {
+    static std::atomic_uint64_t next_id{1U};
+    auto id = next_id.fetch_add(1U, std::memory_order_relaxed);
+    if (id == 0U) {
+        id = next_id.fetch_add(1U, std::memory_order_relaxed);
+    }
+    return id;
+}
 
 bool PropertyStore::has_local_value(const PropertyMetadata& metadata) const noexcept {
     if (metadata.id == 0U) {

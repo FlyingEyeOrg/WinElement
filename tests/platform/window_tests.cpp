@@ -80,6 +80,28 @@ class LowLatencyDragElement final : public elements::UIElement {
     std::atomic_int& paint_count_;
 };
 
+TEST(WindowTests, RenderThreadPoolPlannerSupportsConcurrentLeaseLifecycle) {
+    platform::RenderThreadPoolPlanner planner(3U);
+    auto workers = std::vector<std::thread>{};
+
+    for (auto thread_index = 0; thread_index < 8; ++thread_index) {
+        workers.emplace_back([&planner, thread_index] {
+            for (auto iteration = 0; iteration < 64; ++iteration) {
+                const auto window_id =
+                    static_cast<std::uint64_t>(thread_index * 1000 + iteration + 1);
+                const auto lease = planner.lease(window_id);
+                EXPECT_LT(lease.thread_index, planner.max_threads());
+                planner.release(window_id);
+            }
+        });
+    }
+    for (auto& worker : workers) {
+        worker.join();
+    }
+
+    EXPECT_EQ(planner.active_window_count(), 0U);
+}
+
 TEST(WindowTests, CreatesMultipleIndependentWindows) {
     platform::Window first(
         platform::WindowOptions{.title = L"WinElement Test A", .width = 320, .height = 240});
@@ -397,10 +419,8 @@ TEST(WindowTests, HandledPointerDragFlushesFrameSynchronously) {
             }
 
             const auto before_drag = paint_count.load(std::memory_order_acquire);
-            static_cast<void>(
-                SendMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(16, 16)));
-            static_cast<void>(
-                SendMessageW(hwnd, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(64, 48)));
+            static_cast<void>(SendMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(16, 16)));
+            static_cast<void>(SendMessageW(hwnd, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(64, 48)));
             drag_move_painted.store(paint_count.load(std::memory_order_acquire) > before_drag,
                                     std::memory_order_release);
             dispatcher.request_quit(drag_move_painted.load(std::memory_order_acquire) ? 0 : 8);

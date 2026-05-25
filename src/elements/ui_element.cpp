@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cassert>
 #include <cmath>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -32,7 +33,7 @@ TextInputHandler::~TextInputHandler() = default;
 namespace {
 
 constexpr auto default_scroll_wheel_step = 48.0F;
-constexpr auto ui_text_layout_cache_entries = 24U;
+constexpr auto ui_text_layout_cache_entries = 128U;
 
 std::uint64_t next_local_theme_generation() noexcept {
     static std::atomic_uint64_t generation{std::uint64_t{1} << 63U};
@@ -98,16 +99,11 @@ inverse_transform_rect(layout::Rect rect, rendering::Transform2D transform) noex
         return std::nullopt;
     }
 
-    const auto min_x =
-        std::min({top_left->x, top_right->x, bottom_left->x, bottom_right->x});
-    const auto max_x =
-        std::max({top_left->x, top_right->x, bottom_left->x, bottom_right->x});
-    const auto min_y =
-        std::min({top_left->y, top_right->y, bottom_left->y, bottom_right->y});
-    const auto max_y =
-        std::max({top_left->y, top_right->y, bottom_left->y, bottom_right->y});
-    return layout::Rect{min_x, min_y, std::max(0.0F, max_x - min_x),
-                        std::max(0.0F, max_y - min_y)};
+    const auto min_x = std::min({top_left->x, top_right->x, bottom_left->x, bottom_right->x});
+    const auto max_x = std::max({top_left->x, top_right->x, bottom_left->x, bottom_right->x});
+    const auto min_y = std::min({top_left->y, top_right->y, bottom_left->y, bottom_right->y});
+    const auto max_y = std::max({top_left->y, top_right->y, bottom_left->y, bottom_right->y});
+    return layout::Rect{min_x, min_y, std::max(0.0F, max_x - min_x), std::max(0.0F, max_y - min_y)};
 }
 
 [[nodiscard]] bool is_finite_transform(rendering::Transform2D transform) noexcept {
@@ -246,6 +242,66 @@ void apply_layout_margin(layout::LayoutElement& layout, layout::EdgeInsets margi
     return value;
 }
 
+struct BindingCallbackGate {
+    [[nodiscard]] bool try_enter() noexcept {
+        if (!alive.load(std::memory_order_acquire)) {
+            return false;
+        }
+        active_callbacks.fetch_add(1U, std::memory_order_acq_rel);
+        if (alive.load(std::memory_order_acquire)) {
+            return true;
+        }
+        leave();
+        return false;
+    }
+
+    void leave() noexcept {
+        if (active_callbacks.fetch_sub(1U, std::memory_order_acq_rel) == 1U) {
+            std::lock_guard lock(mutex);
+            idle.notify_all();
+        }
+    }
+
+    void deactivate() noexcept {
+        alive.store(false, std::memory_order_release);
+    }
+
+    void wait_idle() noexcept {
+        std::unique_lock lock(mutex);
+        idle.wait(lock, [this]() noexcept {
+            return active_callbacks.load(std::memory_order_acquire) == 0U;
+        });
+    }
+
+    std::atomic_bool alive = true;
+    std::atomic_uint active_callbacks = 0U;
+    std::mutex mutex;
+    std::condition_variable idle;
+};
+
+class BindingCallbackScope final {
+  public:
+    explicit BindingCallbackScope(const std::shared_ptr<BindingCallbackGate>& gate) noexcept
+        : gate_(gate), entered_(gate_ != nullptr && gate_->try_enter()) {}
+
+    ~BindingCallbackScope() {
+        if (entered_) {
+            gate_->leave();
+        }
+    }
+
+    BindingCallbackScope(const BindingCallbackScope&) = delete;
+    BindingCallbackScope& operator=(const BindingCallbackScope&) = delete;
+
+    [[nodiscard]] explicit operator bool() const noexcept {
+        return entered_;
+    }
+
+  private:
+    std::shared_ptr<BindingCallbackGate> gate_;
+    bool entered_ = false;
+};
+
 } // namespace
 
 struct UIElement::StyleState {
@@ -307,6 +363,7 @@ struct UIElement::BindingState {
     };
 
     std::shared_ptr<core::ObservableObject> local_data_context;
+    std::shared_ptr<BindingCallbackGate> callback_gate = std::make_shared<BindingCallbackGate>();
     std::vector<BindingRecord> records;
     std::uint64_t next_binding_id = 1U;
     bool has_local_data_context : 1 = false;
@@ -579,7 +636,14 @@ UIElement::UIElement()
 
 UIElement::~UIElement() noexcept {
     try {
+        if (binding_state_ != nullptr && binding_state_->callback_gate != nullptr) {
+            binding_state_->callback_gate->deactivate();
+            binding_state_->callback_gate->wait_idle();
+        }
         clear_bindings_noexcept();
+        if (animation_state_ != nullptr) {
+            animation_state_->implicit_property_animations.clear();
+        }
         clear_layout_callbacks_recursive_noexcept();
         for (auto& entry : top_layer_manager_.entries()) {
             if (entry.element != nullptr) {
@@ -1433,6 +1497,10 @@ UIElement& UIElement::bind_value(
     }
 
     auto& state = ensure_binding_state();
+    if (state.callback_gate == nullptr ||
+        !state.callback_gate->alive.load(std::memory_order_acquire)) {
+        state.callback_gate = std::make_shared<BindingCallbackGate>();
+    }
     clear_binding_target(target_id);
 
     auto binding_id = state.next_binding_id++;
@@ -1450,8 +1518,13 @@ UIElement& UIElement::bind_value(
     }
     if (record.binding.mode == BindingMode::TwoWay && record.target_metadata.has_value() &&
         record.push_source) {
-        record.target_token =
-            property_store().add_observer([this, binding_id](const core::PropertyChange& change) {
+        auto gate = state.callback_gate;
+        record.target_token = property_store().add_observer(
+            [this, binding_id, gate](const core::PropertyChange& change) {
+                const auto callback_scope = BindingCallbackScope(gate);
+                if (!callback_scope) {
+                    return;
+                }
                 push_binding_target_change(binding_id, change);
             });
     }
@@ -1532,23 +1605,36 @@ void UIElement::refresh_binding(std::uint64_t binding_id) {
     }
 
     if (record.binding.mode != BindingMode::OneTime) {
-        const auto subscribe_object = [this, binding_id, &record](
+        auto gate = binding_state_->callback_gate;
+        const auto subscribe_object = [this, binding_id, gate, &record](
                                           const std::shared_ptr<core::ObservableObject>& object) {
             if (object == nullptr) {
                 return;
             }
-            const auto token = object->add_observer(
-                [this, binding_id](const core::ObservableChange&) { refresh_binding(binding_id); });
+            const auto token =
+                object->add_observer([this, binding_id, gate](const core::ObservableChange&) {
+                    const auto callback_scope = BindingCallbackScope(gate);
+                    if (!callback_scope) {
+                        return;
+                    }
+                    refresh_binding(binding_id);
+                });
             record.object_subscriptions.push_back(
                 BindingState::ObjectSubscription{.source = object, .token = token});
         };
-        const auto subscribe_list = [this, binding_id, &record](
+        const auto subscribe_list = [this, binding_id, gate, &record](
                                         const std::shared_ptr<core::ObservableObjectList>& list) {
             if (list == nullptr) {
                 return;
             }
-            const auto token = list->add_observer(
-                [this, binding_id](const core::ObservableChange&) { refresh_binding(binding_id); });
+            const auto token =
+                list->add_observer([this, binding_id, gate](const core::ObservableChange&) {
+                    const auto callback_scope = BindingCallbackScope(gate);
+                    if (!callback_scope) {
+                        return;
+                    }
+                    refresh_binding(binding_id);
+                });
             record.list_subscriptions.push_back(
                 BindingState::ListSubscription{.source = list, .token = token});
         };
@@ -1915,8 +2001,7 @@ UIElement& UIElement::mark_measure_dirty() {
 }
 
 UIElement& UIElement::set_width(layout::Length width) {
-    return configure_layout(
-        [width](layout::LayoutElement& item) { item.set_width(width); });
+    return configure_layout([width](layout::LayoutElement& item) { item.set_width(width); });
 }
 
 UIElement& UIElement::set_width(float points) {
@@ -1924,8 +2009,7 @@ UIElement& UIElement::set_width(float points) {
 }
 
 UIElement& UIElement::set_height(layout::Length height) {
-    return configure_layout(
-        [height](layout::LayoutElement& item) { item.set_height(height); });
+    return configure_layout([height](layout::LayoutElement& item) { item.set_height(height); });
 }
 
 UIElement& UIElement::set_height(float points) {
@@ -1933,9 +2017,8 @@ UIElement& UIElement::set_height(float points) {
 }
 
 UIElement& UIElement::set_layout_size(layout::Length width, layout::Length height) {
-    return configure_layout([width, height](layout::LayoutElement& item) {
-        item.set_size(width, height);
-    });
+    return configure_layout(
+        [width, height](layout::LayoutElement& item) { item.set_size(width, height); });
 }
 
 UIElement& UIElement::set_layout_size(float width, float height) {
@@ -3185,7 +3268,8 @@ core::EventHandler<RoutedEventFilterContext&>& UIElement::routed_event_observers
     return ensure_event_hook_state().observers;
 }
 
-const core::EventHandler<RoutedEventFilterContext&>& UIElement::routed_event_observers() const noexcept {
+const core::EventHandler<RoutedEventFilterContext&>&
+UIElement::routed_event_observers() const noexcept {
     static const auto empty = core::EventHandler<RoutedEventFilterContext&>{};
     return event_hook_state_ != nullptr ? event_hook_state_->observers : empty;
 }
@@ -3720,9 +3804,8 @@ void UIElement::sync_layout_snapshot_subtree(layout::Point parent_content_origin
 }
 
 void UIElement::update_viewport_state_subtree(layout::Rect viewport_rect) noexcept {
-    const auto clip_rect = clips_children_to_viewport()
-                               ? effective_absolute_child_clip_rect()
-                               : viewport_rect;
+    const auto clip_rect =
+        clips_children_to_viewport() ? effective_absolute_child_clip_rect() : viewport_rect;
     update_child_virtualization(clip_rect);
 
     for (auto& child : children_) {
@@ -5024,4 +5107,3 @@ const UIElement* UIElement::top_layer_pointer_target(layout::Point absolute_poin
 }
 
 } // namespace winelement::elements
-

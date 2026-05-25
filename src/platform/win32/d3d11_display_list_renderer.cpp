@@ -58,11 +58,11 @@ constexpr auto default_dpi = 96.0F;
 constexpr auto triangle_vertex_count = 3U;
 constexpr auto max_vertices = 16383U;
 constexpr auto pi = 3.14159265358979323846F;
-constexpr auto glyph_atlas_width = 1024U;
-constexpr auto glyph_atlas_height = 1024U;
+constexpr auto glyph_atlas_width = 2048U;
+constexpr auto glyph_atlas_height = 2048U;
 constexpr auto glyph_atlas_padding = 2U;
 constexpr auto glyph_atlas_bytes_per_pixel = 4U;
-constexpr auto render_worker_text_layout_cache_entries = 16U;
+constexpr auto render_worker_text_layout_cache_entries = 128U;
 constexpr auto geometry_epsilon = 0.0001F;
 constexpr auto contour_cleanup_epsilon = 0.001F;
 constexpr auto geometry_flattening_tolerance = 0.01F;
@@ -3953,10 +3953,6 @@ void D3D11DisplayListRenderer::prepare_text_layout_resources(
 
 const rendering::TextLayout* D3D11DisplayListRenderer::prepared_draw_text_layout_for(
     const rendering::RenderCommandList& commands, std::size_t opcode_index) const noexcept {
-    if (resource_updates_allowed_) {
-        return nullptr;
-    }
-
     for (const auto& prepared : prepared_draw_text_layouts_) {
         if (prepared.commands == &commands && prepared.opcode_index == opcode_index &&
             prepared.layout != nullptr) {

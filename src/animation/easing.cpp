@@ -38,15 +38,27 @@ float apply_easing(EasingCurve curve, float progress, float overshoot) noexcept 
     case EasingCurve::EaseOutQuad:
         return 1.0F - (1.0F - value) * (1.0F - value);
     case EasingCurve::EaseInOutQuad:
-        return value < 0.5F ? 2.0F * value * value
-                            : 1.0F - std::pow(-2.0F * value + 2.0F, 2.0F) * 0.5F;
+        if (value < 0.5F) {
+            return 2.0F * value * value;
+        }
+        {
+            const auto shifted = -2.0F * value + 2.0F;
+            return 1.0F - shifted * shifted * 0.5F;
+        }
     case EasingCurve::EaseInCubic:
         return value * value * value;
-    case EasingCurve::EaseOutCubic:
-        return 1.0F - std::pow(1.0F - value, 3.0F);
+    case EasingCurve::EaseOutCubic: {
+        const auto shifted = 1.0F - value;
+        return 1.0F - shifted * shifted * shifted;
+    }
     case EasingCurve::EaseInOutCubic:
-        return value < 0.5F ? 4.0F * value * value * value
-                            : 1.0F - std::pow(-2.0F * value + 2.0F, 3.0F) * 0.5F;
+        if (value < 0.5F) {
+            return 4.0F * value * value * value;
+        }
+        {
+            const auto shifted = -2.0F * value + 2.0F;
+            return 1.0F - shifted * shifted * shifted * 0.5F;
+        }
     case EasingCurve::EaseOutBack: {
         const auto amount = std::isfinite(overshoot) ? overshoot : 1.70158F;
         const auto shifted = value - 1.0F;

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -66,6 +67,7 @@ class FrameScheduler final {
     std::unordered_set<TaskId> canceled_ids_;
     std::unordered_map<std::string, TaskId> coalesced_tasks_;
     std::unordered_map<TaskId, std::string> task_keys_;
+    mutable std::mutex mutex_;
     TaskId next_id_ = 1U;
     std::uint64_t next_sequence_ = 1U;
 };

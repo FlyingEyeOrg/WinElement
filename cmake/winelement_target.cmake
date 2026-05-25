@@ -10,6 +10,7 @@ function(winelement_configure_common target visibility)
             UNICODE
             _UNICODE
             NOMINMAX
+            WIN32_LEAN_AND_MEAN
     )
 
     if(MSVC)
@@ -22,7 +23,14 @@ function(winelement_configure_common target visibility)
             target_compile_options(${target} PRIVATE /WX)
         endif()
     else()
-        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(${target} PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wsign-conversion
+            -Wshadow
+        )
         if(WINELEMENT_WARNINGS_AS_ERRORS)
             target_compile_options(${target} PRIVATE -Werror)
         endif()

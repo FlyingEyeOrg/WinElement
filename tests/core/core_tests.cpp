@@ -170,6 +170,46 @@ TEST(CoreTests, ObservableListReportsRangeChanges) {
     EXPECT_EQ(list.at(0U), "C");
 }
 
+TEST(CoreTests, ObservableListItemsReturnsStableSnapshot) {
+    ObservableStringList list(std::vector<std::string>{"A", "B"});
+
+    auto snapshot = list.items();
+    list.replace(0U, "C");
+    list.append("D");
+
+    ASSERT_EQ(snapshot.size(), 2U);
+    EXPECT_EQ(snapshot[0], "A");
+    EXPECT_EQ(snapshot[1], "B");
+    ASSERT_EQ(list.size(), 3U);
+    EXPECT_EQ(list.at(0U), "C");
+}
+
+TEST(CoreTests, FrameSchedulerSupportsConcurrentPosts) {
+    FrameScheduler scheduler;
+    std::atomic_int executed = 0;
+
+    auto posters = std::vector<std::thread>{};
+    for (auto thread_index = 0; thread_index < 4; ++thread_index) {
+        posters.emplace_back([&scheduler, &executed] {
+            for (auto index = 0; index < 128; ++index) {
+                const auto task_id = scheduler.post(
+                    [&executed] { executed.fetch_add(1, std::memory_order_acq_rel); });
+                EXPECT_NE(task_id, 0U);
+            }
+        });
+    }
+    for (auto& poster : posters) {
+        poster.join();
+    }
+
+    EXPECT_EQ(scheduler.pending_count(), 512U);
+    const auto stats = scheduler.drain();
+    EXPECT_EQ(stats.executed_task_count, 512U);
+    EXPECT_EQ(stats.remaining_task_count, 0U);
+    EXPECT_EQ(executed.load(std::memory_order_acquire), 512);
+    EXPECT_TRUE(scheduler.empty());
+}
+
 TEST(CoreTests, BindingExpressionEvaluatesNestedObjectListAndDefault) {
     auto first_item = std::make_shared<ObservableObject>();
     first_item->set("title", std::string{"Alpha"});

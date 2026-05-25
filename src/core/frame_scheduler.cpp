@@ -10,6 +10,7 @@ FrameScheduler::TaskId FrameScheduler::post(Task task, FrameTaskPriority priorit
         return 0U;
     }
 
+    const std::scoped_lock lock(mutex_);
     if (!coalesce_key.empty()) {
         if (const auto iterator = coalesced_tasks_.find(coalesce_key);
             iterator != coalesced_tasks_.end()) {
@@ -33,10 +34,12 @@ FrameScheduler::TaskId FrameScheduler::post(Task task, FrameTaskPriority priorit
 }
 
 bool FrameScheduler::cancel(TaskId id) noexcept {
+    const std::scoped_lock lock(mutex_);
     return cancel_active_task(id);
 }
 
 void FrameScheduler::clear() noexcept {
+    const std::scoped_lock lock(mutex_);
     for (auto& bucket : tasks_) {
         bucket.clear();
     }
@@ -50,7 +53,7 @@ FrameSchedulerStats FrameScheduler::drain(FrameBudget budget) {
     FrameSchedulerStats stats;
     const auto started_at = std::chrono::steady_clock::now();
 
-    while (!active_ids_.empty()) {
+    for (;;) {
         if (budget.max_tasks > 0U && stats.executed_task_count >= budget.max_tasks) {
             stats.budget_exhausted = true;
             break;
@@ -62,8 +65,11 @@ FrameSchedulerStats FrameScheduler::drain(FrameBudget budget) {
         }
 
         PendingTask pending;
-        if (!pop_next_task(pending)) {
-            break;
+        {
+            const std::scoped_lock lock(mutex_);
+            if (active_ids_.empty() || !pop_next_task(pending)) {
+                break;
+            }
         }
 
         auto task = std::move(pending.task);
@@ -71,15 +77,20 @@ FrameSchedulerStats FrameScheduler::drain(FrameBudget budget) {
         ++stats.executed_task_count;
     }
 
-    stats.remaining_task_count = active_ids_.size();
+    {
+        const std::scoped_lock lock(mutex_);
+        stats.remaining_task_count = active_ids_.size();
+    }
     return stats;
 }
 
 std::size_t FrameScheduler::pending_count() const noexcept {
+    const std::scoped_lock lock(mutex_);
     return active_ids_.size();
 }
 
 bool FrameScheduler::empty() const noexcept {
+    const std::scoped_lock lock(mutex_);
     return active_ids_.empty();
 }
 
