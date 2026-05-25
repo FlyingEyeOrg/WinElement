@@ -489,6 +489,10 @@ class SelectDropdown final : public elements::UIElement {
         if (rows_.empty()) {
             return std::nullopt;
         }
+        const auto local_frame = layout::Rect{0.0F, 0.0F, frame().width, frame().height};
+        if (!contains_local_point(local_frame, local_position)) {
+            return std::nullopt;
+        }
         const auto index =
             detail::popup_item_at(local_position, select_popup_metrics(), rows_.size(),
                                   owner_.filterable_ ? filter_height : 0.0F);

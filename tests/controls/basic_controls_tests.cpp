@@ -4814,6 +4814,27 @@ TEST(BasicControlsTests, SelectToggleClosesPopupAndFiltersUseInsetText) {
     EXPECT_EQ(router.cursor_for_point(Point{205.0F, 90.0F}), PointerCursor::Arrow);
     EXPECT_EQ(router.cursor_for_point(Point{16.0F, 160.0F}), PointerCursor::Arrow);
 
+    auto hover_highlight_count = [&root]() {
+        RenderCommandRecorder context;
+        root.top_layer_at(0U).paint(context);
+        const auto hover = root.top_layer_at(0U).style().hover_background;
+        return std::count_if(context.commands().begin(), context.commands().end(),
+                             [hover](const auto& command) {
+                                 return command.type() == RenderCommandType::FillRoundedRect &&
+                                        command_fill_color(command) == hover;
+                             });
+    };
+    EXPECT_GT(hover_highlight_count(), 0);
+    static_cast<void>(router.route_pointer_event(
+        PointerEvent{.kind = PointerEventKind::Move, .position = Point{205.0F, 90.0F}}));
+    EXPECT_EQ(hover_highlight_count(), 0);
+    static_cast<void>(router.route_pointer_event(
+        PointerEvent{.kind = PointerEventKind::Move, .position = Point{16.0F, 90.0F}}));
+    EXPECT_GT(hover_highlight_count(), 0);
+    static_cast<void>(router.route_pointer_event(
+        PointerEvent{.kind = PointerEventKind::Move, .position = Point{16.0F, 160.0F}}));
+    EXPECT_EQ(hover_highlight_count(), 0);
+
     EXPECT_TRUE(router
                     .route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
                                                       .position = Point{16.0F, 16.0F},
