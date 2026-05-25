@@ -533,6 +533,7 @@ class Window::Impl final {
         : options_(std::move(options)), dispatcher_(detail::ensure_current_dispatcher_state()) {
         try {
             enable_process_dpi_awareness();
+            install_option_hooks();
             register_class();
             create_window();
             update_dpi();
@@ -561,6 +562,18 @@ class Window::Impl final {
 
     Impl(const Impl&) = delete;
     Impl& operator=(const Impl&) = delete;
+
+    void install_option_hooks() {
+        if (options_.on_message) {
+            message_filters_.add(std::move(options_.on_message));
+        }
+        if (options_.on_post_message) {
+            post_message_filters_.add(std::move(options_.on_post_message));
+        }
+        if (options_.on_closed) {
+            closed_event_.add(std::move(options_.on_closed));
+        }
+    }
 
     [[nodiscard]] layout::LayoutEngine& layout_engine() noexcept {
         return layout_engine_;

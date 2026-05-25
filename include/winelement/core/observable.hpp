@@ -1,5 +1,6 @@
 #pragma once
 
+#include <winelement/core/event.hpp>
 #include <winelement/core/property.hpp>
 
 #include <algorithm>
@@ -8,6 +9,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -22,7 +24,7 @@ enum class ObservableChangeKind { PropertyChanged, Reset, Insert, Remove, Replac
 
 struct ObservableChange {
     ObservableChangeKind kind = ObservableChangeKind::PropertyChanged;
-    std::string_view property_name;
+    std::string property_name;
     std::size_t index = 0U;
     std::size_t removed_count = 0U;
     std::size_t added_count = 0U;
@@ -37,34 +39,45 @@ class ObservableObject : public std::enable_shared_from_this<ObservableObject> {
 
     template <typename T> ObservableObject& set(std::string name, T value) {
         using ValueType = std::decay_t<T>;
-        auto iterator = find_entry(name);
-        if (iterator != values_.end() && iterator->name == name) {
-            if (const auto* current = iterator->value.template get<ValueType>();
-                current != nullptr && values_equal(*current, value)) {
-                return *this;
+        auto change = ObservableChange{};
+        auto changed = false;
+        {
+            const std::lock_guard lock(values_mutex_);
+            auto iterator = find_entry(name);
+            if (iterator != values_.end() && iterator->name == name) {
+                if (const auto* current = iterator->value.template get<ValueType>();
+                    current != nullptr && values_equal(*current, value)) {
+                    return *this;
+                }
+                iterator->value.template emplace<ValueType>(std::move(value));
+                change = ObservableChange{.kind = ObservableChangeKind::PropertyChanged,
+                                          .property_name = iterator->name};
+                changed = true;
+            } else {
+                iterator = values_.insert(
+                    iterator, Entry{.name = std::move(name),
+                                    .value = PropertyValue{ValueType(std::move(value))}});
+                change = ObservableChange{.kind = ObservableChangeKind::PropertyChanged,
+                                          .property_name = iterator->name};
+                changed = true;
             }
-            iterator->value.template emplace<ValueType>(std::move(value));
-            notify(ObservableChange{.kind = ObservableChangeKind::PropertyChanged,
-                                    .property_name = iterator->name});
-            return *this;
         }
 
-        iterator =
-            values_.insert(iterator, Entry{.name = std::move(name),
-                                           .value = PropertyValue{ValueType(std::move(value))}});
-        notify(ObservableChange{.kind = ObservableChangeKind::PropertyChanged,
-                                .property_name = iterator->name});
+        if (changed) {
+            notify(change);
+        }
         return *this;
     }
 
     ObservableObject& set_value(std::string name, PropertyValue value);
 
     template <typename T> [[nodiscard]] std::optional<T> get(std::string_view name) const {
-        const auto* property_value = value(name);
-        if (property_value == nullptr) {
+        const std::lock_guard lock(values_mutex_);
+        const auto iterator = find_entry(name);
+        if (iterator == values_.end() || iterator->name != name) {
             return std::nullopt;
         }
-        if (const auto* typed = property_value->template get<T>()) {
+        if (const auto* typed = iterator->value.template get<T>()) {
             return *typed;
         }
         return std::nullopt;
@@ -86,11 +99,6 @@ class ObservableObject : public std::enable_shared_from_this<ObservableObject> {
         PropertyValue value;
     };
 
-    struct ObserverEntry {
-        ObservableObserverToken token = 0U;
-        ObservableObserver observer;
-    };
-
     template <typename T> static bool values_equal(const T& left, const T& right) {
         if constexpr (requires { left == right; }) {
             return left == right;
@@ -105,8 +113,8 @@ class ObservableObject : public std::enable_shared_from_this<ObservableObject> {
     void notify(const ObservableChange& change);
 
     std::vector<Entry> values_;
-    std::vector<ObserverEntry> observers_;
-    ObservableObserverToken next_observer_token_ = 1U;
+    mutable std::mutex values_mutex_;
+    EventHandler<const ObservableChange&> observers_;
 };
 
 template <typename T> class ObservableProperty final {
@@ -148,18 +156,22 @@ template <typename T> class ObservableList final {
     explicit ObservableList(std::vector<T> items) : items_(std::move(items)) {}
 
     [[nodiscard]] std::size_t size() const noexcept {
+        const std::lock_guard lock(mutex_);
         return items_.size();
     }
 
     [[nodiscard]] bool empty() const noexcept {
+        const std::lock_guard lock(mutex_);
         return items_.empty();
     }
 
     [[nodiscard]] const T& at(std::size_t index) const {
+        const std::lock_guard lock(mutex_);
         return items_.at(index);
     }
 
     [[nodiscard]] T& at(std::size_t index) {
+        const std::lock_guard lock(mutex_);
         return items_.at(index);
     }
 
@@ -168,42 +180,59 @@ template <typename T> class ObservableList final {
     }
 
     void reset(std::vector<T> items) {
-        items_ = std::move(items);
-        notify(ObservableChange{.kind = ObservableChangeKind::Reset,
-                                .removed_count = 0U,
-                                .added_count = items_.size()});
+        auto added_count = std::size_t{0U};
+        {
+            const std::lock_guard lock(mutex_);
+            items_ = std::move(items);
+            added_count = items_.size();
+        }
+        notify(ObservableChange{
+            .kind = ObservableChangeKind::Reset, .removed_count = 0U, .added_count = added_count});
     }
 
     void append(T item) {
-        const auto index = items_.size();
-        items_.push_back(std::move(item));
+        auto index = std::size_t{0U};
+        {
+            const std::lock_guard lock(mutex_);
+            index = items_.size();
+            items_.push_back(std::move(item));
+        }
         notify(ObservableChange{
             .kind = ObservableChangeKind::Insert, .index = index, .added_count = 1U});
     }
 
     void insert(std::size_t index, T item) {
-        if (index > items_.size()) {
-            index = items_.size();
+        {
+            const std::lock_guard lock(mutex_);
+            if (index > items_.size()) {
+                index = items_.size();
+            }
+            items_.insert(items_.begin() + static_cast<std::ptrdiff_t>(index), std::move(item));
         }
-        items_.insert(items_.begin() + static_cast<std::ptrdiff_t>(index), std::move(item));
         notify(ObservableChange{
             .kind = ObservableChangeKind::Insert, .index = index, .added_count = 1U});
     }
 
     void erase(std::size_t index) {
-        if (index >= items_.size()) {
-            return;
+        {
+            const std::lock_guard lock(mutex_);
+            if (index >= items_.size()) {
+                return;
+            }
+            items_.erase(items_.begin() + static_cast<std::ptrdiff_t>(index));
         }
-        items_.erase(items_.begin() + static_cast<std::ptrdiff_t>(index));
         notify(ObservableChange{
             .kind = ObservableChangeKind::Remove, .index = index, .removed_count = 1U});
     }
 
     void replace(std::size_t index, T item) {
-        if (index >= items_.size()) {
-            return;
+        {
+            const std::lock_guard lock(mutex_);
+            if (index >= items_.size()) {
+                return;
+            }
+            items_[index] = std::move(item);
         }
-        items_[index] = std::move(item);
         notify(ObservableChange{.kind = ObservableChangeKind::Replace,
                                 .index = index,
                                 .removed_count = 1U,
@@ -211,25 +240,11 @@ template <typename T> class ObservableList final {
     }
 
     ObserverToken add_observer(Observer observer) {
-        if (!observer) {
-            return 0U;
-        }
-        auto token = next_observer_token_++;
-        if (token == 0U) {
-            token = next_observer_token_++;
-        }
-        observers_.push_back(ObserverEntry{.token = token, .observer = std::move(observer)});
-        return token;
+        return observers_.add(std::move(observer));
     }
 
     void remove_observer(ObserverToken token) noexcept {
-        if (token == 0U) {
-            return;
-        }
-        observers_.erase(
-            std::remove_if(observers_.begin(), observers_.end(),
-                           [token](const ObserverEntry& entry) { return entry.token == token; }),
-            observers_.end());
+        observers_.remove(token);
     }
 
     void clear_observers() noexcept {
@@ -237,23 +252,13 @@ template <typename T> class ObservableList final {
     }
 
   private:
-    struct ObserverEntry {
-        ObserverToken token = 0U;
-        Observer observer;
-    };
-
     void notify(const ObservableChange& change) {
-        const auto observers = observers_;
-        for (const auto& entry : observers) {
-            if (entry.observer) {
-                entry.observer(change);
-            }
-        }
+        observers_.emit(change);
     }
 
+    mutable std::mutex mutex_;
     std::vector<T> items_;
-    std::vector<ObserverEntry> observers_;
-    ObserverToken next_observer_token_ = 1U;
+    EventHandler<const ObservableChange&> observers_;
 };
 
 using ObservableObjectPtr = std::shared_ptr<ObservableObject>;

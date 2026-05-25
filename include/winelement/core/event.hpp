@@ -1,8 +1,11 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <utility>
 #include <vector>
 
@@ -18,18 +21,37 @@ template <typename... Args> class EventHandler final {
 
     EventHandler(const EventHandler&) = delete;
     EventHandler& operator=(const EventHandler&) = delete;
-    EventHandler(EventHandler&&) noexcept = default;
-    EventHandler& operator=(EventHandler&&) noexcept = default;
+    EventHandler(EventHandler&& other) noexcept {
+        const std::lock_guard lock(other.mutex_);
+        handlers_ = std::move(other.handlers_);
+        next_token_ = other.next_token_;
+        other.next_token_ = 1U;
+    }
+
+    EventHandler& operator=(EventHandler&& other) noexcept {
+        if (this == &other) {
+            return *this;
+        }
+
+        const std::scoped_lock lock(mutex_, other.mutex_);
+        handlers_ = std::move(other.handlers_);
+        next_token_ = other.next_token_;
+        other.next_token_ = 1U;
+        return *this;
+    }
 
     EventToken add(Handler handler) {
         if (!handler) {
             return 0U;
         }
+
+        const std::lock_guard lock(mutex_);
+        compact_locked();
         auto token = next_token_++;
         if (token == 0U) {
             token = next_token_++;
         }
-        handlers_.push_back(Entry{.token = token, .handler = std::move(handler)});
+        handlers_.push_back(std::make_shared<Entry>(token, std::move(handler)));
         return token;
     }
 
@@ -41,16 +63,13 @@ template <typename... Args> class EventHandler final {
         if (token == 0U) {
             return;
         }
+        const std::lock_guard lock(mutex_);
         for (auto& entry : handlers_) {
-            if (entry.token != token) {
+            if (entry->token != token) {
                 continue;
             }
-            entry.handler = nullptr;
-            if (dispatch_depth_ == 0U) {
-                compact();
-            } else {
-                needs_compaction_ = true;
-            }
+            entry->active.store(false, std::memory_order_release);
+            compact_locked();
             return;
         }
     }
@@ -60,56 +79,63 @@ template <typename... Args> class EventHandler final {
     }
 
     void clear() noexcept {
-        if (dispatch_depth_ == 0U) {
-            handlers_.clear();
-            needs_compaction_ = false;
-            return;
+        const std::lock_guard lock(mutex_);
+        for (const auto& entry : handlers_) {
+            entry->active.store(false, std::memory_order_release);
         }
-        for (auto& entry : handlers_) {
-            entry.handler = nullptr;
-        }
-        needs_compaction_ = true;
+        handlers_.clear();
     }
 
     [[nodiscard]] bool empty() const noexcept {
-        return handlers_.empty();
+        const std::lock_guard lock(mutex_);
+        return std::none_of(handlers_.begin(), handlers_.end(), [](const auto& entry) {
+            return entry->active.load(std::memory_order_acquire);
+        });
     }
 
     [[nodiscard]] std::size_t size() const noexcept {
-        return handlers_.size();
+        const std::lock_guard lock(mutex_);
+        return static_cast<std::size_t>(
+            std::count_if(handlers_.begin(), handlers_.end(), [](const auto& entry) {
+                return entry->active.load(std::memory_order_acquire);
+            }));
     }
 
     void emit(Args... args) const {
-        ++dispatch_depth_;
-        for (const auto& entry : handlers_) {
-            if (entry.handler) {
-                entry.handler(args...);
-            }
+        auto handlers = std::vector<std::shared_ptr<Entry>>{};
+        {
+            const std::lock_guard lock(mutex_);
+            handlers = handlers_;
         }
-        --dispatch_depth_;
-        if (dispatch_depth_ == 0U && needs_compaction_) {
-            compact();
+
+        for (const auto& entry : handlers) {
+            if (entry->active.load(std::memory_order_acquire) && entry->handler) {
+                entry->handler(args...);
+            }
         }
     }
 
   private:
     struct Entry {
+        Entry(EventToken token_value, Handler handler_value)
+            : token(token_value), handler(std::move(handler_value)) {}
+
         EventToken token = 0U;
         Handler handler;
+        std::atomic_bool active = true;
     };
 
-    void compact() const {
+    void compact_locked() const {
         handlers_.erase(std::remove_if(handlers_.begin(), handlers_.end(),
-                                       [](const Entry& entry) { return !entry.handler; }),
+                                       [](const auto& entry) {
+                                           return !entry->active.load(std::memory_order_acquire);
+                                       }),
                         handlers_.end());
-        needs_compaction_ = false;
     }
 
-    mutable std::vector<Entry> handlers_;
-    mutable std::size_t dispatch_depth_ = 0U;
-    mutable bool needs_compaction_ = false;
+    mutable std::mutex mutex_;
+    mutable std::vector<std::shared_ptr<Entry>> handlers_;
     EventToken next_token_ = 1U;
 };
 
 } // namespace winelement::core
-

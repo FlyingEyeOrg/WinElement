@@ -10,6 +10,8 @@ WinElement 提供分层的 CMake 目标和对应的聚合头文件。
 
 - `core::FrameScheduler`：带合并功能的优先级帧任务队列。
 - `core::Property<T>` 和 `core::PropertyStore`：用于 UI 状态和隐式动画的类型化自定义属性。
+- `core::EventHandler<Args...>`：线程安全的轻量事件列表，用于控件事件和平台回调。
+- `core::ObservableObject`、`core::ObservableList<T>`：带线程安全观察者列表的简单绑定模型。
 - `core::LruCache<Key, Value>`：用于布局和样式子系统的小容量缓存。
 - 几何体原语：`core::Point`、`core::Size`、`core::Rect`、`core::Color`、`core::Transform2D`。
 
@@ -144,3 +146,27 @@ auto metrics = content.virtualization_metrics();
 - `platform::RenderThreadPool`
 
 平台层目前仅支持 Windows，使用 Win32、D3D11、DirectWrite、DirectComposition、WIC 和 IMM。
+
+`WindowOptions` 可以在构造窗口时集中配置 Win32 创建参数、消息拦截和关闭回调：
+
+```cpp
+platform::Window window(platform::WindowOptions{
+    .title = L"Custom",
+    .width = 1280,
+    .height = 720,
+    .on_before_create =
+        [](platform::WindowCreateParams& params) {
+            params.style &= ~WS_MAXIMIZEBOX;
+        },
+    .on_message =
+        [](platform::WindowMessage& message) {
+            if (message.id == WM_APP + 1U) {
+                message.handled = true;
+                message.result = 1;
+            }
+        },
+    .on_closed = [] {}});
+```
+
+运行期仍可通过 `add_window_message_filter()`、`add_post_window_message_filter()`、
+`window_message_observers()` 和 `closed_event()` 追加或移除扩展点。

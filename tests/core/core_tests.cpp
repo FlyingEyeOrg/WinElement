@@ -2,9 +2,11 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -69,6 +71,45 @@ TEST(CoreTests, ObservableObjectNotifiesAndRemovesObservers) {
     EXPECT_EQ(model->get<std::string>("title"), std::optional<std::string>{"Running"});
 }
 
+TEST(CoreTests, EventHandlerSupportsConcurrentSubscriptionAndEmit) {
+    EventHandler<int> event;
+    std::atomic_int sum = 0;
+    auto tokens = std::vector<EventToken>{};
+    tokens.reserve(64U);
+
+    for (auto index = 0; index < 64; ++index) {
+        tokens.push_back(
+            event.add([&sum](int value) { sum.fetch_add(value, std::memory_order_acq_rel); }));
+    }
+
+    auto emitters = std::vector<std::thread>{};
+    emitters.reserve(4U);
+    for (auto index = 0; index < 4; ++index) {
+        emitters.emplace_back([&event] {
+            for (auto iteration = 0; iteration < 100; ++iteration) {
+                event.emit(1);
+            }
+        });
+    }
+
+    std::thread remover([&event, &tokens] {
+        for (const auto token : tokens) {
+            event.remove(token);
+        }
+    });
+
+    for (auto& emitter : emitters) {
+        emitter.join();
+    }
+    remover.join();
+
+    const auto before_clear = sum.load(std::memory_order_acquire);
+    event.clear();
+    event.emit(1);
+    EXPECT_EQ(sum.load(std::memory_order_acquire), before_clear);
+    EXPECT_TRUE(event.empty());
+}
+
 TEST(CoreTests, ObservableListReportsRangeChanges) {
     ObservableStringList list;
     auto changes = std::vector<ObservableChange>{};
@@ -112,10 +153,9 @@ TEST(CoreTests, BindingExpressionEvaluatesNestedObjectListAndDefault) {
 }
 
 TEST(CoreTests, PropertyStoreOffersHumanReadableQueriesAndChangeFlags) {
-    auto property = make_property<int>(
-        "demo.score",
-        PropertyInvalidation::Layout | PropertyInvalidation::Paint |
-            PropertyInvalidation::Semantics);
+    auto property = make_property<int>("demo.score", PropertyInvalidation::Layout |
+                                                         PropertyInvalidation::Paint |
+                                                         PropertyInvalidation::Semantics);
     PropertyStore store;
 
     EXPECT_TRUE(store.empty());

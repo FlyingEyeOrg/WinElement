@@ -120,6 +120,7 @@ TEST(WindowTests, SupportsCustomCreateParametersAndNativeMessageHooks) {
     std::atomic_int post_hook_hits = 0;
     std::atomic_int observer_hits = 0;
     std::atomic_int closed_hits = 0;
+    std::atomic_int option_closed_hits = 0;
     platform::Window window(platform::WindowOptions{
         .title = L"WinElement Hook Source",
         .width = 320,
@@ -128,41 +129,60 @@ TEST(WindowTests, SupportsCustomCreateParametersAndNativeMessageHooks) {
             [](platform::WindowCreateParams& params) {
                 params.title = L"WinElement Hooked Window";
                 params.width = 420;
-            }});
-    const auto pre_option_token = window.add_window_message_filter(
-        [&pre_hook_hits](platform::WindowMessage& message) {
+            },
+        .on_message =
+            [&pre_hook_hits](platform::WindowMessage& message) {
+                if (message.id == WM_APP + 45U) {
+                    pre_hook_hits.fetch_add(1, std::memory_order_acq_rel);
+                    message.handled = true;
+                    message.result = 145;
+                }
+            },
+        .on_post_message =
+            [&post_hook_hits](platform::WindowMessage& message) {
+                if (message.id == WM_APP + 46U) {
+                    post_hook_hits.fetch_add(1, std::memory_order_acq_rel);
+                    message.handled = true;
+                    message.result = 146;
+                }
+            },
+        .on_closed =
+            [&option_closed_hits] { option_closed_hits.fetch_add(1, std::memory_order_acq_rel); }});
+    const auto pre_option_token =
+        window.add_window_message_filter([&pre_hook_hits](platform::WindowMessage& message) {
             if (message.id == WM_APP + 41U) {
                 pre_hook_hits.fetch_add(1, std::memory_order_acq_rel);
                 message.handled = true;
                 message.result = 91;
             }
         });
-    const auto post_option_token = window.add_post_window_message_filter(
-        [&post_hook_hits](platform::WindowMessage& message) {
+    const auto post_option_token =
+        window.add_post_window_message_filter([&post_hook_hits](platform::WindowMessage& message) {
             if (message.id == WM_APP + 42U) {
                 post_hook_hits.fetch_add(1, std::memory_order_acq_rel);
                 message.handled = true;
                 message.result = 123;
             }
         });
-    const auto pre_filter_token = window.add_window_message_filter(
-        [&pre_hook_hits](platform::WindowMessage& message) {
+    const auto pre_filter_token =
+        window.add_window_message_filter([&pre_hook_hits](platform::WindowMessage& message) {
             if (message.id == WM_APP + 43U) {
                 pre_hook_hits.fetch_add(1, std::memory_order_acq_rel);
                 message.handled = true;
                 message.result = 77;
             }
         });
-    const auto observer_token = (window.window_message_observers() +=
-                                 [&observer_hits](platform::WindowMessage& message) {
-                                     if (message.id == WM_APP + 44U) {
-                                         observer_hits.fetch_add(1, std::memory_order_acq_rel);
-                                         message.handled = true;
-                                         message.result = 66;
-                                     }
-                                 });
-    const auto closed_token =
-        (window.closed_event() += [&closed_hits]() { closed_hits.fetch_add(1, std::memory_order_acq_rel); });
+    const auto observer_token =
+        (window.window_message_observers() += [&observer_hits](platform::WindowMessage& message) {
+            if (message.id == WM_APP + 44U) {
+                observer_hits.fetch_add(1, std::memory_order_acq_rel);
+                message.handled = true;
+                message.result = 66;
+            }
+        });
+    const auto closed_token = (window.closed_event() += [&closed_hits]() {
+        closed_hits.fetch_add(1, std::memory_order_acq_rel);
+    });
 
     auto* hwnd = static_cast<HWND>(window.native_handle());
     ASSERT_NE(hwnd, nullptr);
@@ -173,8 +193,10 @@ TEST(WindowTests, SupportsCustomCreateParametersAndNativeMessageHooks) {
     EXPECT_EQ(SendMessageW(hwnd, WM_APP + 42U, 0, 0), 123);
     EXPECT_EQ(post_hook_hits.load(std::memory_order_acquire), 1);
     EXPECT_EQ(SendMessageW(hwnd, WM_APP + 43U, 0, 0), 77);
+    EXPECT_EQ(SendMessageW(hwnd, WM_APP + 45U, 0, 0), 145);
     EXPECT_EQ(SendMessageW(hwnd, WM_APP + 44U, 0, 0), 66);
     EXPECT_EQ(observer_hits.load(std::memory_order_acquire), 1);
+    EXPECT_EQ(SendMessageW(hwnd, WM_APP + 46U, 0, 0), 146);
 
     window.remove_window_message_filter(pre_filter_token);
     window.remove_window_message_filter(pre_option_token);
@@ -183,6 +205,7 @@ TEST(WindowTests, SupportsCustomCreateParametersAndNativeMessageHooks) {
     window.closed_event() -= closed_token;
     window.close();
     EXPECT_EQ(closed_hits.load(std::memory_order_acquire), 0);
+    EXPECT_EQ(option_closed_hits.load(std::memory_order_acquire), 1);
 #else
     GTEST_SKIP() << "Native hook test is only available on Win32.";
 #endif
@@ -194,11 +217,8 @@ TEST(WindowTests, ModalWindowDisablesOwnerUntilClose) {
     const auto dialog_title = std::wstring{L"WinElement Modal Child"};
     platform::Window owner(
         platform::WindowOptions{.title = owner_title, .width = 360, .height = 240});
-    platform::Window dialog(platform::WindowOptions{.title = dialog_title,
-                                                    .width = 320,
-                                                    .height = 180,
-                                                    .owner = &owner,
-                                                    .modal = true});
+    platform::Window dialog(platform::WindowOptions{
+        .title = dialog_title, .width = 320, .height = 180, .owner = &owner, .modal = true});
 
     owner.show();
     dialog.show();

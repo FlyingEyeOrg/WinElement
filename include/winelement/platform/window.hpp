@@ -5,10 +5,10 @@
 #include <winelement/layout/layout_engine.hpp>
 #include <winelement/rendering/render_resource_queue.hpp>
 
-#include <functional>
 #include <cstdint>
-#include <memory>
+#include <functional>
 #include <limits>
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -52,14 +52,17 @@ struct WindowOptions {
     bool defer_render_thread_until_show = false;
     bool trim_render_memory_on_idle = true;
     WindowCreateHook on_before_create;
+    WindowMessageHook on_message;
+    WindowMessageHook on_post_message;
+    std::function<void()> on_closed;
 };
 
-class Window final {
+class Window {
   public:
     using MessageFilterToken = core::EventToken;
 
     explicit Window(WindowOptions options = {});
-    ~Window();
+    virtual ~Window();
 
     Window(const Window&) = delete;
     Window& operator=(const Window&) = delete;
@@ -96,4 +99,3 @@ class Window final {
 };
 
 } // namespace winelement::platform
-

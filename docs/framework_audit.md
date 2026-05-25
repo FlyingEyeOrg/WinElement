@@ -12,6 +12,10 @@
 - 将测试里的虚拟子节点样例迁移到更易读的 `set_vertical_virtual_children(...)`。
 - 增加 API、属性系统和虚拟化指标相关测试。
 - 将 UIElement 树级虚拟化实现从 `ui_element.cpp` 拆到 `ui_element_virtualization.cpp`，并把虚拟子节点状态放入 elements 内部头，降低核心元素文件的职责密度。
+- 将 `core::EventHandler` 改为线程安全快照派发，避免控件事件、窗口消息观察者和关闭事件在多线程 add/remove/emit 时竞争内部存储。
+- 为 `ObservableObject` 和 `ObservableList` 的观察者列表以及主要读写路径加锁，避免绑定模型跨线程更新时破坏内部 vector。
+- 放开 `platform::Window` 的 `final` 限制，并在 `WindowOptions` 增加构造期 `on_message`、`on_post_message`、`on_closed`，让自定义窗口可在创建时集中配置 native 扩展点。
+- 使用 x64 Release 运行 `controls_showcase --headless`、`--profile-memory` 和 500ms CPU/内存采样，验证最大化滚动到底部动画/长列表区域后控件树和内存仍处在有界范围。
 
 ## 逐项清单
 

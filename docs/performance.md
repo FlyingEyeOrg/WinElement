@@ -60,3 +60,10 @@ build\vs2022-x64\samples\controls_showcase\Release\controls_showcase.exe --profi
 ```
 
 使用无头模式进行快速回归检查，在需要滚动最大化展示窗口时获取实时进程计数器时使用 `--profile-memory`。
+
+2026-05-25 的 x64 Release 采样结果：
+
+- `--headless`：最大化 top/middle/bottom 均可布局和提交，bottom 能显示 `Item #9999`，虚拟化只实现 3 个主要 section。
+- headless 最大化窗口：top 402 个 UI element、471 条 render command；middle 363 个 UI element、42 条 command；bottom 224 个 UI element、133 条 command。
+- `--profile-memory`：maximized top after render 约 248.1 MiB working set / 243.3 MiB private；maximized bottom after render 约 143.8 MiB working set / 148.5 MiB private；关闭后约 18.2 MiB working set / 58.9 MiB private。
+- 500ms 进程采样：12 个样本，平均 CPU 约 1.04%，峰值约 4.77%；采样期间最大 working set 约 146.2 MiB，最大 private 约 146.5 MiB。
