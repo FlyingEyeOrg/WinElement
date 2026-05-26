@@ -217,6 +217,11 @@ class SelectDropdown final : public elements::UIElement {
             return;
         case elements::PointerEventKind::Down:
         case elements::PointerEventKind::DoubleClick:
+            if (is_passive_surface_point(event.local_position)) {
+                owner_.dismiss_popup();
+                event.handled = true;
+                return;
+            }
             pressed_visible_index_ = index;
             event.handled = true;
             invalidate_paint();
@@ -439,6 +444,28 @@ class SelectDropdown final : public elements::UIElement {
         bool group_header = false;
         bool group_disabled = false;
     };
+
+    [[nodiscard]] bool is_passive_surface_point(layout::Point local_position) const noexcept {
+        const auto local_frame = layout::Rect{0.0F, 0.0F, frame().width, frame().height};
+        if (!contains_local_point(local_frame, local_position)) {
+            return true;
+        }
+
+        const auto metrics = select_popup_metrics();
+        if (owner_.filterable_) {
+            const auto filter_rect =
+                layout::Rect{8.0F, metrics.vertical_padding + 4.0F,
+                             std::max(0.0F, local_frame.width - 16.0F), filter_height - 8.0F};
+            if (contains_local_point(filter_rect, local_position)) {
+                return false;
+            }
+        }
+
+        const auto row_count = std::max<std::size_t>(rows_.size(), 1U);
+        return !detail::popup_item_at(local_position, metrics, row_count,
+                                      owner_.filterable_ ? filter_height : 0.0F)
+                    .has_value();
+    }
 
     [[nodiscard]] std::pair<std::string, bool> group_for_option(std::size_t option_index) const {
         for (const auto& group : owner_.option_groups_) {

@@ -4850,6 +4850,52 @@ TEST(BasicControlsTests, SelectToggleClosesPopupAndFiltersUseInsetText) {
     EXPECT_EQ(root.top_layer_count(), 0U);
 }
 
+TEST(BasicControlsTests, SelectDismissesPopupWhenClickingDropdownPadding) {
+    auto engine = create_unrounded_engine();
+    Panel root;
+    root.bind_layout_tree(engine);
+    root.configure_layout([](LayoutElement& layout) {
+        layout.set_size(Length::points(220.0F), Length::points(160.0F));
+    });
+
+    auto select = std::make_unique<Select>();
+    select->set_options({SelectOption{.label = "Alpha", .value = "a"},
+                         SelectOption{.label = "Beta", .value = "b"}});
+    select->configure_layout([](LayoutElement& layout) {
+        layout.set_position_type(PositionType::Absolute)
+            .set_position(Edge::Left, Length::points(8.0F))
+            .set_position(Edge::Top, Length::points(8.0F))
+            .set_width(Length::points(180.0F));
+    });
+    auto& select_ref = static_cast<Select&>(root.append_child(std::move(select)));
+    root.calculate_layout(LayoutConstraints{.width = 220.0F, .height = 160.0F});
+
+    EventRouter router(root);
+    const auto select_point = Point{16.0F, 16.0F};
+    static_cast<void>(router.route_pointer_event(PointerEvent{.kind = PointerEventKind::Down,
+                                                              .position = select_point,
+                                                              .button = PointerButton::Primary}));
+    static_cast<void>(router.route_pointer_event(PointerEvent{.kind = PointerEventKind::Up,
+                                                              .position = select_point,
+                                                              .button = PointerButton::Primary}));
+    ASSERT_TRUE(select_ref.popup_open());
+    ASSERT_EQ(root.top_layer_count(), 1U);
+
+    const auto dropdown_bounds = root.top_layer_bounds(root.top_layer_at(0U));
+    const auto dropdown_corner_padding =
+        Point{dropdown_bounds.x + 1.0F, dropdown_bounds.y + 1.0F};
+    ASSERT_TRUE(rect_contains_point(dropdown_bounds, dropdown_corner_padding));
+
+    const auto result = router.route_pointer_event(
+        PointerEvent{.kind = PointerEventKind::Down,
+                     .position = dropdown_corner_padding,
+                     .button = PointerButton::Primary});
+
+    EXPECT_TRUE(result.handled);
+    EXPECT_FALSE(select_ref.popup_open());
+    EXPECT_EQ(root.top_layer_count(), 0U);
+}
+
 TEST(BasicControlsTests, SelectDisabledClearsFilterText) {
     Select select;
     select
