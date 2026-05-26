@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
   "name": "winelement",
-  "version-semver": "0.1.4",
+  "version-semver": "0.1.5",
   "description": "A high-performance Windows C++ UI framework with retained rendering, layout, controls, and Element Plus inspired styling.",
   "license": null,
   "supports": "windows",
