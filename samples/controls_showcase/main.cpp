@@ -2065,7 +2065,7 @@ constexpr auto showcase_section_ids =
     std::array{ShowcaseSectionId::Buttons,     ShowcaseSectionId::Inputs,
                ShowcaseSectionId::Choices,     ShowcaseSectionId::Structure,
                ShowcaseSectionId::Images,      ShowcaseSectionId::Feedback,
-               ShowcaseSectionId::Animations,  ShowcaseSectionId::Virtualization};
+               ShowcaseSectionId::Virtualization, ShowcaseSectionId::Animations};
 using ShowcaseSectionHeights = std::array<float, showcase_section_ids.size()>;
 
 struct ShowcaseSectionHeightCacheEntry {
@@ -2605,7 +2605,7 @@ int run_headless_showcase() {
                : 1;
 }
 
-int run_window_showcase() {
+int run_window_showcase(bool scroll_to_bottom) {
     platform::Application application;
     platform::Window window(platform::WindowOptions{
         .title = L"WinElement Controls Showcase",
@@ -2618,7 +2618,22 @@ int run_window_showcase() {
         calculate_showcase_window_layout(*content, tree, showcase_window_width,
                                          showcase_window_height);
     }
-    window.show();
+
+    if (scroll_to_bottom) {
+        ShowWindow(static_cast<HWND>(window.native_handle()), SW_SHOWMAXIMIZED);
+        UpdateWindow(static_cast<HWND>(window.native_handle()));
+        if (tree.viewport != nullptr) {
+            tree.viewport->set_scroll_offset(
+                layout::Point{0.0F, tree.viewport->max_scroll_offset().y});
+            if (auto* content = window.content()) {
+                calculate_showcase_window_layout(*content, tree, showcase_window_width,
+                                                 showcase_window_height);
+            }
+        }
+    } else {
+        window.show();
+    }
+
     return application.run();
 }
 
@@ -2683,6 +2698,7 @@ int run_profile_memory_showcase() {
 
 #ifndef WINELEMENT_CONTROLS_SHOWCASE_AS_LIBRARY
 int main(int argc, char** argv) {
+    bool scroll_to_bottom = false;
     for (auto index = 1; index < argc; ++index) {
         if (std::string_view{argv[index]} == "--headless") {
             return run_headless_showcase();
@@ -2690,8 +2706,11 @@ int main(int argc, char** argv) {
         if (std::string_view{argv[index]} == "--profile-memory") {
             return run_profile_memory_showcase();
         }
+        if (std::string_view{argv[index]} == "--scroll-bottom") {
+            scroll_to_bottom = true;
+        }
     }
-    return run_window_showcase();
+    return run_window_showcase(scroll_to_bottom);
 }
 #endif
 

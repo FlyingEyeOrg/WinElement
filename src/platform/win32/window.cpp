@@ -872,7 +872,9 @@ class Window::Impl final {
                 resume_animation_after_interactive_resize();
                 return 0;
             case WM_SIZE:
-                on_resize();
+                if (wparam != SIZE_MINIMIZED) {
+                    on_resize();
+                }
                 return 0;
             case WM_DPICHANGED:
                 on_dpi_changed(wparam, lparam);
