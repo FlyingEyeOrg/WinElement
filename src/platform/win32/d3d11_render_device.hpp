@@ -7,9 +7,11 @@ struct ID3D11DeviceContext;
 
 namespace winelement::platform::win32 {
 
+enum class D3D11RenderDeviceDriver { Auto, Hardware, Warp };
+
 class D3D11RenderDevice final {
   public:
-    D3D11RenderDevice();
+    explicit D3D11RenderDevice(D3D11RenderDeviceDriver driver = D3D11RenderDeviceDriver::Auto);
     ~D3D11RenderDevice();
 
     D3D11RenderDevice(const D3D11RenderDevice&) = delete;

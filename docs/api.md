@@ -183,6 +183,7 @@ platform::Window window(platform::WindowOptions{
     .title = L"Custom",
     .width = 1280,
     .height = 720,
+    .render_driver = platform::RenderDriver::Auto,
     .on_before_create =
         [](platform::WindowCreateParams& params) {
             params.style &= ~WS_MAXIMIZEBOX;
@@ -196,6 +197,9 @@ platform::Window window(platform::WindowOptions{
         },
     .on_closed = [] {}});
 ```
+
+`render_driver` 默认为 `Auto`，优先使用硬件 D3D11；内存敏感窗口可以显式选择
+`platform::RenderDriver::Warp`，以软件 WARP 设备换取更低的硬件驱动常驻内存。
 
 运行期仍可通过 `add_window_message_filter()`、`add_post_window_message_filter()`、
 `window_message_observers()` 和 `closed_event()` 追加或移除扩展点。

@@ -16,7 +16,7 @@
 namespace winelement::platform::win32 {
 namespace {
 
-constexpr auto idle_memory_trim_delay = std::chrono::milliseconds(3000);
+constexpr auto idle_memory_trim_delay = std::chrono::milliseconds(750);
 
 class ResourceUploadReplayCache final {
   public:
@@ -108,8 +108,9 @@ class ResourceUploadReplayCache final {
 
 } // namespace
 
-WindowRenderWorker::WindowRenderWorker(HWND hwnd, bool trim_memory_on_idle)
-    : hwnd_(hwnd), trim_memory_on_idle_(trim_memory_on_idle) {
+WindowRenderWorker::WindowRenderWorker(HWND hwnd, bool trim_memory_on_idle,
+                                       D3D11RenderDeviceDriver render_driver)
+    : hwnd_(hwnd), trim_memory_on_idle_(trim_memory_on_idle), render_driver_(render_driver) {
     worker_ = std::thread([this]() noexcept { run(); });
 }
 
@@ -354,7 +355,7 @@ void WindowRenderWorker::run() noexcept {
                     complete_job(job, RenderJobResult::Failed);
                     return;
                 }
-                surface = std::make_unique<D3D11CompositionSurface>(hwnd);
+                surface = std::make_unique<D3D11CompositionSurface>(hwnd, render_driver_);
             }
 
             switch (job.kind) {

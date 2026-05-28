@@ -499,6 +499,9 @@ class D3D11CompositionSurface::Impl final {
 D3D11CompositionSurface::D3D11CompositionSurface(HWND hwnd)
     : D3D11CompositionSurface(hwnd, std::make_shared<D3D11RenderDevice>()) {}
 
+D3D11CompositionSurface::D3D11CompositionSurface(HWND hwnd, D3D11RenderDeviceDriver driver)
+    : D3D11CompositionSurface(hwnd, std::make_shared<D3D11RenderDevice>(driver)) {}
+
 D3D11CompositionSurface::D3D11CompositionSurface(HWND hwnd,
                                                  std::shared_ptr<D3D11RenderDevice> device)
     : impl_(std::make_unique<Impl>(hwnd, std::move(device))) {}

@@ -41,10 +41,13 @@ struct WindowMessage {
 using WindowCreateHook = std::function<void(WindowCreateParams&)>;
 using WindowMessageHook = std::function<void(WindowMessage&)>;
 
+enum class RenderDriver { Auto, Hardware, Warp };
+
 struct WindowOptions {
     std::wstring title = L"WinElement";
     int width = 960;
     int height = 640;
+    RenderDriver render_driver = RenderDriver::Auto;
     Window* owner = nullptr;
     bool modal = false;
     bool center_on_owner = true;

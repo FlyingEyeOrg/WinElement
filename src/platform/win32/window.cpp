@@ -84,6 +84,19 @@ constexpr UINT animation_timer_resolution_ms = 1U;
 constexpr auto window_max_compositor_promotions = 0U;
 constexpr auto window_minimum_compositor_promotion_area = 8192.0F;
 
+[[nodiscard]] win32::D3D11RenderDeviceDriver
+to_d3d11_render_driver(RenderDriver driver) noexcept {
+    switch (driver) {
+    case RenderDriver::Hardware:
+        return win32::D3D11RenderDeviceDriver::Hardware;
+    case RenderDriver::Warp:
+        return win32::D3D11RenderDeviceDriver::Warp;
+    case RenderDriver::Auto:
+    default:
+        return win32::D3D11RenderDeviceDriver::Auto;
+    }
+}
+
 [[nodiscard]] rendering::CompositorPromotionOptions window_compositor_promotion_options() noexcept {
     return rendering::CompositorPromotionOptions{.max_candidates = window_max_compositor_promotions,
                                                  .minimum_area =
@@ -1335,8 +1348,9 @@ class Window::Impl final {
         if (render_worker_ != nullptr || hwnd_ == nullptr) {
             return;
         }
-        render_worker_ =
-            std::make_unique<win32::WindowRenderWorker>(hwnd_, options_.trim_render_memory_on_idle);
+        render_worker_ = std::make_unique<win32::WindowRenderWorker>(
+            hwnd_, options_.trim_render_memory_on_idle,
+            to_d3d11_render_driver(options_.render_driver));
         render_worker_->set_dpi(dpi_);
     }
 

@@ -27,6 +27,7 @@ class D3D11CompositionSurface final {
     enum class RenderResult { Rendered, Skipped, StaleTargetSize, DeviceLost };
 
     explicit D3D11CompositionSurface(HWND hwnd);
+    D3D11CompositionSurface(HWND hwnd, D3D11RenderDeviceDriver driver);
     D3D11CompositionSurface(HWND hwnd, std::shared_ptr<D3D11RenderDevice> device);
     ~D3D11CompositionSurface();
 

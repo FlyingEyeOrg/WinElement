@@ -49,6 +49,7 @@ constexpr auto canvas_width = 1440.0F;
 constexpr auto canvas_height = 5000.0F;
 constexpr auto showcase_window_width = 1320.0F;
 constexpr auto showcase_window_height = 920.0F;
+constexpr auto showcase_render_driver = platform::RenderDriver::Warp;
 constexpr auto showcase_page_scrollbar_width = 14.0F;
 constexpr auto showcase_page_gap = 8.0F;
 constexpr auto showcase_image_resource_id = rendering::RenderResourceId{0x51494D475F53484FULL};
@@ -2047,7 +2048,7 @@ void add_virtualization_section(controls::StackPanel& root) {
 
 constexpr auto showcase_content_padding = 24.0F;
 constexpr auto showcase_content_gap = 18.0F;
-constexpr auto showcase_virtualization_min_overscan = 480.0F;
+constexpr auto showcase_virtualization_overscan = 0.0F;
 
 enum class ShowcaseSectionId {
     Buttons,
@@ -2084,6 +2085,7 @@ void configure_showcase_content_box(elements::UIElement& root) {
 
 void configure_showcase_content_stack(controls::StackPanel& root) {
     root.set_gap(showcase_content_gap);
+    root.set_subtree_virtualization_overscan(showcase_virtualization_overscan);
     configure_showcase_content_box(root);
 }
 
@@ -2113,6 +2115,9 @@ void add_showcase_section(ShowcaseSectionId section, controls::StackPanel& root,
         add_structure_text_path_section(root);
         return;
     case ShowcaseSectionId::Images:
+        if (host_window != nullptr) {
+            upload_showcase_resources(*host_window);
+        }
         add_image_section(root);
         return;
     case ShowcaseSectionId::Feedback:
@@ -2603,8 +2608,10 @@ int run_headless_showcase() {
 int run_window_showcase() {
     platform::Application application;
     platform::Window window(platform::WindowOptions{
-        .title = L"WinElement Controls Showcase", .width = 1320, .height = 920});
-    upload_showcase_resources(window);
+        .title = L"WinElement Controls Showcase",
+        .width = 1320,
+        .height = 920,
+        .render_driver = showcase_render_driver});
     auto tree = build_showcase_window_tree(showcase_window_viewport_width(), &window);
     window.set_content(std::move(tree.root));
     if (auto* content = window.content()) {
@@ -2624,8 +2631,8 @@ int run_profiled_showcase_window(std::string_view label, bool scroll_to_bottom) 
     platform::Application application;
     platform::Window window(platform::WindowOptions{.title = L"WinElement Controls Showcase",
                                                     .width = profiled_window_width,
-                                                    .height = profiled_window_height});
-    upload_showcase_resources(window);
+                                                    .height = profiled_window_height,
+                                                    .render_driver = showcase_render_driver});
 
     auto label_text = std::string{label};
     print_process_memory(label_text + " after window");

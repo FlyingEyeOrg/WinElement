@@ -1,5 +1,7 @@
 #pragma once
 
+#include "d3d11_render_device.hpp"
+
 #include <winelement/rendering/compositor.hpp>
 #include <winelement/rendering/render_frame_graph.hpp>
 #include <winelement/rendering/render_resource_queue.hpp>
@@ -40,7 +42,9 @@ enum class RenderJobResult { Completed, StaleTargetSize, Canceled, Failed };
 
 class WindowRenderWorker final {
   public:
-    explicit WindowRenderWorker(HWND hwnd, bool trim_memory_on_idle = true);
+    explicit WindowRenderWorker(
+        HWND hwnd, bool trim_memory_on_idle = true,
+        D3D11RenderDeviceDriver render_driver = D3D11RenderDeviceDriver::Auto);
     ~WindowRenderWorker();
 
     WindowRenderWorker(const WindowRenderWorker&) = delete;
@@ -88,6 +92,7 @@ class WindowRenderWorker final {
     std::optional<JobIterator> pending_upload_job_;
     bool stopping_ = false;
     bool trim_memory_on_idle_ = true;
+    D3D11RenderDeviceDriver render_driver_ = D3D11RenderDeviceDriver::Auto;
     std::thread worker_;
 };
 

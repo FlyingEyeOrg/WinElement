@@ -4617,11 +4617,22 @@ layout::Rect UIElement::visible_subtree_bounds() const noexcept {
                             std::max(shadow_style.spread, 0.0F) +
                                 std::max(shadow_style.blur_radius, 0.0F)));
         }
+        const auto clip_children = clips_children_to_viewport();
+        const auto child_clip_rect =
+            clip_children ? std::optional<layout::Rect>{effective_absolute_child_clip_rect()}
+                          : std::optional<layout::Rect>{};
         for (const auto& child : children_) {
             if (child->subtree_virtualized_) {
                 continue;
             }
-            bounds = layout::union_rects(bounds, child->visible_subtree_bounds());
+            auto child_bounds = child->visible_subtree_bounds();
+            if (child_clip_rect.has_value()) {
+                child_bounds = layout::intersect_rects(child_bounds, *child_clip_rect);
+                if (!layout::is_visible_rect(child_bounds)) {
+                    continue;
+                }
+            }
+            bounds = layout::union_rects(bounds, child_bounds);
         }
         for (const auto& entry : top_layer_manager_.entries()) {
             if (!entry.pending_removal && entry.element != nullptr) {

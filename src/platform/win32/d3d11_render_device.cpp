@@ -15,10 +15,24 @@
 #include <wrl/client.h>
 
 namespace winelement::platform::win32 {
+namespace {
+
+[[nodiscard]] bool environment_prefers_warp_driver() noexcept {
+    wchar_t buffer[16]{};
+    const auto length =
+        GetEnvironmentVariableW(L"WINELEMENT_D3D_DRIVER", buffer, ARRAYSIZE(buffer));
+    if (length == 0 || length >= ARRAYSIZE(buffer)) {
+        return false;
+    }
+
+    return _wcsicmp(buffer, L"warp") == 0 || _wcsicmp(buffer, L"software") == 0;
+}
+
+} // namespace
 
 class D3D11RenderDevice::Impl final {
   public:
-    Impl() {
+    explicit Impl(D3D11RenderDeviceDriver driver) : driver_(driver) {
         create_devices();
     }
 
@@ -31,7 +45,7 @@ class D3D11RenderDevice::Impl final {
     }
 
     void recreate() {
-        Impl replacement;
+        Impl replacement(driver_);
         d3d_device_ = std::move(replacement.d3d_device_);
         d3d_context_ = std::move(replacement.d3d_context_);
         feature_level_ = replacement.feature_level_;
@@ -60,11 +74,17 @@ class D3D11RenderDevice::Impl final {
                                               D3D_FEATURE_LEVEL_9_3,  D3D_FEATURE_LEVEL_9_2,
                                               D3D_FEATURE_LEVEL_9_1};
 
-        auto result = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, create_flags,
-                                        feature_levels, ARRAYSIZE(feature_levels),
-                                        D3D11_SDK_VERSION, d3d_device_.GetAddressOf(),
-                                        &feature_level_, d3d_context_.GetAddressOf());
-        if (FAILED(result)) {
+        const auto use_warp =
+            driver_ == D3D11RenderDeviceDriver::Warp ||
+            (driver_ == D3D11RenderDeviceDriver::Auto && environment_prefers_warp_driver());
+        auto result = HRESULT{};
+        if (!use_warp) {
+            result = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, create_flags,
+                                       feature_levels, ARRAYSIZE(feature_levels),
+                                       D3D11_SDK_VERSION, d3d_device_.GetAddressOf(),
+                                       &feature_level_, d3d_context_.GetAddressOf());
+        }
+        if (use_warp || FAILED(result)) {
             d3d_device_.Reset();
             d3d_context_.Reset();
             result = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, create_flags,
@@ -94,10 +114,12 @@ class D3D11RenderDevice::Impl final {
 
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3d_context_;
+    D3D11RenderDeviceDriver driver_ = D3D11RenderDeviceDriver::Auto;
     D3D_FEATURE_LEVEL feature_level_ = D3D_FEATURE_LEVEL_9_1;
 };
 
-D3D11RenderDevice::D3D11RenderDevice() : impl_(std::make_unique<Impl>()) {}
+D3D11RenderDevice::D3D11RenderDevice(D3D11RenderDeviceDriver driver)
+    : impl_(std::make_unique<Impl>(driver)) {}
 
 D3D11RenderDevice::~D3D11RenderDevice() = default;
 
