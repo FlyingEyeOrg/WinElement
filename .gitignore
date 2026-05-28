@@ -1,3 +1,6 @@
+# CodeGraph code index
+/.codegraph/
+
 # Build directories
 /build/
 /out/
