@@ -59,8 +59,8 @@ constexpr auto default_dpi = 96.0F;
 constexpr auto triangle_vertex_count = 3U;
 constexpr auto max_vertices = 16383U;
 constexpr auto pi = 3.14159265358979323846F;
-constexpr auto glyph_atlas_width = 2048U;
-constexpr auto glyph_atlas_height = 2048U;
+constexpr auto initial_glyph_atlas_extent = 1024U;
+constexpr auto max_glyph_atlas_extent = 2048U;
 constexpr auto glyph_atlas_padding = 2U;
 constexpr auto glyph_atlas_bytes_per_pixel = 4U;
 constexpr auto render_worker_text_layout_cache_entries = 128U;
@@ -2358,8 +2358,10 @@ D3D11DisplayListRenderer::D3D11DisplayListRenderer(ID3D11Device& device)
     : D3D11DisplayListRenderer(device, RendererInstanceKind::Primary) {}
 
 D3D11DisplayListRenderer::D3D11DisplayListRenderer(ID3D11Device& device,
-                                                   RendererInstanceKind instance_kind)
+                                                    RendererInstanceKind instance_kind)
     : device_(&device), render_plan_cache_(std::make_unique<RenderPlanCacheState>()),
+      glyph_atlas_width_(initial_glyph_atlas_extent),
+      glyph_atlas_height_(initial_glyph_atlas_extent),
       resource_updates_allowed_(instance_kind == RendererInstanceKind::Primary) {
     create_pipeline(device);
 }
@@ -2891,6 +2893,8 @@ D3D11DisplayListRenderer::snapshot_glyph_atlas() const {
     snapshot->prepared_text_layouts = prepared_draw_text_layouts_;
     snapshot->texture = glyph_atlas_texture_;
     snapshot->view = glyph_atlas_view_;
+    snapshot->width = glyph_atlas_width_;
+    snapshot->height = glyph_atlas_height_;
     snapshot->generation = glyph_atlas_generation_;
     return snapshot;
 }
@@ -2908,6 +2912,10 @@ void D3D11DisplayListRenderer::adopt_glyph_atlas_snapshot(const GlyphAtlasSnapsh
     prepared_draw_text_layouts_ = snapshot.prepared_text_layouts;
     glyph_atlas_texture_ = snapshot.texture;
     glyph_atlas_view_ = snapshot.view;
+    if (snapshot.width > 0U && snapshot.height > 0U) {
+        glyph_atlas_width_ = snapshot.width;
+        glyph_atlas_height_ = snapshot.height;
+    }
     glyph_atlas_generation_ = snapshot.generation;
     glyph_atlas_pixels_.clear();
     clear_glyph_atlas_dirty();
@@ -5666,14 +5674,14 @@ void D3D11DisplayListRenderer::ensure_glyph_atlas_texture() {
     }
     if (glyph_atlas_texture_ == nullptr) {
         if (glyph_atlas_pixels_.empty()) {
-            glyph_atlas_pixels_.assign(static_cast<std::size_t>(glyph_atlas_width) *
-                                           glyph_atlas_height * glyph_atlas_bytes_per_pixel,
+            glyph_atlas_pixels_.assign(static_cast<std::size_t>(glyph_atlas_width_) *
+                                           glyph_atlas_height_ * glyph_atlas_bytes_per_pixel,
                                        std::byte{0});
         }
 
         D3D11_TEXTURE2D_DESC texture_description{};
-        texture_description.Width = glyph_atlas_width;
-        texture_description.Height = glyph_atlas_height;
+        texture_description.Width = std::max(glyph_atlas_width_, 1U);
+        texture_description.Height = std::max(glyph_atlas_height_, 1U);
         texture_description.MipLevels = 1U;
         texture_description.ArraySize = 1U;
         texture_description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -5683,7 +5691,7 @@ void D3D11DisplayListRenderer::ensure_glyph_atlas_texture() {
 
         D3D11_SUBRESOURCE_DATA initial_data{};
         initial_data.pSysMem = glyph_atlas_pixels_.data();
-        initial_data.SysMemPitch = glyph_atlas_width * glyph_atlas_bytes_per_pixel;
+        initial_data.SysMemPitch = glyph_atlas_width_ * glyph_atlas_bytes_per_pixel;
         throw_if_failed(
             device_->CreateTexture2D(&texture_description, &initial_data, &glyph_atlas_texture_),
             "failed to create display-list glyph atlas texture");
@@ -5735,10 +5743,10 @@ void D3D11DisplayListRenderer::upload_glyph_atlas_if_dirty(ID3D11DeviceContext& 
         clear_glyph_atlas_dirty();
         return;
     }
-    const auto left = std::min(glyph_atlas_dirty_left_, glyph_atlas_width);
-    const auto top = std::min(glyph_atlas_dirty_top_, glyph_atlas_height);
-    const auto right = std::min(glyph_atlas_dirty_right_, glyph_atlas_width);
-    const auto bottom = std::min(glyph_atlas_dirty_bottom_, glyph_atlas_height);
+    const auto left = std::min(glyph_atlas_dirty_left_, glyph_atlas_width_);
+    const auto top = std::min(glyph_atlas_dirty_top_, glyph_atlas_height_);
+    const auto right = std::min(glyph_atlas_dirty_right_, glyph_atlas_width_);
+    const auto bottom = std::min(glyph_atlas_dirty_bottom_, glyph_atlas_height_);
     if (right <= left || bottom <= top) {
         clear_glyph_atlas_dirty();
         return;
@@ -5747,15 +5755,15 @@ void D3D11DisplayListRenderer::upload_glyph_atlas_if_dirty(ID3D11DeviceContext& 
     if (flush_pending_batch) {
         flush_batch();
     }
-    const auto row_pitch = glyph_atlas_width * glyph_atlas_bytes_per_pixel;
+    const auto row_pitch = glyph_atlas_width_ * glyph_atlas_bytes_per_pixel;
     const auto dirty_area = static_cast<std::size_t>(right - left) * (bottom - top);
-    constexpr auto full_upload_threshold =
-        static_cast<std::size_t>(glyph_atlas_width) * glyph_atlas_height / 2U;
+    const auto full_upload_threshold =
+        static_cast<std::size_t>(glyph_atlas_width_) * glyph_atlas_height_ / 2U;
     if (dirty_area >= full_upload_threshold) {
         context.UpdateSubresource(glyph_atlas_texture_.Get(), 0U, nullptr,
                                   glyph_atlas_pixels_.data(), row_pitch, 0U);
     } else {
-        const auto source_offset = (static_cast<std::size_t>(top) * glyph_atlas_width + left) *
+        const auto source_offset = (static_cast<std::size_t>(top) * glyph_atlas_width_ + left) *
                                    glyph_atlas_bytes_per_pixel;
         const D3D11_BOX box{left, top, 0U, right, bottom, 1U};
         context.UpdateSubresource(glyph_atlas_texture_.Get(), 0U, &box,
@@ -5764,11 +5772,62 @@ void D3D11DisplayListRenderer::upload_glyph_atlas_if_dirty(ID3D11DeviceContext& 
     clear_glyph_atlas_dirty();
 }
 
+bool D3D11DisplayListRenderer::ensure_glyph_atlas_can_fit(std::uint32_t width,
+                                                          std::uint32_t height) {
+    if (width == 0U || height == 0U || width > max_glyph_atlas_extent ||
+        height > max_glyph_atlas_extent) {
+        return false;
+    }
+    if (width <= glyph_atlas_width_ && height <= glyph_atlas_height_) {
+        return true;
+    }
+
+    auto next_extent = std::max({glyph_atlas_width_, glyph_atlas_height_,
+                                 initial_glyph_atlas_extent, width, height});
+    while (next_extent < width || next_extent < height) {
+        next_extent *= 2U;
+    }
+    next_extent = std::min(next_extent, max_glyph_atlas_extent);
+    if (next_extent < width || next_extent < height) {
+        return false;
+    }
+    reset_glyph_atlas(next_extent, next_extent);
+    return true;
+}
+
+bool D3D11DisplayListRenderer::advance_glyph_atlas_cursor(std::uint32_t width,
+                                                          std::uint32_t height) {
+    if (!ensure_glyph_atlas_can_fit(width, height)) {
+        return false;
+    }
+
+    for (;;) {
+        if (glyph_atlas_cursor_x_ + width > glyph_atlas_width_) {
+            glyph_atlas_cursor_x_ = 0U;
+            glyph_atlas_cursor_y_ += glyph_atlas_row_height_;
+            glyph_atlas_row_height_ = 0U;
+        }
+        if (glyph_atlas_cursor_y_ + height <= glyph_atlas_height_) {
+            return true;
+        }
+        if (glyph_atlas_width_ >= max_glyph_atlas_extent &&
+            glyph_atlas_height_ >= max_glyph_atlas_extent) {
+            reset_glyph_atlas();
+            return width <= glyph_atlas_width_ && height <= glyph_atlas_height_;
+        }
+
+        const auto next_extent =
+            std::min(std::max(glyph_atlas_width_, glyph_atlas_height_) * 2U,
+                     max_glyph_atlas_extent);
+        reset_glyph_atlas(next_extent, next_extent);
+    }
+}
+
 void D3D11DisplayListRenderer::mark_glyph_atlas_dirty(std::uint32_t left, std::uint32_t top,
                                                       std::uint32_t width,
                                                       std::uint32_t height) noexcept {
-    const auto right = std::min(left + width, glyph_atlas_width);
-    const auto bottom = std::min(top + height, glyph_atlas_height);
+    const auto right = std::min(left + width, glyph_atlas_width_);
+    const auto bottom = std::min(top + height, glyph_atlas_height_);
     if (right <= left || bottom <= top) {
         return;
     }
@@ -5797,10 +5856,23 @@ void D3D11DisplayListRenderer::clear_glyph_atlas_dirty() noexcept {
 }
 
 void D3D11DisplayListRenderer::reset_glyph_atlas() {
+    reset_glyph_atlas(glyph_atlas_width_, glyph_atlas_height_);
+}
+
+void D3D11DisplayListRenderer::reset_glyph_atlas(std::uint32_t width, std::uint32_t height) {
     flush_batch();
+    width = std::clamp(width, initial_glyph_atlas_extent, max_glyph_atlas_extent);
+    height = std::clamp(height, initial_glyph_atlas_extent, max_glyph_atlas_extent);
+    if (width != glyph_atlas_width_ || height != glyph_atlas_height_) {
+        glyph_atlas_texture_.Reset();
+        glyph_atlas_view_.Reset();
+        recorder_state_.bound_shader_resource = nullptr;
+        glyph_atlas_width_ = width;
+        glyph_atlas_height_ = height;
+    }
     glyph_atlas_entries_.clear();
-    glyph_atlas_pixels_.assign(static_cast<std::size_t>(glyph_atlas_width) * glyph_atlas_height *
-                                   glyph_atlas_bytes_per_pixel,
+    glyph_atlas_pixels_.assign(static_cast<std::size_t>(glyph_atlas_width_) *
+                                   glyph_atlas_height_ * glyph_atlas_bytes_per_pixel,
                                std::byte{0});
     glyph_atlas_cursor_x_ = 0U;
     glyph_atlas_cursor_y_ = 0U;
@@ -5841,29 +5913,21 @@ const D3D11DisplayListRenderer::GlyphAtlasEntry* D3D11DisplayListRenderer::glyph
     }
 
     auto bitmap = rasterize_glyph_coverage(face, glyph, style.font_size);
-    if (bitmap.pixels.empty() || bitmap.width == 0U || bitmap.height == 0U ||
-        bitmap.width > glyph_atlas_width || bitmap.height > glyph_atlas_height) {
+    if (bitmap.pixels.empty()) {
         return nullptr;
     }
-
     if (glyph_atlas_pixels_.empty()) {
         reset_glyph_atlas();
     }
-
-    if (glyph_atlas_cursor_x_ + bitmap.width > glyph_atlas_width) {
-        glyph_atlas_cursor_x_ = 0U;
-        glyph_atlas_cursor_y_ += glyph_atlas_row_height_;
-        glyph_atlas_row_height_ = 0U;
-    }
-    if (glyph_atlas_cursor_y_ + bitmap.height > glyph_atlas_height) {
-        reset_glyph_atlas();
+    if (!advance_glyph_atlas_cursor(bitmap.width, bitmap.height)) {
+        return nullptr;
     }
 
     const auto atlas_x = glyph_atlas_cursor_x_;
     const auto atlas_y = glyph_atlas_cursor_y_;
     for (std::uint32_t row = 0U; row < bitmap.height; ++row) {
         const auto destination =
-            (static_cast<std::size_t>(atlas_y + row) * glyph_atlas_width + atlas_x) *
+            (static_cast<std::size_t>(atlas_y + row) * glyph_atlas_width_ + atlas_x) *
             glyph_atlas_bytes_per_pixel;
         const auto source =
             static_cast<std::size_t>(row) * bitmap.width * glyph_atlas_bytes_per_pixel;
@@ -5872,7 +5936,6 @@ const D3D11DisplayListRenderer::GlyphAtlasEntry* D3D11DisplayListRenderer::glyph
                   bitmap.pixels.begin() + static_cast<std::ptrdiff_t>(source + row_bytes),
                   glyph_atlas_pixels_.begin() + static_cast<std::ptrdiff_t>(destination));
     }
-
     glyph_atlas_cursor_x_ += bitmap.width;
     glyph_atlas_row_height_ = std::max(glyph_atlas_row_height_, bitmap.height);
     mark_glyph_atlas_dirty(atlas_x, atlas_y, bitmap.width, bitmap.height);
@@ -5882,10 +5945,10 @@ const D3D11DisplayListRenderer::GlyphAtlasEntry* D3D11DisplayListRenderer::glyph
         .top = static_cast<float>(bitmap.top),
         .width = static_cast<float>(bitmap.width),
         .height = static_cast<float>(bitmap.height),
-        .u0 = static_cast<float>(atlas_x) / static_cast<float>(glyph_atlas_width),
-        .v0 = static_cast<float>(atlas_y) / static_cast<float>(glyph_atlas_height),
-        .u1 = static_cast<float>(atlas_x + bitmap.width) / static_cast<float>(glyph_atlas_width),
-        .v1 = static_cast<float>(atlas_y + bitmap.height) / static_cast<float>(glyph_atlas_height),
+        .u0 = static_cast<float>(atlas_x) / static_cast<float>(glyph_atlas_width_),
+        .v0 = static_cast<float>(atlas_y) / static_cast<float>(glyph_atlas_height_),
+        .u1 = static_cast<float>(atlas_x + bitmap.width) / static_cast<float>(glyph_atlas_width_),
+        .v1 = static_cast<float>(atlas_y + bitmap.height) / static_cast<float>(glyph_atlas_height_),
         .generation = glyph_atlas_generation_};
     const auto [iterator, inserted] = glyph_atlas_entries_.emplace(key, entry);
     (void)inserted;
@@ -5941,29 +6004,21 @@ D3D11DisplayListRenderer::prepared_glyph_atlas_entry(
     if (!resource_updates_allowed_) {
         return nullptr;
     }
-    if (coverage.pixels.empty() || coverage.width == 0U || coverage.height == 0U ||
-        coverage.width > glyph_atlas_width || coverage.height > glyph_atlas_height) {
+    if (coverage.pixels.empty()) {
         return nullptr;
     }
-
     if (glyph_atlas_pixels_.empty()) {
         reset_glyph_atlas();
     }
-
-    if (glyph_atlas_cursor_x_ + coverage.width > glyph_atlas_width) {
-        glyph_atlas_cursor_x_ = 0U;
-        glyph_atlas_cursor_y_ += glyph_atlas_row_height_;
-        glyph_atlas_row_height_ = 0U;
-    }
-    if (glyph_atlas_cursor_y_ + coverage.height > glyph_atlas_height) {
-        reset_glyph_atlas();
+    if (!advance_glyph_atlas_cursor(coverage.width, coverage.height)) {
+        return nullptr;
     }
 
     const auto atlas_x = glyph_atlas_cursor_x_;
     const auto atlas_y = glyph_atlas_cursor_y_;
     for (std::uint32_t row = 0U; row < coverage.height; ++row) {
         const auto destination =
-            (static_cast<std::size_t>(atlas_y + row) * glyph_atlas_width + atlas_x) *
+            (static_cast<std::size_t>(atlas_y + row) * glyph_atlas_width_ + atlas_x) *
             glyph_atlas_bytes_per_pixel;
         const auto source =
             static_cast<std::size_t>(row) * coverage.width * glyph_atlas_bytes_per_pixel;
@@ -5973,7 +6028,6 @@ D3D11DisplayListRenderer::prepared_glyph_atlas_entry(
                   coverage.pixels.begin() + static_cast<std::ptrdiff_t>(source + row_bytes),
                   glyph_atlas_pixels_.begin() + static_cast<std::ptrdiff_t>(destination));
     }
-
     glyph_atlas_cursor_x_ += coverage.width;
     glyph_atlas_row_height_ = std::max(glyph_atlas_row_height_, coverage.height);
     mark_glyph_atlas_dirty(atlas_x, atlas_y, coverage.width, coverage.height);
@@ -5983,11 +6037,11 @@ D3D11DisplayListRenderer::prepared_glyph_atlas_entry(
         .top = static_cast<float>(coverage.top),
         .width = static_cast<float>(coverage.width),
         .height = static_cast<float>(coverage.height),
-        .u0 = static_cast<float>(atlas_x) / static_cast<float>(glyph_atlas_width),
-        .v0 = static_cast<float>(atlas_y) / static_cast<float>(glyph_atlas_height),
-        .u1 = static_cast<float>(atlas_x + coverage.width) / static_cast<float>(glyph_atlas_width),
+        .u0 = static_cast<float>(atlas_x) / static_cast<float>(glyph_atlas_width_),
+        .v0 = static_cast<float>(atlas_y) / static_cast<float>(glyph_atlas_height_),
+        .u1 = static_cast<float>(atlas_x + coverage.width) / static_cast<float>(glyph_atlas_width_),
         .v1 =
-            static_cast<float>(atlas_y + coverage.height) / static_cast<float>(glyph_atlas_height),
+            static_cast<float>(atlas_y + coverage.height) / static_cast<float>(glyph_atlas_height_),
         .generation = glyph_atlas_generation_};
     const auto [iterator, inserted] = glyph_atlas_entries_.emplace(key, entry);
     (void)inserted;

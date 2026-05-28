@@ -2173,7 +2173,9 @@ PreparedRenderCache::prepared_geometry_stroke(const Geometry& geometry) {
 
 std::shared_ptr<const PreparedTextGlyphCoverageList>
 PreparedRenderCache::prepared_text_glyph_coverages(const TextLayout& layout) {
-    return prepare_text_glyph_coverages(layout, prepared_text_glyph_cache_);
+    auto prepared = prepare_text_glyph_coverages(layout, prepared_text_glyph_cache_);
+    trim_cache_entries(prepared_text_glyph_cache_, max_prepared_text_glyph_cache_entries);
+    return prepared;
 }
 
 void PreparedRenderCache::merge(const PreparedRenderCache& other) {

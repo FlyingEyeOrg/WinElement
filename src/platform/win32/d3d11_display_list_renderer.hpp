@@ -286,6 +286,8 @@ class D3D11DisplayListRenderer final {
         std::vector<PreparedDrawTextLayoutSnapshot> prepared_text_layouts;
         Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
         Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> view;
+        std::uint32_t width = 0U;
+        std::uint32_t height = 0U;
         std::uint32_t generation = 0U;
     };
 
@@ -467,10 +469,13 @@ class D3D11DisplayListRenderer final {
     void ensure_glyph_atlas_texture();
     void upload_glyph_atlas_if_dirty();
     void upload_glyph_atlas_if_dirty(ID3D11DeviceContext& context, bool flush_pending_batch);
+    [[nodiscard]] bool ensure_glyph_atlas_can_fit(std::uint32_t width, std::uint32_t height);
+    [[nodiscard]] bool advance_glyph_atlas_cursor(std::uint32_t width, std::uint32_t height);
     void mark_glyph_atlas_dirty(std::uint32_t left, std::uint32_t top, std::uint32_t width,
-                                std::uint32_t height) noexcept;
+                                 std::uint32_t height) noexcept;
     void clear_glyph_atlas_dirty() noexcept;
     void reset_glyph_atlas();
+    void reset_glyph_atlas(std::uint32_t width, std::uint32_t height);
     void prune_frame_caches_if_needed();
     [[nodiscard]] const rendering::TextLayout*
     prepared_draw_text_layout_for(const rendering::RenderCommandList& commands,
@@ -524,6 +529,8 @@ class D3D11DisplayListRenderer final {
     std::vector<PreparedDrawTextLayoutSnapshot> prepared_draw_text_layouts_;
     std::unordered_set<std::size_t> prepared_text_layout_resource_keys_;
     std::vector<std::byte> glyph_atlas_pixels_;
+    std::uint32_t glyph_atlas_width_ = 0U;
+    std::uint32_t glyph_atlas_height_ = 0U;
     std::uint32_t glyph_atlas_cursor_x_ = 0U;
     std::uint32_t glyph_atlas_cursor_y_ = 0U;
     std::uint32_t glyph_atlas_row_height_ = 0U;
